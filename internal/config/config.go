@@ -17,6 +17,13 @@ type Config struct {
 		Source     string `yaml:"source"`
 		CustomFile string `yaml:"custom_file"`
 	} `yaml:"quote"`
+	Pomodoro struct {
+		WorkMinutes       int `yaml:"work_minutes"`
+		ShortBreakMinutes int `yaml:"short_break_minutes"`
+		LongBreakMinutes  int `yaml:"long_break_minutes"`
+		LongBreakInterval int `yaml:"long_break_interval"`
+		Notify            bool `yaml:"notify"`
+	} `yaml:"pomodoro"`
 	TimeFormat string `yaml:"time_format"`
 }
 
@@ -25,6 +32,11 @@ func DefaultConfig() Config {
 	var cfg Config
 	cfg.Weather.City = "Shanghai"
 	cfg.Quote.Source = "builtin"
+	cfg.Pomodoro.WorkMinutes = 25
+	cfg.Pomodoro.ShortBreakMinutes = 5
+	cfg.Pomodoro.LongBreakMinutes = 15
+	cfg.Pomodoro.LongBreakInterval = 4
+	cfg.Pomodoro.Notify = true
 	cfg.TimeFormat = "Mon Jan 2 · 15:04"
 	return cfg
 }

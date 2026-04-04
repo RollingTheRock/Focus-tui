@@ -7,12 +7,31 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
+// Store defines the storage interface used by UI components.
+type Store interface {
+	CreateTodo(text, list string) (*Todo, error)
+	GetTodo(id int) (*Todo, error)
+	ListTodos(list string) ([]Todo, error)
+	ToggleTodo(id int) error
+	UpdateTodoText(id int, text string) error
+	DeleteTodo(id int) error
+	MoveToToday(id int) error
+	MarkOverdue() error
+	TodayDoneCount() (done int, total int, err error)
+	StartSession(linkedTodoID *int) (int64, error)
+	CompleteSession(id int64) error
+	CancelSession(id int64) error
+	TodaySessionCount() (int, error)
+	GetStreak() (int, error)
+}
+
 // CommonModel holds shared state across all panels.
 type CommonModel struct {
 	Width  int
 	Height int
 	Theme  styles.Theme
 	Cfg    config.Config
+	Store  Store
 }
 
 // Panel is the interface implemented by every UI sub-model.
