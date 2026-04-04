@@ -1,7 +1,6 @@
 package todo
 
 import (
-	"fmt"
 	"strings"
 
 	"focus/internal/models"
@@ -92,26 +91,9 @@ func (m *Model) View() string {
 
 	var b strings.Builder
 
-	// Title bar.
-	titleStyle := lipgloss.NewStyle().
-		Foreground(styles.Accent).
-		Bold(true).
-		MarginBottom(1)
-
-	todayLabel := "TODAY"
-	somedayLabel := "SOMEDAY"
-	if m.activeList == models.ListToday {
-		todayLabel = "▸ TODAY"
-	} else {
-		somedayLabel = "▸ SOMEDAY"
-	}
-	title := titleStyle.Render(fmt.Sprintf("  %s  /  %s", todayLabel, somedayLabel))
-	b.WriteString(title)
-	b.WriteByte('\n')
-
 	// Items.
 	if len(m.items) == 0 {
-		empty := lipgloss.NewStyle().Foreground(styles.Subtle).Render("  No tasks yet. Press [a] to add one.")
+		empty := lipgloss.NewStyle().Foreground(styles.Subtle).Render("No tasks yet. Press [a] to add one.")
 		b.WriteString(empty)
 	} else {
 		for i, item := range m.items {
@@ -128,14 +110,7 @@ func (m *Model) View() string {
 		b.WriteString(m.input.View())
 	} else if m.confirmDelete {
 		b.WriteByte('\n')
-		b.WriteString(lipgloss.NewStyle().Foreground(styles.Overdue).Render("  Delete? [y/n]"))
-	} else {
-		// Help hints.
-		b.WriteByte('\n')
-		hints := lipgloss.NewStyle().Foreground(styles.Subtle).Render(
-			"  [a]dd [e]dit [d]el [space]✓ [tab]list [m]ove",
-		)
-		b.WriteString(hints)
+		b.WriteString(lipgloss.NewStyle().Foreground(styles.Overdue).Render("Delete? [y/n]"))
 	}
 
 	return b.String()
@@ -144,6 +119,16 @@ func (m *Model) View() string {
 func (m *Model) SetSize(width, height int) {
 	m.width = width
 	m.height = height
+}
+
+// ActiveList returns the currently active list name ("today" or "someday").
+func (m *Model) ActiveList() string {
+	return m.activeList
+}
+
+// IsConfirmingDelete returns true when a delete confirmation prompt is active.
+func (m *Model) IsConfirmingDelete() bool {
+	return m.confirmDelete
 }
 
 // --- Normal mode key handling ---
@@ -177,7 +162,7 @@ func (m *Model) updateNormal(msg tea.KeyMsg) (models.Panel, tea.Cmd) {
 		if m.currentItem() != nil {
 			m.confirmDelete = true
 		}
-	case "tab":
+	case "shift+tab":
 		if m.activeList == models.ListToday {
 			m.activeList = models.ListSomeday
 		} else {
@@ -289,18 +274,24 @@ func (m *Model) toggleCurrent() tea.Cmd {
 		return nil
 	}
 	id := cur.ID
-	return func() tea.Msg {
-		_ = m.common.Store.ToggleTodo(id)
-		return m.loadTodos()
-	}
+	return tea.Batch(
+		func() tea.Msg {
+			_ = m.common.Store.ToggleTodo(id)
+			return m.loadTodos()
+		},
+		sendStatsRefresh,
+	)
 }
 
 func (m *Model) addTodo(text string) tea.Cmd {
 	list := m.activeList
-	return func() tea.Msg {
-		_, _ = m.common.Store.CreateTodo(text, list)
-		return m.loadTodos()
-	}
+	return tea.Batch(
+		func() tea.Msg {
+			_, _ = m.common.Store.CreateTodo(text, list)
+			return m.loadTodos()
+		},
+		sendStatsRefresh,
+	)
 }
 
 func (m *Model) editTodo(id int, text string) tea.Cmd {
@@ -316,10 +307,13 @@ func (m *Model) deleteCurrent() tea.Cmd {
 		return nil
 	}
 	id := cur.ID
-	return func() tea.Msg {
-		_ = m.common.Store.DeleteTodo(id)
-		return m.loadTodos()
-	}
+	return tea.Batch(
+		func() tea.Msg {
+			_ = m.common.Store.DeleteTodo(id)
+			return m.loadTodos()
+		},
+		sendStatsRefresh,
+	)
 }
 
 func (m *Model) moveCurrentToToday() tea.Cmd {
@@ -331,10 +325,13 @@ func (m *Model) moveCurrentToToday() tea.Cmd {
 		return nil
 	}
 	id := cur.ID
-	return func() tea.Msg {
-		_ = m.common.Store.MoveToToday(id)
-		return m.loadTodos()
-	}
+	return tea.Batch(
+		func() tea.Msg {
+			_ = m.common.Store.MoveToToday(id)
+			return m.loadTodos()
+		},
+		sendStatsRefresh,
+	)
 }
 
 // --- Helpers ---
@@ -359,4 +356,8 @@ func sendModeChange(inputActive bool) tea.Cmd {
 	return func() tea.Msg {
 		return ModeChangeMsg{InputActive: inputActive}
 	}
+}
+
+func sendStatsRefresh() tea.Msg {
+	return models.StatsRefreshMsg{}
 }

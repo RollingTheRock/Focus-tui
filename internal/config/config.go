@@ -17,6 +17,10 @@ type Config struct {
 		Source     string `yaml:"source"`
 		CustomFile string `yaml:"custom_file"`
 	} `yaml:"quote"`
+	Avatar struct {
+		Image string `yaml:"image"` // path to image file (jpg/png), rendered via chafa
+		Width int    `yaml:"width"` // avatar width in columns (default 32)
+	} `yaml:"avatar"`
 	Pomodoro struct {
 		WorkMinutes       int `yaml:"work_minutes"`
 		ShortBreakMinutes int `yaml:"short_break_minutes"`
@@ -32,6 +36,7 @@ func DefaultConfig() Config {
 	var cfg Config
 	cfg.Weather.City = "Shanghai"
 	cfg.Quote.Source = "builtin"
+	cfg.Avatar.Width = 32
 	cfg.Pomodoro.WorkMinutes = 25
 	cfg.Pomodoro.ShortBreakMinutes = 5
 	cfg.Pomodoro.LongBreakMinutes = 15

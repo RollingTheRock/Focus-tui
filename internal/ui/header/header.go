@@ -28,7 +28,7 @@ func New(cfg config.Config, theme styles.Theme) models.Panel {
 	return &Model{
 		cfg:     cfg,
 		theme:   theme,
-		weather: "",
+		weather: "⏳ loading weather...",
 		timeStr: time.Now().Format(cfg.TimeFormat),
 		quote:   quotes.Get(cfg.Quote.Source, cfg.Quote.CustomFile),
 	}
@@ -50,8 +50,10 @@ func (m *Model) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 		return m, tickCmd()
 
 	case weatherMsg:
-		if msg.err != nil || msg.info == nil {
-			m.weather = ""
+		if msg.err != nil {
+			m.weather = fmt.Sprintf("⚠ weather: %v", msg.err)
+		} else if msg.info == nil {
+			m.weather = "⚠ weather: no data"
 		} else {
 			m.weather = fmt.Sprintf("%s %d°C · %s", msg.info.Icon, msg.info.Temp, msg.info.City)
 		}
@@ -59,19 +61,21 @@ func (m *Model) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 	return m, nil
 }
 
-// View renders the header.
+// View renders the header as two compact lines: weather+time, then quote.
 func (m *Model) View() string {
-	w := m.width
+	return m.ViewCompact(m.width, true)
+}
+
+// ViewCompact renders the header in the given width. If showQuote is false, only
+// the weather+time line is returned.
+func (m *Model) ViewCompact(w int, showQuote bool) string {
 	if w <= 0 {
-		w = 80
+		w = 78
 	}
 
-	// Right-aligned time.
-	timeBlock := m.theme.NormalStyle.Render(m.timeStr)
-	// Left-aligned weather (or empty).
-	weatherBlock := m.theme.NormalStyle.Render(m.weather)
+	weatherBlock := m.theme.NormalStyle.Render(" " + m.weather)
+	timeBlock := m.theme.NormalStyle.Render(m.timeStr + " ")
 
-	// Use a style that forces the time to the right edge.
 	timeStyle := lipgloss.NewStyle().Width(w - lipgloss.Width(weatherBlock)).Align(lipgloss.Right)
 	timeLine := lipgloss.JoinHorizontal(
 		lipgloss.Top,
@@ -79,14 +83,36 @@ func (m *Model) View() string {
 		timeStyle.Render(timeBlock),
 	)
 
-	quoteLine := m.theme.SubtleStyle.Render(m.quote)
+	if !showQuote || m.quote == "" {
+		return timeLine
+	}
 
-	return lipgloss.JoinVertical(lipgloss.Left, timeLine, quoteLine)
+	quoteStyle := lipgloss.NewStyle().Foreground(styles.Subtle).Italic(true)
+	quoteLine := quoteStyle.Render(" \"" + m.quote + "\"")
+
+	return timeLine + "\n" + quoteLine
 }
 
 // SetSize updates the width.
 func (m *Model) SetSize(width, height int) {
 	m.width = width
+}
+
+// --- Exported getters for app-level layout ---
+
+// WeatherStr returns the current weather display string.
+func (m *Model) WeatherStr() string {
+	return m.weather
+}
+
+// TimeStr returns the current time display string.
+func (m *Model) TimeStr() string {
+	return m.timeStr
+}
+
+// QuoteStr returns the daily quote.
+func (m *Model) QuoteStr() string {
+	return m.quote
 }
 
 // Messages ------------------------------------------------------------

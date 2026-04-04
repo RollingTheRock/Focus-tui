@@ -41,3 +41,7 @@ type Panel interface {
 	View() string
 	SetSize(width, height int)
 }
+
+// StatsRefreshMsg tells the footer to reload statistics.
+// Shared across packages to avoid circular imports.
+type StatsRefreshMsg struct{}

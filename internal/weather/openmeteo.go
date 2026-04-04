@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -69,10 +70,22 @@ func wmoToEmoji(code int) string {
 }
 
 // Get fetches current weather for the given city.
+// Falls back to Shanghai if the city is not in the built-in mapping.
 func Get(city string) (*Info, error) {
 	coords, ok := cityCoords[city]
 	if !ok {
-		return nil, fmt.Errorf("unknown city: %s", city)
+		// Try case-insensitive match.
+		for name, c := range cityCoords {
+			if strings.EqualFold(name, city) {
+				coords = c
+				city = name
+				ok = true
+				break
+			}
+		}
+		if !ok {
+			return nil, fmt.Errorf("unknown city: %s (supported: Shanghai, Beijing, Tokyo, New York, London, ...)", city)
+		}
 	}
 
 	url := fmt.Sprintf(
@@ -80,7 +93,7 @@ func Get(city string) (*Info, error) {
 		coords.Lat, coords.Lon,
 	)
 
-	client := &http.Client{Timeout: 5 * time.Second}
+	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Get(url)
 	if err != nil {
 		return nil, err
