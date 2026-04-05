@@ -11,6 +11,7 @@ import (
 	"focus/internal/ui/header"
 	"focus/internal/ui/layout"
 	"focus/internal/ui/pomodoro"
+	"focus/internal/ui/shell"
 	"focus/internal/ui/todo"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -22,6 +23,7 @@ const (
 	panelTodo
 	panelPomodoro
 	panelFooter
+	panelShell
 	numPanels
 )
 
@@ -38,6 +40,7 @@ type model struct {
 	focused        FocusedPanel
 	children       []models.Panel
 	avatarRendered string // cached chafa output
+	sidebarVisible bool
 }
 
 // New creates and returns the initial application model.
@@ -48,15 +51,17 @@ func New(cfg config.Config, store models.Store) tea.Model {
 		Store: store,
 	}
 	m := model{
-		common:  cm,
-		state:   StateDashboard,
-		mode:    ModeNormal,
-		focused: FocusTodo,
+		common:         cm,
+		state:          StateDashboard,
+		mode:           ModeShell,
+		focused:        FocusShell,
+		sidebarVisible: true,
 		children: []models.Panel{
 			header.New(cfg, cm.Theme), // panelHeader
 			todo.New(cm),              // panelTodo
 			pomodoro.New(cm),          // panelPomodoro
 			footer.New(cm),            // panelFooter
+			shell.New(cm),             // panelShell
 		},
 	}
 	return m
@@ -98,33 +103,54 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		}
 
+		// Shell mode: all keys go to shell except Escape.
+		if m.mode == ModeShell {
+			if msg.String() == "esc" {
+				m.mode = ModeNormal
+				return m, nil
+			}
+			newChild, cmd := m.children[panelShell].Update(msg)
+			m.children[panelShell] = newChild
+			return m, cmd
+		}
+
 		if m.mode == ModeNormal {
 			switch msg.String() {
 			case "q", "ctrl+c":
+				if sh, ok := m.children[panelShell].(*shell.Model); ok {
+					sh.Close()
+				}
 				return m, tea.Quit
 			case "tab":
-				// Toggle panel focus.
-				if m.focused == FocusTodo {
+				// Cycle: Todo -> Pomodoro -> Shell -> Todo.
+				switch m.focused {
+				case FocusTodo:
 					m.focused = FocusPomodoro
-				} else {
+				case FocusPomodoro:
+					m.focused = FocusShell
+				case FocusShell:
 					m.focused = FocusTodo
 				}
 				return m, nil
+			case "enter":
+				if m.focused == FocusShell {
+					m.mode = ModeShell
+					return m, nil
+				}
+				// Fall through to panel routing.
+				return m.routeToFocused(msg)
 			case "shift+tab":
 				// Forward to todo for list switching.
 				newChild, cmd := m.children[panelTodo].Update(msg)
 				m.children[panelTodo] = newChild
 				return m, cmd
+			case "ctrl+b":
+				// Toggle sidebar.
+				m.sidebarVisible = !m.sidebarVisible
+				m.updateSizes(m.common.Width, m.common.Height)
+				return m, nil
 			default:
-				// Route to focused panel.
-				if m.focused == FocusTodo {
-					newChild, cmd := m.children[panelTodo].Update(msg)
-					m.children[panelTodo] = newChild
-					return m, cmd
-				}
-				newChild, cmd := m.children[panelPomodoro].Update(msg)
-				m.children[panelPomodoro] = newChild
-				return m, cmd
+				return m.routeToFocused(msg)
 			}
 		} else if m.mode == ModeInput {
 			if msg.String() == "ctrl+c" {
@@ -166,18 +192,35 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
+// routeToFocused routes a key message to the currently focused panel.
+func (m model) routeToFocused(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	var idx int
+	switch m.focused {
+	case FocusTodo:
+		idx = panelTodo
+	case FocusPomodoro:
+		idx = panelPomodoro
+	case FocusShell:
+		// In normal mode, shell doesn't consume navigation keys.
+		return m, nil
+	default:
+		return m, nil
+	}
+	newChild, cmd := m.children[idx].Update(msg)
+	m.children[idx] = newChild
+	return m, cmd
+}
+
 func (m *model) updateSizes(w, h int) {
-	dims := layout.Compute(w, h)
+	dims := layout.ComputeShell(w, h, m.sidebarVisible)
 
 	m.children[panelHeader].SetSize(w, headerLines(dims))
 
-	if dims.TwoCol {
-		m.children[panelTodo].SetSize(dims.LeftW, dims.ContentH)
-		m.children[panelPomodoro].SetSize(dims.RightW, dims.ContentH)
-	} else {
-		m.children[panelTodo].SetSize(dims.LeftW, dims.TopH)
-		m.children[panelPomodoro].SetSize(dims.RightW, dims.BottomH)
+	if dims.HasSidebar {
+		m.children[panelTodo].SetSize(dims.SidebarW, dims.SidebarTodoH)
+		m.children[panelPomodoro].SetSize(dims.SidebarW, dims.SidebarPomoH)
 	}
+	m.children[panelShell].SetSize(dims.MainW, dims.ContentH)
 	m.children[panelFooter].SetSize(w, 1)
 }
 
@@ -203,7 +246,7 @@ func (m model) View() string {
 		h = 24
 	}
 
-	dims := layout.Compute(w, h)
+	dims := layout.ComputeShell(w, h, m.sidebarVisible)
 
 	hdr := m.children[panelHeader].(*header.Model)
 	pomo := m.children[panelPomodoro].(*pomodoro.Model)
@@ -212,36 +255,44 @@ func (m model) View() string {
 	// 1. Header (weather + time, optional quote).
 	headerView := hdr.ViewCompact(w, dims.ShowQuote)
 
-	// 2. Todo panel content and title.
-	todoContent := m.children[panelTodo].View()
-	todoTitle := "TODO [today]"
-	if todoModel.ActiveList() == models.ListSomeday {
-		todoTitle = "TODO [someday]"
+	// 2. Shell panel.
+	shellContent := m.children[panelShell].View()
+	shellTitle := "SHELL"
+	if m.mode == ModeShell {
+		shellTitle = "SHELL [active]"
 	}
+	shellPanel := layout.RenderPanel(shellTitle, shellContent,
+		dims.MainW, dims.ContentH, m.focused == FocusShell)
 
-	// 3. Pomodoro panel content and title.
-	pomoContent := m.children[panelPomodoro].View()
-	pomoTitle := "POMODORO"
-	if pomo.IsPickerActive() {
-		pomoTitle = "POMODORO - Select"
-	}
-
-	// 4. Build panel area.
+	// 3. Build panel area.
 	var panelArea string
-	if dims.TwoCol {
-		todoPanel := layout.RenderPanel(todoTitle, todoContent, dims.LeftW, dims.ContentH, m.focused == FocusTodo)
-		pomoPanel := layout.RenderPanel(pomoTitle, pomoContent, dims.RightW, dims.ContentH, m.focused == FocusPomodoro)
-		panelArea = lipgloss.JoinHorizontal(lipgloss.Top, todoPanel, pomoPanel)
+	if dims.HasSidebar {
+		// Sidebar: todo on top, pomo on bottom.
+		todoContent := m.children[panelTodo].View()
+		todoTitle := "TODO [today]"
+		if todoModel.ActiveList() == models.ListSomeday {
+			todoTitle = "TODO [someday]"
+		}
+		pomoContent := m.children[panelPomodoro].View()
+		pomoTitle := "POMODORO"
+		if pomo.IsPickerActive() {
+			pomoTitle = "POMODORO - Select"
+		}
+
+		todoPanel := layout.RenderPanel(todoTitle, todoContent,
+			dims.SidebarW, dims.SidebarTodoH, m.focused == FocusTodo)
+		pomoPanel := layout.RenderPanel(pomoTitle, pomoContent,
+			dims.SidebarW, dims.SidebarPomoH, m.focused == FocusPomodoro)
+		sidebar := lipgloss.JoinVertical(lipgloss.Left, todoPanel, pomoPanel)
+		panelArea = lipgloss.JoinHorizontal(lipgloss.Top, sidebar, shellPanel)
 	} else {
-		todoPanel := layout.RenderPanel(todoTitle, todoContent, dims.LeftW, dims.TopH, m.focused == FocusTodo)
-		pomoPanel := layout.RenderPanel(pomoTitle, pomoContent, dims.RightW, dims.BottomH, m.focused == FocusPomodoro)
-		panelArea = lipgloss.JoinVertical(lipgloss.Left, todoPanel, pomoPanel)
+		panelArea = shellPanel
 	}
 
-	// 5. Footer stats.
+	// 4. Footer stats.
 	statsView := m.children[panelFooter].View()
 
-	// 6. Context-aware help bar.
+	// 5. Context-aware help bar.
 	helpLine := m.renderHelpLine(w)
 
 	return lipgloss.JoinVertical(lipgloss.Left,
@@ -257,6 +308,11 @@ func (m model) renderHelpLine(w int) string {
 	helpStyle := lipgloss.NewStyle().Foreground(styles.Subtle)
 	pomo := m.children[panelPomodoro].(*pomodoro.Model)
 	todoModel := m.children[panelTodo].(*todo.Model)
+
+	// Shell active mode.
+	if m.mode == ModeShell {
+		return helpStyle.Render("  [esc]exit shell")
+	}
 
 	// Input mode.
 	if m.mode == ModeInput {
@@ -283,10 +339,12 @@ func (m model) renderHelpLine(w int) string {
 		} else {
 			left = "[p]ause [n]ext [r]eset"
 		}
+	case FocusShell:
+		left = "[enter]activate shell"
 	}
 
 	// Right side: global commands.
-	right := "[tab]switch  [q]uit"
+	right := "[tab]switch  [ctrl+b]sidebar  [q]uit"
 
 	leftRendered := helpStyle.Render("  " + left)
 	rightRendered := helpStyle.Render(right + "  ")

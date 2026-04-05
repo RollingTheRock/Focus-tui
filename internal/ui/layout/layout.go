@@ -14,6 +14,9 @@ const (
 	CrampedHeight  = 15
 
 	panelBorderV = 2 // top + bottom border of each panel
+
+	SidebarMinWidth = 24
+	SidebarMaxWidth = 28
 )
 
 // Dimensions holds computed sizes for all layout zones.
@@ -32,6 +35,13 @@ type Dimensions struct {
 	BottomH int // pomo panel height (single-col stacked)
 
 	ShowQuote bool
+
+	// Sidebar+Main mode (for shell layout).
+	HasSidebar   bool
+	SidebarW     int // sidebar content width (inside border+padding)
+	MainW        int // main area content width (inside border+padding)
+	SidebarTodoH int // height for todo section in sidebar
+	SidebarPomoH int // height for pomo section in sidebar
 }
 
 // Compute calculates layout dimensions from terminal size.
@@ -99,6 +109,77 @@ func Compute(w, h int) Dimensions {
 		}
 		if d.BottomH < 3 {
 			d.BottomH = 3
+		}
+	}
+
+	return d
+}
+
+// ComputeShell calculates layout for shell mode: sidebar + main area.
+// Layout:
+//
+//	header (1-2 lines)
+//	sidebar (todo+pomo) | main shell panel
+//	footer (1 line)
+//	help   (1 line)
+func ComputeShell(w, h int, sidebarVisible bool) Dimensions {
+	if w <= 0 {
+		w = 80
+	}
+	if h <= 0 {
+		h = 24
+	}
+
+	d := Dimensions{
+		Width:     w,
+		Height:    h,
+		ShowQuote: h >= CrampedHeight,
+	}
+
+	headerH := 1
+	if d.ShowQuote {
+		headerH = 2
+	}
+	usedH := headerH + 1 + 1 + panelBorderV // header + footer + help + panel border
+	d.ContentH = h - usedH
+	if d.ContentH < 3 {
+		d.ContentH = 3
+	}
+
+	// Sidebar needs at least SidebarMinWidth + 4 (borders) + 40 (min shell width).
+	minForSidebar := SidebarMinWidth + 4 + 40 + 4
+	d.HasSidebar = sidebarVisible && w >= minForSidebar
+
+	if d.HasSidebar {
+		sidebarContentW := SidebarMaxWidth
+		if w < 100 {
+			sidebarContentW = SidebarMinWidth
+		}
+		sidebarTotal := sidebarContentW + 4 // border+padding on each side
+		mainTotal := w - sidebarTotal
+
+		d.SidebarW = sidebarContentW
+		d.MainW = mainTotal - 4
+		if d.MainW < 10 {
+			d.MainW = 10
+		}
+
+		// Split sidebar height: todo 60%, pomo 40%.
+		// Each sub-panel in sidebar has its own borders, so subtract one extra set.
+		sidebarInner := d.ContentH - panelBorderV
+		d.SidebarTodoH = sidebarInner * 60 / 100
+		d.SidebarPomoH = sidebarInner - d.SidebarTodoH
+		if d.SidebarTodoH < 3 {
+			d.SidebarTodoH = 3
+		}
+		if d.SidebarPomoH < 3 {
+			d.SidebarPomoH = 3
+		}
+	} else {
+		// No sidebar: shell takes full width.
+		d.MainW = w - 4
+		if d.MainW < 10 {
+			d.MainW = 10
 		}
 	}
 
