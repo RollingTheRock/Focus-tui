@@ -6,52 +6,40 @@ import (
 	"focus/internal/styles"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // Layout breakpoints.
 const (
-	TwoColMinWidth = 90
+	BannerMinWidth = 60 // below this, fall back to compact header
 	CrampedHeight  = 15
+	BannerHeight   = 6
 
 	panelBorderV = 2 // top + bottom border of each panel
-
-	SidebarMinWidth = 24
-	SidebarMaxWidth = 28
 )
 
 // Dimensions holds computed sizes for all layout zones.
 type Dimensions struct {
 	Width, Height int
 
-	ContentH int // height available for panel content (inside borders)
+	// Header.
+	HeaderH   int  // 6 for banner, 1-2 for compact
+	UseBanner bool // true when terminal is wide enough for FIGlet
+	ShowQuote bool // show quote in compact mode or banner info column
 
-	// Two-column mode.
-	TwoCol bool
-	LeftW  int // left panel content width (inside border+padding)
-	RightW int // right panel content width (inside border+padding)
+	// Shell (full-width).
+	ShellContentW int // content width inside borders
+	ShellContentH int // content height inside borders
 
-	// Single-column mode.
-	TopH    int // todo panel height (single-col stacked)
-	BottomH int // pomo panel height (single-col stacked)
-
-	ShowQuote bool
-
-	// Sidebar+Main mode (for shell layout).
-	HasSidebar   bool
-	SidebarW     int // sidebar content width (inside border+padding)
-	MainW        int // main area content width (inside border+padding)
-	SidebarTodoH int // height for todo section in sidebar
-	SidebarPomoH int // height for pomo section in sidebar
+	// Overlay.
+	OverlayW int // overlay content width (inside borders)
+	OverlayH int // overlay content height (inside borders)
+	OverlayX int // left offset for splicing onto base
+	OverlayY int // top offset relative to shell panel start
 }
 
-// Compute calculates layout dimensions from terminal size.
-// Layout (no outer frame):
-//
-//	header (1-2 lines)
-//	panels (bordered, side-by-side or stacked)
-//	footer (1 line)
-//	help   (1 line)
-func Compute(w, h int) Dimensions {
+// ComputeBanner calculates the layout for the banner + full-width shell design.
+func ComputeBanner(w, h int) Dimensions {
 	if w <= 0 {
 		w = 80
 	}
@@ -60,127 +48,61 @@ func Compute(w, h int) Dimensions {
 	}
 
 	d := Dimensions{
-		Width:     w,
-		Height:    h,
-		ShowQuote: h >= CrampedHeight,
+		Width:  w,
+		Height: h,
 	}
 
-	// Vertical space: header + footer + help + panel borders.
-	headerH := 1
-	if d.ShowQuote {
-		headerH = 2
-	}
-	usedH := headerH + 1 + 1 + panelBorderV // header + footer + help + panel top/bottom border
-	d.ContentH = h - usedH
-	if d.ContentH < 3 {
-		d.ContentH = 3
-	}
+	d.UseBanner = w >= BannerMinWidth
+	d.ShowQuote = h >= CrampedHeight
 
-	d.TwoCol = w >= TwoColMinWidth
-
-	if d.TwoCol {
-		// Each panel: border(1) + padding(1) + content + padding(1) + border(1) = content + 4
-		// Two panels side by side: leftTotal + rightTotal = w
-		// leftTotal = LeftW + 4, rightTotal = RightW + 4
-		// LeftW + RightW = w - 8
-		available := w - 8
-		if available < 10 {
-			available = 10
-		}
-		d.LeftW = int(float64(available) * 0.55)
-		d.RightW = available - d.LeftW
+	// Header height.
+	if d.UseBanner {
+		d.HeaderH = BannerHeight
+	} else if d.ShowQuote {
+		d.HeaderH = 2
 	} else {
-		// Single column: panel takes full width.
-		// border(1) + padding(1) + content + padding(1) + border(1) = w
-		d.LeftW = w - 4
-		d.RightW = d.LeftW
-		if d.LeftW < 10 {
-			d.LeftW = 10
-			d.RightW = 10
-		}
-
-		// Split content height between two stacked panels.
-		// Each panel has its own panelBorderV, so we need extra vertical space.
-		d.ContentH -= panelBorderV // account for the second panel's borders
-		d.TopH = d.ContentH * 60 / 100
-		d.BottomH = d.ContentH - d.TopH
-		if d.TopH < 3 {
-			d.TopH = 3
-		}
-		if d.BottomH < 3 {
-			d.BottomH = 3
-		}
+		d.HeaderH = 1
 	}
 
-	return d
-}
-
-// ComputeShell calculates layout for shell mode: sidebar + main area.
-// Layout:
-//
-//	header (1-2 lines)
-//	sidebar (todo+pomo) | main shell panel
-//	footer (1 line)
-//	help   (1 line)
-func ComputeShell(w, h int, sidebarVisible bool) Dimensions {
-	if w <= 0 {
-		w = 80
-	}
-	if h <= 0 {
-		h = 24
+	// Vertical: header + shellBorder(2) + footer(1) + help(1).
+	usedH := d.HeaderH + panelBorderV + 1 + 1
+	d.ShellContentH = h - usedH
+	if d.ShellContentH < 3 {
+		d.ShellContentH = 3
 	}
 
-	d := Dimensions{
-		Width:     w,
-		Height:    h,
-		ShowQuote: h >= CrampedHeight,
+	// Shell full width: border(1) + pad(1) + content + pad(1) + border(1) = w.
+	d.ShellContentW = w - 4
+	if d.ShellContentW < 10 {
+		d.ShellContentW = 10
 	}
 
-	headerH := 1
-	if d.ShowQuote {
-		headerH = 2
+	// Overlay: centered within the shell area.
+	d.OverlayW = 50
+	if d.OverlayW > w-8 {
+		d.OverlayW = w - 8
 	}
-	usedH := headerH + 1 + 1 + panelBorderV // header + footer + help + panel border
-	d.ContentH = h - usedH
-	if d.ContentH < 3 {
-		d.ContentH = 3
+	if d.OverlayW < 20 {
+		d.OverlayW = 20
+	}
+	d.OverlayH = d.ShellContentH - 2
+	if d.OverlayH > 15 {
+		d.OverlayH = 15
+	}
+	if d.OverlayH < 3 {
+		d.OverlayH = 3
 	}
 
-	// Sidebar needs at least SidebarMinWidth + 4 (borders) + 40 (min shell width).
-	minForSidebar := SidebarMinWidth + 4 + 40 + 4
-	d.HasSidebar = sidebarVisible && w >= minForSidebar
-
-	if d.HasSidebar {
-		sidebarContentW := SidebarMaxWidth
-		if w < 100 {
-			sidebarContentW = SidebarMinWidth
-		}
-		sidebarTotal := sidebarContentW + 4 // border+padding on each side
-		mainTotal := w - sidebarTotal
-
-		d.SidebarW = sidebarContentW
-		d.MainW = mainTotal - 4
-		if d.MainW < 10 {
-			d.MainW = 10
-		}
-
-		// Split sidebar height: todo 60%, pomo 40%.
-		// Each sub-panel in sidebar has its own borders, so subtract one extra set.
-		sidebarInner := d.ContentH - panelBorderV
-		d.SidebarTodoH = sidebarInner * 60 / 100
-		d.SidebarPomoH = sidebarInner - d.SidebarTodoH
-		if d.SidebarTodoH < 3 {
-			d.SidebarTodoH = 3
-		}
-		if d.SidebarPomoH < 3 {
-			d.SidebarPomoH = 3
-		}
-	} else {
-		// No sidebar: shell takes full width.
-		d.MainW = w - 4
-		if d.MainW < 10 {
-			d.MainW = 10
-		}
+	// Center overlay over the shell panel.
+	overlayTotalW := d.OverlayW + 4 // with borders
+	overlayTotalH := d.OverlayH + panelBorderV
+	d.OverlayX = (w - overlayTotalW) / 2
+	if d.OverlayX < 0 {
+		d.OverlayX = 0
+	}
+	d.OverlayY = (d.ShellContentH + panelBorderV - overlayTotalH) / 2
+	if d.OverlayY < 0 {
+		d.OverlayY = 0
 	}
 
 	return d
@@ -201,16 +123,15 @@ func RenderPanel(title, content string, w, h int, active bool) string {
 	totalW := w + 4 // border + padding on each side
 
 	// Build top border with embedded title.
-	// ╭─ TITLE ──...──╮  total = totalW chars
 	titleRendered := tc.Render(" " + title + " ")
 	titleWidth := lipgloss.Width(titleRendered)
 
-	topLeft := bc.Render("╭─")
-	rightDashes := totalW - 3 - titleWidth // 3 = len("╭─") + len("╮")
+	topLeft := bc.Render("\u256d\u2500")
+	rightDashes := totalW - 3 - titleWidth
 	if rightDashes < 1 {
 		rightDashes = 1
 	}
-	topRight := bc.Render(strings.Repeat("─", rightDashes) + "╮")
+	topRight := bc.Render(strings.Repeat("\u2500", rightDashes) + "\u256e")
 	topLine := topLeft + titleRendered + topRight
 
 	// Pad content lines to fill height.
@@ -223,8 +144,8 @@ func RenderPanel(title, content string, w, h int, active bool) string {
 	}
 
 	// Render body with side borders + 1 char padding.
-	leftBorder := bc.Render("│")
-	rightBorder := bc.Render("│")
+	leftBorder := bc.Render("\u2502")
+	rightBorder := bc.Render("\u2502")
 
 	var body strings.Builder
 	for _, line := range contentLines {
@@ -237,7 +158,56 @@ func RenderPanel(title, content string, w, h int, active bool) string {
 	}
 
 	// Bottom border.
-	bottomLine := bc.Render("╰" + strings.Repeat("─", totalW-2) + "╯")
+	bottomLine := bc.Render("\u2570" + strings.Repeat("\u2500", totalW-2) + "\u256f")
 
 	return topLine + "\n" + body.String() + bottomLine
+}
+
+// OverlayOnBase composites an overlay string onto a base string at position (x, y).
+// Both base and overlay are newline-separated rendered strings. The overlay
+// replaces characters in the base at the given position. Uses ANSI-safe
+// string truncation to preserve colors in the base.
+func OverlayOnBase(base, overlay string, x, y int) string {
+	baseLines := strings.Split(base, "\n")
+	overlayLines := strings.Split(overlay, "\n")
+
+	for i, oLine := range overlayLines {
+		row := y + i
+		if row < 0 || row >= len(baseLines) {
+			continue
+		}
+
+		bLine := baseLines[row]
+		oWidth := ansi.StringWidth(oLine)
+
+		// Expand base line to ensure it's wide enough.
+		bWidth := ansi.StringWidth(bLine)
+		if bWidth < x+oWidth {
+			bLine += strings.Repeat(" ", x+oWidth-bWidth)
+		}
+
+		// ANSI-safe splice: left part of base + overlay + right part of base.
+		leftPart := ansi.Truncate(bLine, x, "")
+		// Pad left part if it's shorter than x.
+		leftW := ansi.StringWidth(leftPart)
+		if leftW < x {
+			leftPart += strings.Repeat(" ", x-leftW)
+		}
+
+		rightStart := x + oWidth
+		rightPart := cutLeft(bLine, rightStart)
+
+		baseLines[row] = leftPart + oLine + rightPart
+	}
+
+	return strings.Join(baseLines, "\n")
+}
+
+// cutLeft removes the first n visual columns from an ANSI string.
+func cutLeft(s string, n int) string {
+	w := ansi.StringWidth(s)
+	if n >= w {
+		return ""
+	}
+	return ansi.Cut(s, n, w)
 }

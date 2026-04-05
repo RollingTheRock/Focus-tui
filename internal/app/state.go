@@ -21,6 +21,14 @@ type FocusedPanel int
 
 const (
 	FocusTodo FocusedPanel = iota
-	FocusPomodoro
 	FocusShell
+)
+
+// OverlayKind indicates which overlay is currently displayed.
+type OverlayKind int
+
+const (
+	OverlayNone OverlayKind = iota
+	OverlayTodo
+	OverlayPicker // pomodoro todo-picker
 )

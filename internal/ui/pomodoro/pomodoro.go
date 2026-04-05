@@ -91,7 +91,7 @@ func (m *Model) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 	}
 
 	switch msg := msg.(type) {
-	case pickerLoadedMsg:
+	case PickerLoadedMsg:
 		// Picker data arrived — delegate to picker handler.
 		m.pickerActive = true
 		return m.updatePicker(msg)
@@ -311,15 +311,16 @@ func (m *Model) updateNormal(msg tea.KeyMsg) (models.Panel, tea.Cmd) {
 
 // --- Todo Picker ---
 
-type pickerLoadedMsg struct {
-	items []models.Todo
+// PickerLoadedMsg is emitted when the todo picker data is ready.
+type PickerLoadedMsg struct {
+	Items []models.Todo
 }
 
 func (m *Model) loadPickerTodos() tea.Cmd {
 	return func() tea.Msg {
 		items, err := m.common.Store.ListTodos(models.ListToday)
 		if err != nil {
-			return pickerLoadedMsg{}
+			return PickerLoadedMsg{}
 		}
 		// Filter out done/overdue.
 		var active []models.Todo
@@ -328,14 +329,14 @@ func (m *Model) loadPickerTodos() tea.Cmd {
 				active = append(active, t)
 			}
 		}
-		return pickerLoadedMsg{items: active}
+		return PickerLoadedMsg{Items: active}
 	}
 }
 
 func (m *Model) updatePicker(msg tea.Msg) (models.Panel, tea.Cmd) {
 	switch msg := msg.(type) {
-	case pickerLoadedMsg:
-		m.pickerItems = msg.items
+	case PickerLoadedMsg:
+		m.pickerItems = msg.Items
 		m.pickerCursor = 0
 		m.pickerActive = true
 		if len(m.pickerItems) == 0 {

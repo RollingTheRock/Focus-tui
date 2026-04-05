@@ -2,15 +2,18 @@ package header
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 	"focus/internal/config"
 	"focus/internal/models"
 	"focus/internal/quotes"
 	"focus/internal/styles"
+	"focus/internal/ui/banner"
 	"focus/internal/weather"
+
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 // Model is the Header sub-model.
@@ -18,7 +21,7 @@ type Model struct {
 	cfg     config.Config
 	theme   styles.Theme
 	width   int
-	weather string // e.g. "🌤 26°C · Shanghai"
+	weather string // e.g. "26C . Shanghai"
 	timeStr string
 	quote   string
 }
@@ -28,7 +31,7 @@ func New(cfg config.Config, theme styles.Theme) models.Panel {
 	return &Model{
 		cfg:     cfg,
 		theme:   theme,
-		weather: "⏳ loading weather...",
+		weather: "loading weather...",
 		timeStr: time.Now().Format(cfg.TimeFormat),
 		quote:   quotes.Get(cfg.Quote.Source, cfg.Quote.CustomFile),
 	}
@@ -51,11 +54,11 @@ func (m *Model) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 
 	case weatherMsg:
 		if msg.err != nil {
-			m.weather = fmt.Sprintf("⚠ weather: %v", msg.err)
+			m.weather = fmt.Sprintf("weather: %v", msg.err)
 		} else if msg.info == nil {
-			m.weather = "⚠ weather: no data"
+			m.weather = "weather: no data"
 		} else {
-			m.weather = fmt.Sprintf("%s %d°C · %s", msg.info.Icon, msg.info.Temp, msg.info.City)
+			m.weather = fmt.Sprintf("%s %dC . %s", msg.info.Icon, msg.info.Temp, msg.info.City)
 		}
 	}
 	return m, nil
@@ -64,6 +67,96 @@ func (m *Model) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 // View renders the header as two compact lines: weather+time, then quote.
 func (m *Model) View() string {
 	return m.ViewCompact(m.width, true)
+}
+
+// ViewBanner renders the big FOCUS FIGlet banner on the left with an info
+// column (weather, time, pomodoro, quote) on the right. Returns 6 lines.
+func (m *Model) ViewBanner(w int, pomoTimer, pomoPhase, linkedTodo string) string {
+	if w <= 0 {
+		w = 80
+	}
+
+	bannerLines := strings.Split(banner.Art, "\n")
+	// Measure banner visual width.
+	bannerW := 0
+	for _, line := range bannerLines {
+		lw := lipgloss.Width(line)
+		if lw > bannerW {
+			bannerW = lw
+		}
+	}
+
+	// Ensure we have exactly 6 banner lines.
+	for len(bannerLines) < 6 {
+		bannerLines = append(bannerLines, "")
+	}
+
+	gutter := 3
+	infoW := w - bannerW - gutter
+	if infoW < 10 {
+		// Not enough space for info column — just show banner.
+		bannerStyle := lipgloss.NewStyle().Foreground(styles.Banner)
+		return bannerStyle.Render(banner.Art)
+	}
+
+	// Build right-column info lines (one per banner row).
+	infoLines := make([]string, 6)
+	infoLines[0] = ""
+	infoLines[1] = m.weather
+	infoLines[2] = m.timeStr
+	if pomoTimer != "" && pomoPhase != "" {
+		infoLines[3] = pomoPhase + " " + pomoTimer
+		if linkedTodo != "" {
+			infoLines[4] = linkedTodo
+		}
+	}
+	if m.quote != "" {
+		// Put quote on the first empty slot from the bottom.
+		if infoLines[4] == "" {
+			infoLines[4] = "\"" + m.quote + "\""
+		} else if infoLines[5] == "" {
+			infoLines[5] = "\"" + m.quote + "\""
+		}
+	}
+
+	// Style and compose each line.
+	bannerStyle := lipgloss.NewStyle().Foreground(styles.Banner)
+	infoStyle := lipgloss.NewStyle().Foreground(styles.Text)
+	subtleStyle := lipgloss.NewStyle().Foreground(styles.Subtle).Italic(true)
+	accentStyle := lipgloss.NewStyle().Foreground(styles.Accent).Bold(true)
+
+	var result []string
+	for i := 0; i < 6; i++ {
+		left := bannerStyle.Render(bannerLines[i])
+		// Pad left to fixed banner width.
+		leftW := lipgloss.Width(left)
+		if leftW < bannerW {
+			left += strings.Repeat(" ", bannerW-leftW)
+		}
+
+		// Style the info line.
+		var right string
+		info := infoLines[i]
+		switch {
+		case i == 3 && info != "":
+			right = accentStyle.Render(info)
+		case strings.HasPrefix(info, "\""):
+			right = subtleStyle.Render(info)
+		case info != "":
+			right = infoStyle.Render(info)
+		}
+
+		// Right-align info within infoW.
+		rightW := lipgloss.Width(right)
+		pad := infoW - rightW
+		if pad < 0 {
+			pad = 0
+		}
+
+		result = append(result, left+strings.Repeat(" ", gutter+pad)+right)
+	}
+
+	return strings.Join(result, "\n")
 }
 
 // ViewCompact renders the header in the given width. If showQuote is false, only
