@@ -21,6 +21,9 @@ type Config struct {
 		Image string `yaml:"image"` // path to image file (jpg/png), rendered via chafa
 		Width int    `yaml:"width"` // avatar width in columns (default 32)
 	} `yaml:"avatar"`
+	Shell struct {
+		Mouse bool `yaml:"mouse"` // enable mouse forwarding to embedded shell
+	} `yaml:"shell"`
 	Pomodoro struct {
 		WorkMinutes       int `yaml:"work_minutes"`
 		ShortBreakMinutes int `yaml:"short_break_minutes"`

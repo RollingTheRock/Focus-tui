@@ -1,9 +1,12 @@
 package shell
 
 import (
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
+	"sync/atomic"
+	"time"
 
 	"focus/internal/models"
 
@@ -14,7 +17,7 @@ import (
 
 // Messages for the Bubbletea event loop.
 type shellStartedMsg struct{}
-type shellOutputMsg struct{}
+type shellRefreshMsg struct{}
 type shellExitedMsg struct{ err error }
 
 // Model implements models.Panel for an embedded terminal shell.
@@ -29,6 +32,13 @@ type Model struct {
 
 	running bool
 	exited  bool
+
+	// Output batching: reader goroutine sets dirty, tick clears it.
+	dirty atomic.Bool
+
+	// View cache: only re-render when content changed.
+	viewDirty  bool
+	cachedView string
 }
 
 // New creates a new shell panel.
@@ -57,16 +67,7 @@ func (m *Model) startShell() tea.Cmd {
 		// Drain terminal query responses (DA, DSR, CPR, color queries, etc.)
 		// from the emulator's internal io.Pipe and forward them back to the
 		// PTY so nested TUI apps receive proper responses.
-		// Without this, the unbuffered pipe blocks inside Write() while
-		// holding SafeEmulator's mutex, deadlocking Render() on the main
-		// goroutine and freezing all input.
-		// Note: SafeEmulator.Read() intentionally has no mutex, so this
-		// goroutine never contends with Write()/Render().
 		go io.Copy(p, vtm)
-
-		// We still write keyboard input directly to PTY in forwardKey,
-		// bypassing the emulator's SendKey/SendText which would deadlock
-		// Bubbletea's synchronous Update.
 
 		sh := os.Getenv("SHELL")
 		if sh == "" {
@@ -85,37 +86,58 @@ func (m *Model) startShell() tea.Cmd {
 		m.cmd = cmd
 		m.running = true
 		m.exited = false
+		m.viewDirty = true
+		m.cachedView = ""
 
 		return shellStartedMsg{}
 	}
 }
 
-// readPtyLoop returns a tea.Cmd that reads PTY output into the emulator.
-// Each read triggers a Bubbletea re-render, then re-issues itself.
+// readPtyLoop runs a continuous read loop in a background goroutine.
+// It writes PTY output into the vt emulator and sets the dirty flag.
+// Only returns when the PTY closes.
 func (m *Model) readPtyLoop() tea.Cmd {
 	return func() tea.Msg {
 		buf := make([]byte, 32*1024)
-		n, err := m.pty.Read(buf)
-		if err != nil {
-			return shellExitedMsg{err: err}
+		for {
+			n, err := m.pty.Read(buf)
+			if err != nil {
+				return shellExitedMsg{err: err}
+			}
+			m.vterm.Write(buf[:n])
+			m.dirty.Store(true)
 		}
-		m.vterm.Write(buf[:n])
-		return shellOutputMsg{}
 	}
+}
+
+// shellRefreshCmd returns a tick command that fires every 16ms (~62fps).
+// On each tick, Bubbletea calls Update → View, picking up any dirty output.
+func (m *Model) shellRefreshCmd() tea.Cmd {
+	return tea.Tick(16*time.Millisecond, func(t time.Time) tea.Msg {
+		return shellRefreshMsg{}
+	})
 }
 
 // Update implements models.Panel.
 func (m *Model) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 	switch msg := msg.(type) {
 	case shellStartedMsg:
-		return m, m.readPtyLoop()
+		return m, tea.Batch(m.readPtyLoop(), m.shellRefreshCmd())
 
-	case shellOutputMsg:
-		return m, m.readPtyLoop()
+	case shellRefreshMsg:
+		if !m.running {
+			return m, nil
+		}
+		// Only mark view dirty if the reader goroutine produced new output.
+		if m.dirty.CompareAndSwap(true, false) {
+			m.viewDirty = true
+		}
+		return m, m.shellRefreshCmd()
 
 	case shellExitedMsg:
 		m.running = false
 		m.exited = true
+		m.viewDirty = true
 		return m, nil
 
 	case tea.KeyMsg:
@@ -124,18 +146,20 @@ func (m *Model) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 		}
 		m.forwardKey(msg)
 		return m, nil
+
+	case tea.MouseMsg:
+		if m.pty == nil || !m.running {
+			return m, nil
+		}
+		m.forwardMouse(msg)
+		return m, nil
 	}
 	return m, nil
 }
 
 // forwardKey writes raw bytes directly to the PTY, bypassing the vt emulator's
-// internal pipe. This avoids the io.Pipe deadlock: SendKey/SendText write to a
-// synchronous pipe that blocks until a reader (io.Copy goroutine) consumes it,
-// but that blocks Bubbletea's main Update goroutine.
-//
-// We translate tea.KeyMsg → raw ANSI escape sequences and write them straight
-// to the PTY master fd. The shell process receives the input on its stdin.
-// The echo comes back through PTY → readPtyLoop → vterm.Write → Render.
+// internal pipe. We translate tea.KeyMsg → raw ANSI escape sequences and write
+// them straight to the PTY master fd.
 func (m *Model) forwardKey(msg tea.KeyMsg) {
 	if m.pty == nil {
 		return
@@ -146,7 +170,9 @@ func (m *Model) forwardKey(msg tea.KeyMsg) {
 	switch msg.Type {
 	case tea.KeyRunes:
 		s := string(msg.Runes)
-		if msg.Alt {
+		if msg.Paste {
+			seq = "\x1b[200~" + s + "\x1b[201~"
+		} else if msg.Alt {
 			seq = "\x1b" + s
 		} else {
 			seq = s
@@ -161,20 +187,48 @@ func (m *Model) forwardKey(msg tea.KeyMsg) {
 	case tea.KeyEscape:
 		seq = "\x1b"
 	case tea.KeySpace:
-		seq = " "
+		if msg.Alt {
+			seq = "\x1b "
+		} else {
+			seq = " "
+		}
 
 	case tea.KeyUp:
-		seq = "\x1b[A"
+		if msg.Alt {
+			seq = "\x1b[1;3A"
+		} else {
+			seq = "\x1b[A"
+		}
 	case tea.KeyDown:
-		seq = "\x1b[B"
+		if msg.Alt {
+			seq = "\x1b[1;3B"
+		} else {
+			seq = "\x1b[B"
+		}
 	case tea.KeyRight:
-		seq = "\x1b[C"
+		if msg.Alt {
+			seq = "\x1b[1;3C"
+		} else {
+			seq = "\x1b[C"
+		}
 	case tea.KeyLeft:
-		seq = "\x1b[D"
+		if msg.Alt {
+			seq = "\x1b[1;3D"
+		} else {
+			seq = "\x1b[D"
+		}
 	case tea.KeyHome:
-		seq = "\x1b[H"
+		if msg.Alt {
+			seq = "\x1b[1;3H"
+		} else {
+			seq = "\x1b[H"
+		}
 	case tea.KeyEnd:
-		seq = "\x1b[F"
+		if msg.Alt {
+			seq = "\x1b[1;3F"
+		} else {
+			seq = "\x1b[F"
+		}
 	case tea.KeyPgUp:
 		seq = "\x1b[5~"
 	case tea.KeyPgDown:
@@ -223,6 +277,62 @@ func (m *Model) forwardKey(msg tea.KeyMsg) {
 	}
 }
 
+// forwardMouse encodes a tea.MouseMsg as an SGR mouse sequence and writes
+// it to the PTY. Format: ESC [ < Cb ; Cx ; Cy M/m
+func (m *Model) forwardMouse(msg tea.MouseMsg) {
+	if m.pty == nil {
+		return
+	}
+
+	e := tea.MouseEvent(msg)
+
+	var cb int
+	switch e.Button {
+	case tea.MouseButtonLeft:
+		cb = 0
+	case tea.MouseButtonMiddle:
+		cb = 1
+	case tea.MouseButtonRight:
+		cb = 2
+	case tea.MouseButtonWheelUp:
+		cb = 64
+	case tea.MouseButtonWheelDown:
+		cb = 65
+	case tea.MouseButtonWheelLeft:
+		cb = 66
+	case tea.MouseButtonWheelRight:
+		cb = 67
+	case tea.MouseButtonBackward:
+		cb = 128
+	case tea.MouseButtonForward:
+		cb = 129
+	case tea.MouseButtonNone:
+		cb = 3
+	default:
+		return
+	}
+
+	if e.Shift {
+		cb |= 4
+	}
+	if e.Alt {
+		cb |= 8
+	}
+	if e.Ctrl {
+		cb |= 16
+	}
+	if e.Action == tea.MouseActionMotion {
+		cb |= 32
+	}
+
+	suffix := "M"
+	if e.Action == tea.MouseActionRelease {
+		suffix = "m"
+	}
+	seq := fmt.Sprintf("\x1b[<%d;%d;%d%s", cb, e.X+1, e.Y+1, suffix)
+	m.pty.Write([]byte(seq)) //nolint:errcheck
+}
+
 // View implements models.Panel.
 func (m *Model) View() string {
 	if m.vterm == nil {
@@ -231,13 +341,18 @@ func (m *Model) View() string {
 	if m.exited {
 		return "Shell exited. Press any key to restart."
 	}
-	return m.vterm.Render()
+	if m.viewDirty || m.cachedView == "" {
+		m.cachedView = m.vterm.Render()
+		m.viewDirty = false
+	}
+	return m.cachedView
 }
 
 // SetSize implements models.Panel.
 func (m *Model) SetSize(width, height int) {
 	m.width = width
 	m.height = height
+	m.viewDirty = true
 	if m.vterm != nil {
 		m.vterm.Resize(width, height)
 	}

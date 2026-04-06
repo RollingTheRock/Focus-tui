@@ -32,6 +32,13 @@ type avatarRenderedMsg struct {
 	art string
 }
 
+// viewCache holds the cached View() output.
+// Using a pointer so it survives value-receiver copies in Bubbletea.
+type viewCache struct {
+	output string
+	gen    uint64
+}
+
 // model is the top-level Bubbletea model.
 type model struct {
 	common         *models.CommonModel
@@ -41,6 +48,10 @@ type model struct {
 	overlay        OverlayKind
 	children       []models.Panel
 	avatarRendered string // cached chafa output
+
+	// View cache: skip recomputation when nothing changed.
+	viewGen uint64
+	vc      *viewCache
 }
 
 // New creates and returns the initial application model.
@@ -56,6 +67,7 @@ func New(cfg config.Config, store models.Store) tea.Model {
 		mode:    ModeShell,
 		focused: FocusShell,
 		overlay: OverlayNone,
+		vc:      &viewCache{},
 		children: []models.Panel{
 			header.New(cfg, cm.Theme), // panelHeader
 			todo.New(cm),              // panelTodo
@@ -86,18 +98,40 @@ func (m model) Init() tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
+// invalidateView bumps the generation counter, forcing View() to recompute.
+func (m *model) invalidateView() {
+	m.viewGen++
+}
+
 // Update implements tea.Model.
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case avatarRenderedMsg:
 		m.avatarRendered = msg.art
+		m.invalidateView()
 		return m, nil
 
 	case tea.KeyMsg:
 		return m.handleKey(msg)
 
+	case tea.MouseMsg:
+		if m.mode == ModeShell {
+			dims := layout.ComputeBanner(m.common.Width, m.common.Height)
+			adjusted := msg
+			adjusted.X = msg.X - 2              // left border + padding
+			adjusted.Y = msg.Y - dims.HeaderH - 1 // header + top border
+			if adjusted.X >= 0 && adjusted.X < dims.ShellContentW &&
+				adjusted.Y >= 0 && adjusted.Y < dims.ShellContentH {
+				newChild, cmd := m.children[panelShell].Update(tea.Msg(adjusted))
+				m.children[panelShell] = newChild
+				return m, cmd
+			}
+		}
+		return m, nil
+
 	case pomodoro.PickerLoadedMsg:
 		m.overlay = OverlayPicker
+		m.invalidateView()
 		// Forward to pomodoro panel.
 		newChild, cmd := m.children[panelPomodoro].Update(msg)
 		m.children[panelPomodoro] = newChild
@@ -109,8 +143,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.mode = ModeNormal
 		}
+		m.invalidateView()
 
 	case pomodoro.SessionCompleteMsg, models.StatsRefreshMsg:
+		m.invalidateView()
 		if ft, ok := m.children[panelFooter].(*footer.Model); ok {
 			return m, ft.Refresh()
 		}
@@ -119,9 +155,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.common.Width = msg.Width
 		m.common.Height = msg.Height
 		m.updateSizes(msg.Width, msg.Height)
+		m.invalidateView()
 	}
 
 	// Non-key messages go to all panels.
+	m.invalidateView()
 	var cmds []tea.Cmd
 	for i, child := range m.children {
 		newChild, cmd := child.Update(msg)
@@ -135,6 +173,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // handleKey routes keyboard input based on overlay and mode state.
 func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	m.invalidateView()
 	pomo := m.children[panelPomodoro].(*pomodoro.Model)
 
 	// 1. Pomodoro picker overlay — all keys to pomodoro.
@@ -235,6 +274,11 @@ func (m model) View() string {
 		return ""
 	}
 
+	// Return cached output if nothing changed since last render.
+	if m.vc.gen == m.viewGen && m.vc.output != "" {
+		return m.vc.output
+	}
+
 	w := m.common.Width
 	h := m.common.Height
 	if w <= 0 {
@@ -302,12 +346,16 @@ func (m model) View() string {
 	// 5. Context-aware help bar.
 	helpLine := m.renderHelpLine(w)
 
-	return lipgloss.JoinVertical(lipgloss.Left,
+	result := lipgloss.JoinVertical(lipgloss.Left,
 		headerView,
 		panelArea,
 		statsView,
 		helpLine,
 	)
+
+	m.vc.output = result
+	m.vc.gen = m.viewGen
+	return result
 }
 
 // renderHelpLine creates a context-aware help bar.
