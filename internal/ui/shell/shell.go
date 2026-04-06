@@ -1,6 +1,7 @@
 package shell
 
 import (
+	"io"
 	"os"
 	"os/exec"
 
@@ -53,9 +54,19 @@ func (m *Model) startShell() tea.Cmd {
 
 		vtm := vt.NewSafeEmulator(m.width, m.height)
 
-		// No io.Copy(pty, vterm) goroutine needed:
-		// We write directly to PTY in forwardKey, bypassing the emulator's
-		// internal io.Pipe which would deadlock Bubbletea's synchronous Update.
+		// Drain terminal query responses (DA, DSR, CPR, color queries, etc.)
+		// from the emulator's internal io.Pipe and forward them back to the
+		// PTY so nested TUI apps receive proper responses.
+		// Without this, the unbuffered pipe blocks inside Write() while
+		// holding SafeEmulator's mutex, deadlocking Render() on the main
+		// goroutine and freezing all input.
+		// Note: SafeEmulator.Read() intentionally has no mutex, so this
+		// goroutine never contends with Write()/Render().
+		go io.Copy(p, vtm)
+
+		// We still write keyboard input directly to PTY in forwardKey,
+		// bypassing the emulator's SendKey/SendText which would deadlock
+		// Bubbletea's synchronous Update.
 
 		sh := os.Getenv("SHELL")
 		if sh == "" {
