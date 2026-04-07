@@ -26,11 +26,12 @@ const (
 
 // PaneMeta stores app-level metadata for routing and titles.
 type PaneMeta struct {
-	ID     PaneID
-	Name   string
-	Type   PaneType
-	CWD    string
-	Status PaneStatus
+	ID       PaneID
+	Name     string
+	Type     PaneType
+	CWD      string
+	Status   PaneStatus
+	Closable bool
 }
 
 // PaneFrame is the absolute screen rectangle allocated to a pane.

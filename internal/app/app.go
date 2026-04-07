@@ -87,11 +87,11 @@ func New(cfg config.Config, store models.Store) tea.Model {
 		vc:        &viewCache{},
 	}
 
-	m.registerPane(paneHeader, header.New(cfg, cm.Theme), models.PaneMeta{ID: paneHeader, Name: "Header", Type: models.PaneTypeHeader, Status: models.PaneStatusPassive})
-	m.registerPane(paneShell, shell.New(cm), models.PaneMeta{ID: paneShell, Name: "Shell", Type: models.PaneTypeShell, CWD: cwd, Status: models.PaneStatusReady})
-	m.registerPane(paneTodo, todo.New(cm), models.PaneMeta{ID: paneTodo, Name: "Todo", Type: models.PaneTypeTodo, Status: models.PaneStatusIdle})
-	m.registerPane(panePomodoro, pomodoro.New(cm), models.PaneMeta{ID: panePomodoro, Name: "Pomodoro", Type: models.PaneTypePomodoro, Status: models.PaneStatusIdle})
-	m.registerPane(paneFooter, footer.New(cm), models.PaneMeta{ID: paneFooter, Name: "Footer", Type: models.PaneTypeFooter, Status: models.PaneStatusPassive})
+	m.registerPane(paneHeader, header.New(cfg, cm.Theme), models.PaneMeta{ID: paneHeader, Name: "Header", Type: models.PaneTypeHeader, Status: models.PaneStatusPassive, Closable: false})
+	m.registerPane(paneShell, shell.New(cm), models.PaneMeta{ID: paneShell, Name: "Shell", Type: models.PaneTypeShell, CWD: cwd, Status: models.PaneStatusReady, Closable: true})
+	m.registerPane(paneTodo, todo.New(cm), models.PaneMeta{ID: paneTodo, Name: "Todo", Type: models.PaneTypeTodo, Status: models.PaneStatusIdle, Closable: false})
+	m.registerPane(panePomodoro, pomodoro.New(cm), models.PaneMeta{ID: panePomodoro, Name: "Pomodoro", Type: models.PaneTypePomodoro, Status: models.PaneStatusIdle, Closable: false})
+	m.registerPane(paneFooter, footer.New(cm), models.PaneMeta{ID: paneFooter, Name: "Footer", Type: models.PaneTypeFooter, Status: models.PaneStatusPassive, Closable: false})
 	m.refreshPaneStatuses()
 
 	return m
@@ -358,11 +358,12 @@ func (m *model) createShellPane() (models.PaneID, tea.Cmd) {
 	id := m.nextShellPaneID()
 	panel := shell.New(m.common)
 	meta := models.PaneMeta{
-		ID:     id,
-		Name:   fmt.Sprintf("Shell %d", m.nextShell-1),
-		Type:   models.PaneTypeShell,
-		CWD:    m.currentCWD(),
-		Status: models.PaneStatusIdle,
+		ID:       id,
+		Name:     fmt.Sprintf("Shell %d", m.nextShell-1),
+		Type:     models.PaneTypeShell,
+		CWD:      m.currentCWD(),
+		Status:   models.PaneStatusIdle,
+		Closable: true,
 	}
 	m.registerPane(id, panel, meta)
 	if frame, ok := m.frames[m.focused]; ok {
@@ -391,6 +392,10 @@ func (m model) splitFocused(direction layout.SplitDirection) (tea.Model, tea.Cmd
 }
 
 func (m model) closeFocusedPane() (tea.Model, tea.Cmd) {
+	meta, ok := m.paneMeta[m.focused]
+	if !ok || !meta.Closable {
+		return m, nil
+	}
 	order := layout.LeafOrder(m.bodyTree)
 	if len(order) <= 1 {
 		return m, nil
@@ -600,6 +605,9 @@ func (m model) renderBody(w, h int) string {
 func (m model) renderPaneTitle(id models.PaneID) string {
 	meta := m.paneMeta[id]
 	title := strings.ToUpper(meta.Name)
+	if !meta.Closable && (meta.Type == models.PaneTypeTodo || meta.Type == models.PaneTypePomodoro) {
+		title += " [fixed]"
+	}
 	if meta.CWD != "" && meta.Type == models.PaneTypeShell {
 		title += " [" + meta.CWD + "]"
 	}
@@ -648,7 +656,11 @@ func (m model) renderHelpLine(w int) string {
 	case models.PaneTypeShell:
 		left = "[tab]next  [ctrl+h/j/k/l]focus  [enter]shell"
 	}
-	right := "[ctrl+\\/ctrl+-]split  [ctrl+w]close  [q]uit"
+	right := "[ctrl+\\/ctrl+-]split"
+	if meta, ok := m.paneMeta[m.focused]; ok && meta.Closable {
+		right += "  [ctrl+w]close"
+	}
+	right += "  [q]uit"
 	return renderHelpBar(helpStyle, left, right, w)
 }
 
