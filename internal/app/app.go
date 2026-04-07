@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"focus/internal/avatar"
@@ -20,12 +21,11 @@ import (
 )
 
 const (
-	panelHeader = iota
-	panelTodo
-	panelPomodoro
-	panelFooter
-	panelShell
-	numPanels
+	paneHeader   models.PaneID = "header"
+	paneShell    models.PaneID = "shell-main"
+	paneTodo     models.PaneID = "todo-main"
+	panePomodoro models.PaneID = "pomodoro-main"
+	paneFooter   models.PaneID = "footer"
 )
 
 // avatarRenderedMsg carries the pre-rendered avatar string from chafa.
@@ -45,12 +45,16 @@ type model struct {
 	common         *models.CommonModel
 	state          AppState
 	mode           AppMode
-	focused        FocusedPanel
 	overlay        OverlayKind
-	children       []models.Panel
-	avatarRendered string // cached chafa output
+	avatarRendered string
 
-	// View cache: skip recomputation when nothing changed.
+	panes     map[models.PaneID]models.Panel
+	paneMeta  map[models.PaneID]models.PaneMeta
+	paneOrder []models.PaneID
+	bodyTree  *layout.TreeNode
+	frames    map[models.PaneID]models.PaneFrame
+	focused   models.PaneID
+
 	viewGen uint64
 	vc      *viewCache
 }
@@ -62,35 +66,58 @@ func New(cfg config.Config, store models.Store) tea.Model {
 		Cfg:   cfg,
 		Store: store,
 	}
+
+	cwd, _ := os.Getwd()
 	m := model{
-		common:  cm,
-		state:   StateDashboard,
-		mode:    ModeShell,
-		focused: FocusShell,
-		overlay: OverlayNone,
+		common:   cm,
+		state:    StateDashboard,
+		mode:     ModeNormal,
+		overlay:  OverlayNone,
+		panes:    make(map[models.PaneID]models.Panel),
+		paneMeta: make(map[models.PaneID]models.PaneMeta),
+		bodyTree: layout.Split(
+			layout.SplitHorizontal,
+			70,
+			layout.Leaf(paneShell),
+			layout.Split(layout.SplitVertical, 55, layout.Leaf(paneTodo), layout.Leaf(panePomodoro)),
+		),
+		focused: paneShell,
 		vc:      &viewCache{},
-		children: []models.Panel{
-			header.New(cfg, cm.Theme), // panelHeader
-			todo.New(cm),              // panelTodo
-			pomodoro.New(cm),          // panelPomodoro
-			footer.New(cm),            // panelFooter
-			shell.New(cm),             // panelShell
-		},
 	}
+
+	m.registerPane(paneHeader, header.New(cfg, cm.Theme), models.PaneMeta{ID: paneHeader, Name: "Header", Type: models.PaneTypeHeader, Status: models.PaneStatusPassive})
+	m.registerPane(paneShell, shell.New(cm), models.PaneMeta{ID: paneShell, Name: "Shell", Type: models.PaneTypeShell, CWD: cwd, Status: models.PaneStatusReady})
+	m.registerPane(paneTodo, todo.New(cm), models.PaneMeta{ID: paneTodo, Name: "Todo", Type: models.PaneTypeTodo, Status: models.PaneStatusIdle})
+	m.registerPane(panePomodoro, pomodoro.New(cm), models.PaneMeta{ID: panePomodoro, Name: "Pomodoro", Type: models.PaneTypePomodoro, Status: models.PaneStatusIdle})
+	m.registerPane(paneFooter, footer.New(cm), models.PaneMeta{ID: paneFooter, Name: "Footer", Type: models.PaneTypeFooter, Status: models.PaneStatusPassive})
+	m.refreshPaneStatuses()
+
 	return m
+}
+
+func (m *model) registerPane(id models.PaneID, panel models.Panel, meta models.PaneMeta) {
+	m.panes[id] = panel
+	m.paneMeta[id] = meta
+	m.paneOrder = append(m.paneOrder, id)
+}
+
+func (m *model) pane(id models.PaneID) models.Panel {
+	return m.panes[id]
+}
+
+func (m *model) setPane(id models.PaneID, panel models.Panel) {
+	m.panes[id] = panel
 }
 
 // Init implements tea.Model.
 func (m model) Init() tea.Cmd {
 	var cmds []tea.Cmd
-	for _, child := range m.children {
-		if cmd := child.Init(); cmd != nil {
+	for _, id := range m.paneOrder {
+		if cmd := m.pane(id).Init(); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
 	}
-	// Render avatar in background.
-	cfg := m.common.Cfg
-	if cfg.Avatar.Image != "" {
+	if cfg := m.common.Cfg; cfg.Avatar.Image != "" {
 		cmds = append(cmds, func() tea.Msg {
 			art := avatar.Render(cfg.Avatar.Image, cfg.Avatar.Width)
 			return avatarRenderedMsg{art: art}
@@ -99,7 +126,6 @@ func (m model) Init() tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
-// invalidateView bumps the generation counter, forcing View() to recompute.
 func (m *model) invalidateView() {
 	m.viewGen++
 }
@@ -116,39 +142,27 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleKey(msg)
 
 	case tea.MouseMsg:
-		if m.mode == ModeShell {
-			dims := layout.ComputeBanner(m.common.Width, m.common.Height)
-			adjusted := msg
-			adjusted.X = msg.X - 2              // left border + padding
-			adjusted.Y = msg.Y - dims.HeaderH - 1 // header + top border
-			if adjusted.X >= 0 && adjusted.X < dims.ShellContentW &&
-				adjusted.Y >= 0 && adjusted.Y < dims.ShellContentH {
-				newChild, cmd := m.children[panelShell].Update(tea.Msg(adjusted))
-				m.children[panelShell] = newChild
-				return m, cmd
-			}
-		}
-		return m, nil
+		return m.handleMouse(msg)
 
 	case pomodoro.PickerLoadedMsg:
 		m.overlay = OverlayPicker
+		m.setFocus(panePomodoro)
 		m.invalidateView()
-		// Forward to pomodoro panel.
-		newChild, cmd := m.children[panelPomodoro].Update(msg)
-		m.children[panelPomodoro] = newChild
-		return m, cmd
+		return m.routeToPane(panePomodoro, msg)
 
 	case todo.ModeChangeMsg:
+		m.setFocus(paneTodo)
 		if msg.InputActive {
 			m.mode = ModeInput
 		} else {
 			m.mode = ModeNormal
 		}
+		m.refreshPaneStatuses()
 		m.invalidateView()
 
 	case pomodoro.SessionCompleteMsg, models.StatsRefreshMsg:
 		m.invalidateView()
-		if ft, ok := m.children[panelFooter].(*footer.Model); ok {
+		if ft, ok := m.pane(paneFooter).(*footer.Model); ok {
 			return m, ft.Refresh()
 		}
 
@@ -159,12 +173,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.invalidateView()
 	}
 
-	// Non-key messages go to all panels.
 	m.invalidateView()
 	var cmds []tea.Cmd
-	for i, child := range m.children {
-		newChild, cmd := child.Update(msg)
-		m.children[i] = newChild
+	for _, id := range m.paneOrder {
+		newPanel, cmd := m.pane(id).Update(msg)
+		m.setPane(id, newPanel)
 		if cmd != nil {
 			cmds = append(cmds, cmd)
 		}
@@ -172,109 +185,225 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
-// handleKey routes keyboard input based on overlay and mode state.
+func (m model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+	m.invalidateView()
+	dims := layout.ComputeBanner(m.common.Width, m.common.Height)
+	bodyY := msg.Y - dims.HeaderH
+	bodyX := msg.X
+	clicked := m.paneAt(bodyX, bodyY)
+	if clicked != "" {
+		m.setFocus(clicked)
+	}
+	if m.mode != ModeShell || clicked == "" || m.paneMeta[clicked].Type != models.PaneTypeShell {
+		return m, nil
+	}
+	frame, ok := m.frames[clicked]
+	if !ok {
+		return m, nil
+	}
+	adjusted := msg
+	adjusted.X = msg.X - frame.X - 2
+	adjusted.Y = bodyY - frame.Y - 1
+	contentW := frame.W - 4
+	contentH := frame.H - 2
+	if adjusted.X < 0 || adjusted.X >= contentW || adjusted.Y < 0 || adjusted.Y >= contentH {
+		return m, nil
+	}
+	return m.routeToPane(clicked, tea.Msg(adjusted))
+}
+
+// handleKey routes keyboard input based on overlay, mode, and focused pane.
 func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	m.invalidateView()
-	pomo := m.children[panelPomodoro].(*pomodoro.Model)
+	pomo := m.pane(panePomodoro).(*pomodoro.Model)
 
-	// 1. Pomodoro picker overlay — all keys to pomodoro.
 	if m.overlay == OverlayPicker {
 		if pomo.IsPickerActive() {
-			newChild, cmd := m.children[panelPomodoro].Update(msg)
-			m.children[panelPomodoro] = newChild
-			// Check if picker closed itself.
-			if !m.children[panelPomodoro].(*pomodoro.Model).IsPickerActive() {
+			updated, cmd := m.routeToPane(panePomodoro, msg)
+			m = updated.(model)
+			if !m.pane(panePomodoro).(*pomodoro.Model).IsPickerActive() {
 				m.overlay = OverlayNone
 			}
 			return m, cmd
 		}
-		// Picker was closed by a non-key message; dismiss overlay.
 		m.overlay = OverlayNone
 		return m, nil
 	}
 
-	// 2. Todo overlay — keys to todo panel.
-	if m.overlay == OverlayTodo {
-		if m.mode == ModeInput {
-			// Text input mode: all keys to todo.
-			if msg.String() == "ctrl+c" {
-				return m, tea.Quit
-			}
-			newChild, cmd := m.children[panelTodo].Update(msg)
-			m.children[panelTodo] = newChild
-			return m, cmd
-		}
-		switch msg.String() {
-		case "ctrl+t", "esc":
-			m.overlay = OverlayNone
-			return m, nil
-		case "ctrl+c":
+	if m.mode == ModeInput {
+		if msg.String() == "ctrl+c" {
+			m.closeShellPanes()
 			return m, tea.Quit
-		default:
-			newChild, cmd := m.children[panelTodo].Update(msg)
-			m.children[panelTodo] = newChild
-			return m, cmd
 		}
+		return m.routeToPane(paneTodo, msg)
 	}
 
-	// 3. Shell mode — keys to shell, except escape and ctrl+t.
 	if m.mode == ModeShell {
 		switch msg.String() {
 		case "esc":
 			m.mode = ModeNormal
+			m.refreshPaneStatuses()
 			return m, nil
 		case "ctrl+t":
-			m.overlay = OverlayTodo
 			m.mode = ModeNormal
+			m.setFocus(paneTodo)
 			return m, nil
 		default:
-			newChild, cmd := m.children[panelShell].Update(msg)
-			m.children[panelShell] = newChild
-			return m, cmd
+			if m.paneMeta[m.focused].Type == models.PaneTypeShell {
+				return m.routeToPane(m.focused, msg)
+			}
+			m.mode = ModeNormal
 		}
 	}
 
-	// 4. Normal mode — global shortcuts.
 	switch msg.String() {
 	case "q", "ctrl+c":
-		if sh, ok := m.children[panelShell].(*shell.Model); ok {
-			sh.Close()
-		}
+		m.closeShellPanes()
 		return m, tea.Quit
+	case "tab":
+		m.focusCycle(1)
+		return m, nil
+	case "shift+tab":
+		if m.paneMeta[m.focused].Type == models.PaneTypeTodo {
+			return m.routeToPane(m.focused, msg)
+		}
+		m.focusCycle(-1)
+		return m, nil
+	case "ctrl+h":
+		m.setFocus(layout.MoveFocus(m.focused, m.frames, layout.FocusLeft))
+		return m, nil
+	case "ctrl+l":
+		m.setFocus(layout.MoveFocus(m.focused, m.frames, layout.FocusRight))
+		return m, nil
+	case "ctrl+k":
+		m.setFocus(layout.MoveFocus(m.focused, m.frames, layout.FocusUp))
+		return m, nil
+	case "ctrl+j":
+		m.setFocus(layout.MoveFocus(m.focused, m.frames, layout.FocusDown))
+		return m, nil
 	case "ctrl+t":
-		m.overlay = OverlayTodo
+		m.setFocus(paneTodo)
 		return m, nil
 	case "enter":
-		m.mode = ModeShell
-		return m, nil
-	case "s", "p", "n", "r":
-		// Pomodoro controls.
-		newChild, cmd := m.children[panelPomodoro].Update(msg)
-		m.children[panelPomodoro] = newChild
-		return m, cmd
+		if m.paneMeta[m.focused].Type == models.PaneTypeShell {
+			m.mode = ModeShell
+			m.refreshPaneStatuses()
+			return m, nil
+		}
+	}
+
+	if m.focused != "" && m.paneMeta[m.focused].Type != models.PaneTypeShell {
+		return m.routeToPane(m.focused, msg)
 	}
 
 	return m, nil
 }
 
+func (m *model) setPaneStatus(id models.PaneID, status models.PaneStatus) {
+	meta := m.paneMeta[id]
+	meta.Status = status
+	m.paneMeta[id] = meta
+}
+
+func (m *model) setFocus(id models.PaneID) {
+	if id == "" {
+		return
+	}
+	if _, ok := m.paneMeta[id]; !ok {
+		return
+	}
+	m.focused = id
+	m.refreshPaneStatuses()
+}
+
+func (m *model) refreshPaneStatuses() {
+	for id, meta := range m.paneMeta {
+		switch meta.Type {
+		case models.PaneTypeHeader, models.PaneTypeFooter:
+			meta.Status = models.PaneStatusPassive
+		case models.PaneTypeShell:
+			if id == m.focused && m.mode == ModeShell {
+				meta.Status = models.PaneStatusActive
+			} else if id == m.focused {
+				meta.Status = models.PaneStatusReady
+			} else {
+				meta.Status = models.PaneStatusIdle
+			}
+		default:
+			if id == m.focused {
+				meta.Status = models.PaneStatusReady
+			} else {
+				meta.Status = models.PaneStatusIdle
+			}
+		}
+		m.paneMeta[id] = meta
+	}
+}
+
+func (m *model) focusCycle(delta int) {
+	order := layout.LeafOrder(m.bodyTree)
+	if len(order) == 0 {
+		return
+	}
+	idx := 0
+	for i, id := range order {
+		if id == m.focused {
+			idx = i
+			break
+		}
+	}
+	idx = (idx + delta + len(order)) % len(order)
+	m.setFocus(order[idx])
+}
+
+func (m *model) paneAt(x, y int) models.PaneID {
+	for _, id := range layout.LeafOrder(m.bodyTree) {
+		frame, ok := m.frames[id]
+		if !ok {
+			continue
+		}
+		if x >= frame.X && x < frame.X+frame.W && y >= frame.Y && y < frame.Y+frame.H {
+			return id
+		}
+	}
+	return ""
+}
+
+func (m model) routeToPane(id models.PaneID, msg tea.Msg) (tea.Model, tea.Cmd) {
+	panel := m.pane(id)
+	if panel == nil {
+		return m, nil
+	}
+	newPanel, cmd := panel.Update(msg)
+	m.setPane(id, newPanel)
+	return m, cmd
+}
+
 func (m *model) updateSizes(w, h int) {
 	dims := layout.ComputeBanner(w, h)
+	m.pane(paneHeader).SetSize(w, dims.HeaderH)
+	m.pane(paneFooter).SetSize(w, 1)
 
-	m.children[panelHeader].SetSize(w, dims.HeaderH)
-	m.children[panelShell].SetSize(dims.ShellContentW, dims.ShellContentH)
-	m.children[panelFooter].SetSize(w, 1)
-
-	// Todo and pomodoro get overlay dimensions.
-	m.children[panelTodo].SetSize(dims.OverlayW, dims.OverlayH)
-	m.children[panelPomodoro].SetSize(dims.OverlayW, dims.OverlayH)
+	bodyHeight := h - dims.HeaderH - 1 - 1
+	if bodyHeight < 6 {
+		bodyHeight = 6
+	}
+	m.frames = layout.ComputeFrames(m.bodyTree, models.PaneFrame{X: 0, Y: 0, W: w, H: bodyHeight})
+	for id, frame := range m.frames {
+		contentW := frame.W - 4
+		if contentW < 8 {
+			contentW = 8
+		}
+		contentH := frame.H - 2
+		if contentH < 3 {
+			contentH = 3
+		}
+		m.pane(id).SetSize(contentW, contentH)
+	}
 }
 
 // View implements tea.Model.
 func (m model) View() string {
-	if len(m.children) < numPanels {
-		return ""
-	}
-
 	w := m.common.Width
 	h := m.common.Height
 	if w <= 0 {
@@ -283,7 +412,6 @@ func (m model) View() string {
 	if h <= 0 {
 		h = 24
 	}
-	// Hoist dims so cursor positioning can use it even on cache hits.
 	dims := layout.ComputeBanner(w, h)
 
 	var result string
@@ -295,17 +423,14 @@ func (m model) View() string {
 		m.vc.gen = m.viewGen
 	}
 
-	// Append cursor-show + cursor-position at the END of the rendered frame so
-	// the terminal cursor appears inside the embedded shell panel. This is not
-	// cached, so it is always freshly computed from the current cursor position.
-	if m.mode == ModeShell {
-		if sh, ok := m.children[panelShell].(*shell.Model); ok {
-			if cx, cy, vis := sh.CursorPos(); vis {
-				// Shell content starts at: row (HeaderH + 1 top-border), col 2 (left-border + space).
-				// ANSI cursor-position sequences are 1-indexed.
-				termRow := dims.HeaderH + 1 + cy + 1
-				termCol := 2 + cx + 1
-				result += fmt.Sprintf("\033[?25h\033[%d;%dH", termRow, termCol)
+	if m.mode == ModeShell && m.paneMeta[m.focused].Type == models.PaneTypeShell {
+		if sh, ok := m.pane(m.focused).(*shell.Model); ok {
+			if frame, exists := m.frames[m.focused]; exists {
+				if cx, cy, vis := sh.CursorPos(); vis {
+					termRow := dims.HeaderH + frame.Y + 1 + cy + 1
+					termCol := frame.X + 2 + cx + 1
+					result += fmt.Sprintf("\033[?25h\033[%d;%dH", termRow, termCol)
+				}
 			}
 		}
 	}
@@ -313,14 +438,10 @@ func (m model) View() string {
 	return result
 }
 
-// buildView assembles the full frame string. Separated from View so the cache
-// path can share the early-return without duplicating assembly logic.
 func (m model) buildView(dims layout.Dimensions, w, h int) string {
+	hdr := m.pane(paneHeader).(*header.Model)
+	pomo := m.pane(panePomodoro).(*pomodoro.Model)
 
-	hdr := m.children[panelHeader].(*header.Model)
-	pomo := m.children[panelPomodoro].(*pomodoro.Model)
-
-	// 1. Header.
 	var headerView string
 	if dims.UseBanner {
 		pomoTimer := ""
@@ -339,101 +460,152 @@ func (m model) buildView(dims layout.Dimensions, w, h int) string {
 		headerView = hdr.ViewCompact(w, dims.ShowQuote)
 	}
 
-	// 2. Shell panel (full width).
-	shellContent := m.children[panelShell].View()
-	shellTitle := "SHELL"
-	if m.mode == ModeShell {
-		shellTitle = "SHELL [active]"
-	}
-	shellPanel := layout.RenderPanel(shellTitle, shellContent,
-		dims.ShellContentW, dims.ShellContentH, m.mode == ModeShell)
-
-	// 3. Overlay compositing.
-	panelArea := shellPanel
-	if m.overlay == OverlayTodo {
-		todoContent := m.children[panelTodo].View()
-		todoModel := m.children[panelTodo].(*todo.Model)
-		todoTitle := "TODO [today]"
-		if todoModel.ActiveList() == models.ListSomeday {
-			todoTitle = "TODO [someday]"
-		}
-		overlayPanel := layout.RenderPanel(todoTitle, todoContent,
-			dims.OverlayW, dims.OverlayH, true)
-		panelArea = layout.OverlayOnBase(shellPanel, overlayPanel, dims.OverlayX, dims.OverlayY)
-	} else if m.overlay == OverlayPicker {
-		pickerContent := pomo.PickerView()
-		overlayPanel := layout.RenderPanel("SELECT TASK", pickerContent,
-			dims.OverlayW, dims.OverlayH, true)
-		panelArea = layout.OverlayOnBase(shellPanel, overlayPanel, dims.OverlayX, dims.OverlayY)
-	}
-
-	// 4. Footer stats.
-	statsView := m.children[panelFooter].View()
-
-	// 5. Context-aware help bar.
+	bodyView := m.renderBody(w, h-dims.HeaderH-1-1)
+	statsView := m.pane(paneFooter).View()
 	helpLine := m.renderHelpLine(w)
 
-	return lipgloss.JoinVertical(lipgloss.Left,
-		headerView,
-		panelArea,
-		statsView,
-		helpLine,
-	)
+	return lipgloss.JoinVertical(lipgloss.Left, headerView, bodyView, statsView, helpLine)
 }
 
-// renderHelpLine creates a context-aware help bar.
+func (m model) renderBody(w, h int) string {
+	if w <= 0 {
+		w = 80
+	}
+	if h <= 0 {
+		h = 6
+	}
+	base := blankCanvas(w, h)
+	for _, id := range layout.LeafOrder(m.bodyTree) {
+		frame, ok := m.frames[id]
+		if !ok {
+			continue
+		}
+		panel := m.pane(id)
+		active := id == m.focused
+		content := panel.View()
+		title := m.renderPaneTitle(id)
+		panelView := layout.RenderPanel(title, content, max(frame.W-4, 8), max(frame.H-2, 3), active)
+		base = layout.OverlayOnBase(base, panelView, frame.X, frame.Y)
+	}
+
+	if m.overlay == OverlayPicker {
+		if frame, ok := m.frames[panePomodoro]; ok {
+			pomo := m.pane(panePomodoro).(*pomodoro.Model)
+			overlayW := frame.W - 8
+			if overlayW > 50 {
+				overlayW = 50
+			}
+			if overlayW < 20 {
+				overlayW = 20
+			}
+			overlayH := frame.H - 4
+			if overlayH > 15 {
+				overlayH = 15
+			}
+			if overlayH < 4 {
+				overlayH = 4
+			}
+			overlayView := layout.RenderPanel("SELECT TASK", pomo.PickerView(), overlayW, overlayH, true)
+			x := frame.X + (frame.W-(overlayW+4))/2
+			y := frame.Y + (frame.H-(overlayH+2))/2
+			base = layout.OverlayOnBase(base, overlayView, x, y)
+		}
+	}
+
+	return base
+}
+
+func (m model) renderPaneTitle(id models.PaneID) string {
+	meta := m.paneMeta[id]
+	title := strings.ToUpper(meta.Name)
+	if meta.CWD != "" && meta.Type == models.PaneTypeShell {
+		title += " [" + meta.CWD + "]"
+	}
+	if id == m.focused {
+		if m.mode == ModeShell && meta.Type == models.PaneTypeShell {
+			title += " [active]"
+		} else {
+			title += " [focus]"
+		}
+	}
+	return title
+}
+
 func (m model) renderHelpLine(w int) string {
 	helpStyle := lipgloss.NewStyle().Foreground(styles.Subtle)
-	pomo := m.children[panelPomodoro].(*pomodoro.Model)
-	todoModel := m.children[panelTodo].(*todo.Model)
+	pomo := m.pane(panePomodoro).(*pomodoro.Model)
+	todoModel := m.pane(paneTodo).(*todo.Model)
+	focusedType := m.paneMeta[m.focused].Type
 
-	// Overlay: picker.
 	if m.overlay == OverlayPicker {
 		return helpStyle.Render("  [enter]select  [esc]skip")
 	}
-
-	// Overlay: todo.
-	if m.overlay == OverlayTodo {
-		if m.mode == ModeInput {
-			return helpStyle.Render("  [enter]confirm  [esc]cancel")
-		}
-		var left string
-		if todoModel.IsConfirmingDelete() {
-			left = "[y]es  [n]o -- Delete?"
-		} else {
-			left = "[a]dd [e]dit [d]el [space]done [shift+tab]list"
-		}
-		right := "[ctrl+t/esc]close"
-		return renderHelpBar(helpStyle, left, right, w)
+	if m.mode == ModeInput {
+		return helpStyle.Render("  [enter]confirm  [esc]cancel")
 	}
-
-	// Shell active mode.
 	if m.mode == ModeShell {
 		return helpStyle.Render("  [esc]normal  [ctrl+t]todo")
 	}
 
-	// Normal mode.
-	var left string
-	if pomo.CurrentPhase() == pomodoro.PhaseIdle {
-		left = "[s]tart pomo"
-	} else if pomo.IsPaused() {
-		left = "[p]resume [r]eset"
-	} else if pomo.IsRunning() {
-		left = "[p]ause [n]ext [r]eset"
+	left := "[tab]next  [ctrl+h/j/k/l]focus  [enter]activate"
+	switch focusedType {
+	case models.PaneTypeTodo:
+		if todoModel.IsConfirmingDelete() {
+			left = "[j/k]move  [y/n]delete"
+		} else {
+			left = "[j/k]move  [a]dd  [e]dit  [d]el  [space]done  [shift+tab]list"
+		}
+	case models.PaneTypePomodoro:
+		if pomo.CurrentPhase() == pomodoro.PhaseIdle {
+			left = "[s]tart pomo"
+		} else if pomo.IsPaused() {
+			left = "[p]resume  [r]eset"
+		} else {
+			left = "[p]ause  [n]ext  [r]eset"
+		}
+	case models.PaneTypeShell:
+		left = "[tab]next  [ctrl+h/j/k/l]focus  [enter]shell"
 	}
-
-	right := "[ctrl+t]todo  [enter]shell  [q]uit"
+	right := "[ctrl+t]todo  [q]uit"
 	return renderHelpBar(helpStyle, left, right, w)
 }
 
 func renderHelpBar(helpStyle lipgloss.Style, left, right string, w int) string {
 	leftRendered := helpStyle.Render("  " + left)
 	rightRendered := helpStyle.Render(right + "  ")
-
 	gap := w - lipgloss.Width(leftRendered) - lipgloss.Width(rightRendered)
 	if gap < 1 {
 		gap = 1
 	}
-
 	return leftRendered + strings.Repeat(" ", gap) + rightRendered
+}
+
+func (m *model) closeShellPanes() {
+	for id, meta := range m.paneMeta {
+		if meta.Type != models.PaneTypeShell {
+			continue
+		}
+		if sh, ok := m.pane(id).(*shell.Model); ok {
+			_ = sh.Close()
+		}
+	}
+}
+
+func blankCanvas(w, h int) string {
+	if w <= 0 || h <= 0 {
+		return ""
+	}
+	line := strings.Repeat(" ", w)
+	lines := make([]string, h)
+	for i := range lines {
+		lines[i] = line
+	}
+	return strings.Join(lines, "\n")
+}
+
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
