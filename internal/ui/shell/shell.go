@@ -39,6 +39,16 @@ type Model struct {
 	// View cache: only re-render when content changed.
 	viewDirty  bool
 	cachedView string
+
+	// scrollOffset is how many lines we have scrolled back into scrollback history.
+	// 0 = live view (bottom of output).
+	scrollOffset int
+
+	// Debounced PTY resize: store pending dims atomically so the timer goroutine
+	// can read them without a data race.
+	pendingW      atomic.Int32
+	pendingH      atomic.Int32
+	ptyResizeTimer *time.Timer
 }
 
 // New creates a new shell panel.
@@ -86,6 +96,7 @@ func (m *Model) startShell() tea.Cmd {
 		m.cmd = cmd
 		m.running = true
 		m.exited = false
+		m.scrollOffset = 0
 		m.viewDirty = true
 		m.cachedView = ""
 
@@ -142,6 +153,7 @@ func (m *Model) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 
 	case tea.KeyMsg:
 		if m.exited {
+			m.scrollOffset = 0
 			return m, m.startShell()
 		}
 		m.forwardKey(msg)
@@ -277,24 +289,39 @@ func (m *Model) forwardKey(msg tea.KeyMsg) {
 	}
 }
 
-// forwardMouse encodes a tea.MouseMsg as an SGR mouse sequence and writes
-// it to the PTY. Format: ESC [ < Cb ; Cx ; Cy M/m
-//
-// SGR sequences are only forwarded when the PTY application has enabled mouse
-// reporting (DEC modes 9/1000/1001/1002/1003). Without this guard, a plain
-// bash/zsh prompt would receive unintelligible escape bytes and show them as
-// garbage in the readline buffer.
+// forwardMouse handles mouse events. When the inner PTY application has enabled
+// mouse reporting, events are encoded as SGR sequences and forwarded. When mouse
+// reporting is off (plain shell prompt), wheel events scroll the view through the
+// scrollback buffer instead.
 func (m *Model) forwardMouse(msg tea.MouseMsg) {
 	if m.pty == nil {
-		return
-	}
-	// Only forward if the inner PTY app has enabled mouse reporting.
-	if m.vterm == nil || !m.vterm.IsMouseReporting() {
 		return
 	}
 
 	e := tea.MouseEvent(msg)
 
+	// When the inner app has NOT enabled mouse reporting, use wheel events for
+	// scrollback navigation rather than forwarding them as garbage bytes.
+	if !m.vterm.IsMouseReporting() {
+		switch e.Button {
+		case tea.MouseButtonWheelUp:
+			m.scrollOffset += 3
+			if max := m.vterm.ScrollbackLen(); m.scrollOffset > max {
+				m.scrollOffset = max
+			}
+			m.viewDirty = true
+		case tea.MouseButtonWheelDown:
+			m.scrollOffset -= 3
+			if m.scrollOffset < 0 {
+				m.scrollOffset = 0
+			}
+			m.viewDirty = true
+		}
+		return
+	}
+
+	// Mouse-reporting mode: forward as SGR escape sequence to PTY.
+	// Format: ESC [ < Cb ; Cx ; Cy M/m
 	var cb int
 	switch e.Button {
 	case tea.MouseButtonLeft:
@@ -342,6 +369,24 @@ func (m *Model) forwardMouse(msg tea.MouseMsg) {
 	m.pty.Write([]byte(seq)) //nolint:errcheck
 }
 
+// CursorPos returns the cursor's column (x) and row (y, 0-indexed) inside the
+// shell panel content area, plus whether the cursor should be shown. Returns
+// visible=false when the shell is not running, the cursor is hidden by the inner
+// app, or the view is scrolled back into history.
+func (m *Model) CursorPos() (x, y int, visible bool) {
+	if m.vterm == nil || !m.running {
+		return 0, 0, false
+	}
+	if m.scrollOffset > 0 {
+		return 0, 0, false
+	}
+	if m.vterm.IsCursorHidden() {
+		return 0, 0, false
+	}
+	pos := m.vterm.CursorPosition()
+	return pos.X, pos.Y, true
+}
+
 // View implements models.Panel.
 func (m *Model) View() string {
 	if m.vterm == nil {
@@ -351,7 +396,11 @@ func (m *Model) View() string {
 		return "Shell exited. Press any key to restart."
 	}
 	if m.viewDirty || m.cachedView == "" {
-		m.cachedView = m.vterm.Render()
+		if m.scrollOffset > 0 {
+			m.cachedView = m.vterm.RenderScrolled(m.scrollOffset, m.width, m.height)
+		} else {
+			m.cachedView = m.vterm.Render()
+		}
 		m.viewDirty = false
 	}
 	return m.cachedView
@@ -361,17 +410,36 @@ func (m *Model) View() string {
 func (m *Model) SetSize(width, height int) {
 	m.width = width
 	m.height = height
+	m.scrollOffset = 0 // reset scroll on resize
 	m.viewDirty = true
 	if m.vterm != nil {
 		m.vterm.Resize(width, height)
 	}
+
+	// Debounce PTY resize: store the target dimensions atomically and (re)start a
+	// short timer. Only the final size triggers SIGWINCH, preventing the shell from
+	// being interrupted on every pixel the user drags the window.
+	m.pendingW.Store(int32(width))
+	m.pendingH.Store(int32(height))
+	if m.ptyResizeTimer != nil {
+		m.ptyResizeTimer.Stop()
+	}
 	if m.pty != nil {
-		_ = m.pty.Resize(width, height)
+		pty := m.pty // capture pointer for timer goroutine
+		m.ptyResizeTimer = time.AfterFunc(80*time.Millisecond, func() {
+			w := int(m.pendingW.Load())
+			h := int(m.pendingH.Load())
+			_ = pty.Resize(w, h)
+			m.dirty.Store(true) // trigger a view refresh after the shell redraws
+		})
 	}
 }
 
 // Close cleans up the PTY and emulator resources.
 func (m *Model) Close() error {
+	if m.ptyResizeTimer != nil {
+		m.ptyResizeTimer.Stop()
+	}
 	if m.vterm != nil {
 		m.vterm.Close()
 	}

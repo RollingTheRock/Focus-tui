@@ -1,6 +1,7 @@
 package app
 
 import (
+	"fmt"
 	"strings"
 
 	"focus/internal/avatar"
@@ -274,11 +275,6 @@ func (m model) View() string {
 		return ""
 	}
 
-	// Return cached output if nothing changed since last render.
-	if m.vc.gen == m.viewGen && m.vc.output != "" {
-		return m.vc.output
-	}
-
 	w := m.common.Width
 	h := m.common.Height
 	if w <= 0 {
@@ -287,8 +283,39 @@ func (m model) View() string {
 	if h <= 0 {
 		h = 24
 	}
-
+	// Hoist dims so cursor positioning can use it even on cache hits.
 	dims := layout.ComputeBanner(w, h)
+
+	var result string
+	if m.vc.gen == m.viewGen && m.vc.output != "" {
+		result = m.vc.output
+	} else {
+		result = m.buildView(dims, w, h)
+		m.vc.output = result
+		m.vc.gen = m.viewGen
+	}
+
+	// Append cursor-show + cursor-position at the END of the rendered frame so
+	// the terminal cursor appears inside the embedded shell panel. This is not
+	// cached, so it is always freshly computed from the current cursor position.
+	if m.mode == ModeShell {
+		if sh, ok := m.children[panelShell].(*shell.Model); ok {
+			if cx, cy, vis := sh.CursorPos(); vis {
+				// Shell content starts at: row (HeaderH + 1 top-border), col 2 (left-border + space).
+				// ANSI cursor-position sequences are 1-indexed.
+				termRow := dims.HeaderH + 1 + cy + 1
+				termCol := 2 + cx + 1
+				result += fmt.Sprintf("\033[?25h\033[%d;%dH", termRow, termCol)
+			}
+		}
+	}
+
+	return result
+}
+
+// buildView assembles the full frame string. Separated from View so the cache
+// path can share the early-return without duplicating assembly logic.
+func (m model) buildView(dims layout.Dimensions, w, h int) string {
 
 	hdr := m.children[panelHeader].(*header.Model)
 	pomo := m.children[panelPomodoro].(*pomodoro.Model)
@@ -346,16 +373,12 @@ func (m model) View() string {
 	// 5. Context-aware help bar.
 	helpLine := m.renderHelpLine(w)
 
-	result := lipgloss.JoinVertical(lipgloss.Left,
+	return lipgloss.JoinVertical(lipgloss.Left,
 		headerView,
 		panelArea,
 		statsView,
 		helpLine,
 	)
-
-	m.vc.output = result
-	m.vc.gen = m.viewGen
-	return result
 }
 
 // renderHelpLine creates a context-aware help bar.

@@ -150,10 +150,12 @@ func RenderPanel(title, content string, w, h int, active bool) string {
 	var body strings.Builder
 	for _, line := range contentLines {
 		lineW := lipgloss.Width(line)
-		pad := w - lineW
-		if pad < 0 {
-			pad = 0
+		// Truncate lines that exceed the panel width to prevent layout overflow.
+		if lineW > w {
+			line = ansi.Truncate(line, w, "")
+			lineW = w
 		}
+		pad := w - lineW
 		body.WriteString(leftBorder + " " + line + strings.Repeat(" ", pad) + " " + rightBorder + "\n")
 	}
 
