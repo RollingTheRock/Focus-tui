@@ -54,6 +54,7 @@ type model struct {
 	bodyTree  *layout.TreeNode
 	frames    map[models.PaneID]models.PaneFrame
 	focused   models.PaneID
+	nextShell int
 
 	viewGen uint64
 	vc      *viewCache
@@ -81,8 +82,9 @@ func New(cfg config.Config, store models.Store) tea.Model {
 			layout.Leaf(paneShell),
 			layout.Split(layout.SplitVertical, 55, layout.Leaf(paneTodo), layout.Leaf(panePomodoro)),
 		),
-		focused: paneShell,
-		vc:      &viewCache{},
+		focused:   paneShell,
+		nextShell: 2,
+		vc:        &viewCache{},
 	}
 
 	m.registerPane(paneHeader, header.New(cfg, cm.Theme), models.PaneMeta{ID: paneHeader, Name: "Header", Type: models.PaneTypeHeader, Status: models.PaneStatusPassive})
@@ -269,6 +271,12 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.focusCycle(-1)
 		return m, nil
+	case "ctrl+\\":
+		return m.splitFocused(layout.SplitHorizontal)
+	case "ctrl+-":
+		return m.splitFocused(layout.SplitVertical)
+	case "ctrl+w":
+		return m.closeFocusedPane()
 	case "ctrl+h":
 		m.setFocus(layout.MoveFocus(m.focused, m.frames, layout.FocusLeft))
 		return m, nil
@@ -338,6 +346,80 @@ func (m *model) refreshPaneStatuses() {
 		}
 		m.paneMeta[id] = meta
 	}
+}
+
+func (m *model) nextShellPaneID() models.PaneID {
+	id := models.PaneID(fmt.Sprintf("shell-%d", m.nextShell))
+	m.nextShell++
+	return id
+}
+
+func (m *model) createShellPane() (models.PaneID, tea.Cmd) {
+	id := m.nextShellPaneID()
+	panel := shell.New(m.common)
+	meta := models.PaneMeta{
+		ID:     id,
+		Name:   fmt.Sprintf("Shell %d", m.nextShell-1),
+		Type:   models.PaneTypeShell,
+		CWD:    m.currentCWD(),
+		Status: models.PaneStatusIdle,
+	}
+	m.registerPane(id, panel, meta)
+	if frame, ok := m.frames[m.focused]; ok {
+		contentW := max(frame.W-4, 8)
+		contentH := max(frame.H-2, 3)
+		panel.SetSize(contentW, contentH)
+	}
+	return id, panel.Init()
+}
+
+func (m *model) currentCWD() string {
+	if meta, ok := m.paneMeta[m.focused]; ok && meta.CWD != "" {
+		return meta.CWD
+	}
+	cwd, _ := os.Getwd()
+	return cwd
+}
+
+func (m model) splitFocused(direction layout.SplitDirection) (tea.Model, tea.Cmd) {
+	newID, cmd := m.createShellPane()
+	m.bodyTree = layout.SplitLeaf(m.bodyTree, m.focused, newID, direction, true)
+	m.setFocus(newID)
+	m.updateSizes(m.common.Width, m.common.Height)
+	m.invalidateView()
+	return m, cmd
+}
+
+func (m model) closeFocusedPane() (tea.Model, tea.Cmd) {
+	order := layout.LeafOrder(m.bodyTree)
+	if len(order) <= 1 {
+		return m, nil
+	}
+	closing := m.focused
+	if sh, ok := m.pane(closing).(*shell.Model); ok {
+		_ = sh.Close()
+	}
+	m.bodyTree = layout.RemoveLeaf(m.bodyTree, closing)
+	delete(m.panes, closing)
+	delete(m.paneMeta, closing)
+	m.removePaneOrder(closing)
+	remaining := layout.LeafOrder(m.bodyTree)
+	if len(remaining) > 0 {
+		m.setFocus(remaining[0])
+	}
+	m.updateSizes(m.common.Width, m.common.Height)
+	m.invalidateView()
+	return m, nil
+}
+
+func (m *model) removePaneOrder(id models.PaneID) {
+	filtered := m.paneOrder[:0]
+	for _, existing := range m.paneOrder {
+		if existing != id {
+			filtered = append(filtered, existing)
+		}
+	}
+	m.paneOrder = filtered
 }
 
 func (m *model) focusCycle(delta int) {
@@ -566,7 +648,7 @@ func (m model) renderHelpLine(w int) string {
 	case models.PaneTypeShell:
 		left = "[tab]next  [ctrl+h/j/k/l]focus  [enter]shell"
 	}
-	right := "[ctrl+t]todo  [q]uit"
+	right := "[ctrl+\\/ctrl+-]split  [ctrl+w]close  [q]uit"
 	return renderHelpBar(helpStyle, left, right, w)
 }
 

@@ -173,3 +173,40 @@ func abs(n int) int {
 	}
 	return n
 }
+
+// SplitLeaf replaces a leaf with a branch containing the old leaf and a new one.
+func SplitLeaf(root *TreeNode, target, newID models.PaneID, direction SplitDirection, placeNewAfter bool) *TreeNode {
+	if root == nil {
+		return Leaf(newID)
+	}
+	if root.PaneID == target {
+		oldLeaf := Leaf(target)
+		newLeaf := Leaf(newID)
+		if placeNewAfter {
+			return Split(direction, 50, oldLeaf, newLeaf)
+		}
+		return Split(direction, 50, newLeaf, oldLeaf)
+	}
+	root.First = SplitLeaf(root.First, target, newID, direction, placeNewAfter)
+	root.Second = SplitLeaf(root.Second, target, newID, direction, placeNewAfter)
+	return root
+}
+
+// RemoveLeaf removes a leaf from the tree, collapsing parents with one child.
+func RemoveLeaf(root *TreeNode, target models.PaneID) *TreeNode {
+	if root == nil {
+		return nil
+	}
+	if root.PaneID == target {
+		return nil
+	}
+	root.First = RemoveLeaf(root.First, target)
+	root.Second = RemoveLeaf(root.Second, target)
+	if root.First == nil {
+		return root.Second
+	}
+	if root.Second == nil {
+		return root.First
+	}
+	return root
+}
