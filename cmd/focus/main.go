@@ -30,9 +30,9 @@ func main() {
 	_ = st.MarkOverdue()
 
 	m := app.New(cfg, st)
-	opts := []tea.ProgramOption{tea.WithAltScreen()}
-	if cfg.Shell.Mouse {
-		opts = append(opts, tea.WithMouseCellMotion())
+	opts := []tea.ProgramOption{
+		tea.WithAltScreen(),
+		tea.WithMouseCellMotion(),
 	}
 	p := tea.NewProgram(m, opts...)
 	if _, err := p.Run(); err != nil {

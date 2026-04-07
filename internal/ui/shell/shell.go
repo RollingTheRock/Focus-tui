@@ -279,8 +279,17 @@ func (m *Model) forwardKey(msg tea.KeyMsg) {
 
 // forwardMouse encodes a tea.MouseMsg as an SGR mouse sequence and writes
 // it to the PTY. Format: ESC [ < Cb ; Cx ; Cy M/m
+//
+// SGR sequences are only forwarded when the PTY application has enabled mouse
+// reporting (DEC modes 9/1000/1001/1002/1003). Without this guard, a plain
+// bash/zsh prompt would receive unintelligible escape bytes and show them as
+// garbage in the readline buffer.
 func (m *Model) forwardMouse(msg tea.MouseMsg) {
 	if m.pty == nil {
+		return
+	}
+	// Only forward if the inner PTY app has enabled mouse reporting.
+	if m.vterm == nil || !m.vterm.IsMouseReporting() {
 		return
 	}
 
