@@ -8,3 +8,7 @@
 .sidecar-start.sh
 .sidecar-base
 .td-root
+
+# Exported chat/session logs
+session-ses_*.md
+spec*.md

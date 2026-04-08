@@ -1,7 +1,13 @@
 # Focus TUI - 探索总结与开发计划
 
+> [归档说明]
+> 本文档沉淀的是项目早期围绕 dashboard、Todo、Pomodoro 的探索与分阶段实施计划。
+> 当前主线已迁移到“embedded shell + multi-pane layout + git/worktree + agent-aware workspace”。
+> 本文档不再作为当前开发排期依据，保留仅供历史参考。
+
 > 基于对 neofetch、taskwarrior、glow、lazygit 四个项目的深度分析
 > 日期: 2026-04-03
+
 
 ---
 

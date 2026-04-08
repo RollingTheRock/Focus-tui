@@ -25,6 +25,11 @@ type TreeNode struct {
 	Second    *TreeNode
 }
 
+const (
+	minHorizontalPaneWidth = 12
+	minVerticalPaneHeight  = 3
+)
+
 // Leaf creates a leaf node for a pane.
 func Leaf(id models.PaneID) *TreeNode {
 	return &TreeNode{PaneID: id}
@@ -59,31 +64,59 @@ func computeFrames(node *TreeNode, bounds models.PaneFrame, frames map[models.Pa
 		return
 	}
 
+	firstBounds, secondBounds := splitBounds(node, bounds)
+	switch node.Direction {
+	case SplitVertical:
+		computeFrames(node.First, firstBounds, frames)
+		computeFrames(node.Second, secondBounds, frames)
+	default:
+		computeFrames(node.First, firstBounds, frames)
+		computeFrames(node.Second, secondBounds, frames)
+	}
+}
+
+func splitBounds(node *TreeNode, bounds models.PaneFrame) (models.PaneFrame, models.PaneFrame) {
 	ratio := float64(node.Ratio) / 100
 	switch node.Direction {
 	case SplitVertical:
-		firstH := int(math.Round(float64(bounds.H) * ratio))
-		if firstH < 3 {
-			firstH = 3
-		}
-		if firstH > bounds.H-3 {
-			firstH = bounds.H - 3
-		}
-		secondH := bounds.H - firstH
-		computeFrames(node.First, models.PaneFrame{X: bounds.X, Y: bounds.Y, W: bounds.W, H: firstH}, frames)
-		computeFrames(node.Second, models.PaneFrame{X: bounds.X, Y: bounds.Y + firstH, W: bounds.W, H: secondH}, frames)
+		desiredFirst := int(math.Round(float64(bounds.H) * ratio))
+		firstH, secondH := splitSpan(bounds.H, desiredFirst, minVerticalPaneHeight)
+		return models.PaneFrame{X: bounds.X, Y: bounds.Y, W: bounds.W, H: firstH},
+			models.PaneFrame{X: bounds.X, Y: bounds.Y + firstH, W: bounds.W, H: secondH}
 	default:
-		firstW := int(math.Round(float64(bounds.W) * ratio))
-		if firstW < 12 {
-			firstW = 12
-		}
-		if firstW > bounds.W-12 {
-			firstW = bounds.W - 12
-		}
-		secondW := bounds.W - firstW
-		computeFrames(node.First, models.PaneFrame{X: bounds.X, Y: bounds.Y, W: firstW, H: bounds.H}, frames)
-		computeFrames(node.Second, models.PaneFrame{X: bounds.X + firstW, Y: bounds.Y, W: secondW, H: bounds.H}, frames)
+		desiredFirst := int(math.Round(float64(bounds.W) * ratio))
+		firstW, secondW := splitSpan(bounds.W, desiredFirst, minHorizontalPaneWidth)
+		return models.PaneFrame{X: bounds.X, Y: bounds.Y, W: firstW, H: bounds.H},
+			models.PaneFrame{X: bounds.X + firstW, Y: bounds.Y, W: secondW, H: bounds.H}
 	}
+}
+
+func splitSpan(total, desiredFirst, minSize int) (int, int) {
+	if total <= 0 {
+		return 0, 0
+	}
+	if total == 1 {
+		return 1, 0
+	}
+	if total < minSize*2 {
+		first := total / 2
+		if first < 1 {
+			first = 1
+		}
+		second := total - first
+		if second < 1 {
+			second = 1
+			first = total - second
+		}
+		return first, second
+	}
+	if desiredFirst < minSize {
+		desiredFirst = minSize
+	}
+	if desiredFirst > total-minSize {
+		desiredFirst = total - minSize
+	}
+	return desiredFirst, total - desiredFirst
 }
 
 // LeafOrder returns the visible leaves in traversal order.
@@ -200,6 +233,9 @@ func RemoveLeaf(root *TreeNode, target models.PaneID) *TreeNode {
 	if root.PaneID == target {
 		return nil
 	}
+	if root.PaneID != "" {
+		return root
+	}
 	root.First = RemoveLeaf(root.First, target)
 	root.Second = RemoveLeaf(root.Second, target)
 	if root.First == nil {
@@ -209,4 +245,63 @@ func RemoveLeaf(root *TreeNode, target models.PaneID) *TreeNode {
 		return root.First
 	}
 	return root
+}
+
+// AdjustSplitRatio updates the nearest matching split ancestor around target.
+// Delta is expressed in ratio points and is clamped against split size bounds.
+func AdjustSplitRatio(root *TreeNode, bounds models.PaneFrame, target models.PaneID, direction SplitDirection, delta int) bool {
+	if root == nil || target == "" || delta == 0 {
+		return false
+	}
+	_, changed := adjustSplitRatio(root, bounds, target, direction, delta)
+	return changed
+}
+
+func adjustSplitRatio(node *TreeNode, bounds models.PaneFrame, target models.PaneID, direction SplitDirection, delta int) (bool, bool) {
+	if node == nil {
+		return false, false
+	}
+	if node.PaneID != "" {
+		return node.PaneID == target, false
+	}
+
+	firstBounds, secondBounds := splitBounds(node, bounds)
+	containsFirst, changed := adjustSplitRatio(node.First, firstBounds, target, direction, delta)
+	if changed {
+		return true, true
+	}
+	containsSecond, changed := adjustSplitRatio(node.Second, secondBounds, target, direction, delta)
+	if changed {
+		return true, true
+	}
+
+	containsTarget := containsFirst || containsSecond
+	if !containsTarget || node.Direction != direction {
+		return containsTarget, false
+	}
+
+	span := bounds.W
+	minSize := minHorizontalPaneWidth
+	if direction == SplitVertical {
+		span = bounds.H
+		minSize = minVerticalPaneHeight
+	}
+	if span <= 1 {
+		return true, false
+	}
+
+	desiredFirst := int(math.Round(float64(span) * float64(node.Ratio+delta) / 100))
+	first, _ := splitSpan(span, desiredFirst, minSize)
+	newRatio := int(math.Round(float64(first) * 100 / float64(span)))
+	if newRatio <= 0 {
+		newRatio = 1
+	}
+	if newRatio >= 100 {
+		newRatio = 99
+	}
+	if newRatio == node.Ratio {
+		return true, false
+	}
+	node.Ratio = newRatio
+	return true, true
 }

@@ -26,6 +26,8 @@ const (
 	paneTodo     models.PaneID = "todo-main"
 	panePomodoro models.PaneID = "pomodoro-main"
 	paneFooter   models.PaneID = "footer"
+
+	splitRatioStep = 5
 )
 
 // avatarRenderedMsg carries the pre-rendered avatar string from chafa.
@@ -262,6 +264,14 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "q", "ctrl+c":
 		m.closeShellPanes()
 		return m, tea.Quit
+	case "ctrl+shift+left":
+		return m.adjustFocusedSplit(layout.FocusLeft)
+	case "ctrl+shift+right":
+		return m.adjustFocusedSplit(layout.FocusRight)
+	case "ctrl+shift+up":
+		return m.adjustFocusedSplit(layout.FocusUp)
+	case "ctrl+shift+down":
+		return m.adjustFocusedSplit(layout.FocusDown)
 	case "tab":
 		m.focusCycle(1)
 		return m, nil
@@ -391,6 +401,34 @@ func (m model) splitFocused(direction layout.SplitDirection) (tea.Model, tea.Cmd
 	return m, cmd
 }
 
+func (m model) adjustFocusedSplit(direction layout.FocusDirection) (tea.Model, tea.Cmd) {
+	if m.focused == "" {
+		return m, nil
+	}
+
+	splitDirection := layout.SplitHorizontal
+	delta := splitRatioStep
+	switch direction {
+	case layout.FocusLeft:
+		delta = -splitRatioStep
+	case layout.FocusRight:
+		delta = splitRatioStep
+	case layout.FocusUp:
+		splitDirection = layout.SplitVertical
+		delta = -splitRatioStep
+	case layout.FocusDown:
+		splitDirection = layout.SplitVertical
+		delta = splitRatioStep
+	}
+
+	if !layout.AdjustSplitRatio(m.bodyTree, m.bodyBounds(), m.focused, splitDirection, delta) {
+		return m, nil
+	}
+	m.updateSizes(m.common.Width, m.common.Height)
+	m.invalidateView()
+	return m, nil
+}
+
 func (m model) closeFocusedPane() (tea.Model, tea.Cmd) {
 	meta, ok := m.paneMeta[m.focused]
 	if !ok || !meta.Closable {
@@ -471,11 +509,7 @@ func (m *model) updateSizes(w, h int) {
 	m.pane(paneHeader).SetSize(w, dims.HeaderH)
 	m.pane(paneFooter).SetSize(w, 1)
 
-	bodyHeight := h - dims.HeaderH - 1 - 1
-	if bodyHeight < 6 {
-		bodyHeight = 6
-	}
-	m.frames = layout.ComputeFrames(m.bodyTree, models.PaneFrame{X: 0, Y: 0, W: w, H: bodyHeight})
+	m.frames = layout.ComputeFrames(m.bodyTree, m.bodyBounds())
 	for id, frame := range m.frames {
 		contentW := frame.W - 4
 		if contentW < 8 {
@@ -487,6 +521,23 @@ func (m *model) updateSizes(w, h int) {
 		}
 		m.pane(id).SetSize(contentW, contentH)
 	}
+}
+
+func (m model) bodyBounds() models.PaneFrame {
+	w := m.common.Width
+	h := m.common.Height
+	if w <= 0 {
+		w = 80
+	}
+	if h <= 0 {
+		h = 24
+	}
+	dims := layout.ComputeBanner(w, h)
+	bodyHeight := h - dims.HeaderH - 1 - 1
+	if bodyHeight < 6 {
+		bodyHeight = 6
+	}
+	return models.PaneFrame{X: 0, Y: 0, W: w, H: bodyHeight}
 }
 
 // View implements tea.Model.
@@ -656,7 +707,7 @@ func (m model) renderHelpLine(w int) string {
 	case models.PaneTypeShell:
 		left = "[tab]next  [ctrl+h/j/k/l]focus  [enter]shell"
 	}
-	right := "[ctrl+\\/ctrl+-]split"
+	right := "[ctrl+\\/ctrl+-]split  [ctrl+shift+arrows]resize"
 	if meta, ok := m.paneMeta[m.focused]; ok && meta.Closable {
 		right += "  [ctrl+w]close"
 	}
