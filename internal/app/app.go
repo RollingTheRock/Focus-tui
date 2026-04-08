@@ -3,6 +3,7 @@ package app
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"focus/internal/avatar"
@@ -90,7 +91,7 @@ func New(cfg config.Config, store models.Store) tea.Model {
 	}
 
 	m.registerPane(paneHeader, header.New(cfg, cm.Theme), models.PaneMeta{ID: paneHeader, Name: "Header", Type: models.PaneTypeHeader, Status: models.PaneStatusPassive, Closable: false})
-	m.registerPane(paneShell, shell.New(cm), models.PaneMeta{ID: paneShell, Name: "Shell", Type: models.PaneTypeShell, CWD: cwd, Status: models.PaneStatusReady, Closable: true})
+	m.registerPane(paneShell, shell.New(cm, paneShell), models.PaneMeta{ID: paneShell, Name: "Shell", Type: models.PaneTypeShell, CWD: cwd, Status: models.PaneStatusStarting, Closable: true})
 	m.registerPane(paneTodo, todo.New(cm), models.PaneMeta{ID: paneTodo, Name: "Todo", Type: models.PaneTypeTodo, Status: models.PaneStatusIdle, Closable: false})
 	m.registerPane(panePomodoro, pomodoro.New(cm), models.PaneMeta{ID: panePomodoro, Name: "Pomodoro", Type: models.PaneTypePomodoro, Status: models.PaneStatusIdle, Closable: false})
 	m.registerPane(paneFooter, footer.New(cm), models.PaneMeta{ID: paneFooter, Name: "Footer", Type: models.PaneTypeFooter, Status: models.PaneStatusPassive, Closable: false})
@@ -170,6 +171,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, ft.Refresh()
 		}
 
+	case shell.StartedMsg:
+		m.invalidateView()
+		return m.routeToPane(msg.PaneID, msg)
+
+	case shell.RefreshMsg:
+		m.invalidateView()
+		return m.routeToPane(msg.PaneID, msg)
+
+	case shell.ExitedMsg:
+		m.invalidateView()
+		return m.routeToPane(msg.PaneID, msg)
+
 	case tea.WindowSizeMsg:
 		m.common.Width = msg.Width
 		m.common.Height = msg.Height
@@ -186,6 +199,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, cmd)
 		}
 	}
+	m.refreshPaneStatuses()
 	return m, tea.Batch(cmds...)
 }
 
@@ -306,6 +320,9 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.paneMeta[m.focused].Type == models.PaneTypeShell {
 			m.mode = ModeShell
 			m.refreshPaneStatuses()
+			if m.paneMeta[m.focused].Status == models.PaneStatusExited {
+				return m.routeToPane(m.focused, msg)
+			}
 			return m, nil
 		}
 	}
@@ -340,12 +357,10 @@ func (m *model) refreshPaneStatuses() {
 		case models.PaneTypeHeader, models.PaneTypeFooter:
 			meta.Status = models.PaneStatusPassive
 		case models.PaneTypeShell:
-			if id == m.focused && m.mode == ModeShell {
-				meta.Status = models.PaneStatusActive
-			} else if id == m.focused {
-				meta.Status = models.PaneStatusReady
+			if sh, ok := m.pane(id).(*shell.Model); ok {
+				meta.Status = sh.SessionStatus()
 			} else {
-				meta.Status = models.PaneStatusIdle
+				meta.Status = models.PaneStatusStarting
 			}
 		default:
 			if id == m.focused {
@@ -366,13 +381,13 @@ func (m *model) nextShellPaneID() models.PaneID {
 
 func (m *model) createShellPane() (models.PaneID, tea.Cmd) {
 	id := m.nextShellPaneID()
-	panel := shell.New(m.common)
+	panel := shell.New(m.common, id)
 	meta := models.PaneMeta{
 		ID:       id,
 		Name:     fmt.Sprintf("Shell %d", m.nextShell-1),
 		Type:     models.PaneTypeShell,
 		CWD:      m.currentCWD(),
-		Status:   models.PaneStatusIdle,
+		Status:   models.PaneStatusStarting,
 		Closable: true,
 	}
 	m.registerPane(id, panel, meta)
@@ -506,6 +521,7 @@ func (m model) routeToPane(id models.PaneID, msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	newPanel, cmd := panel.Update(msg)
 	m.setPane(id, newPanel)
+	m.refreshPaneStatuses()
 	return m, cmd
 }
 
@@ -660,21 +676,7 @@ func (m model) renderBody(w, h int) string {
 
 func (m model) renderPaneTitle(id models.PaneID) string {
 	meta := m.paneMeta[id]
-	title := strings.ToUpper(meta.Name)
-	if !meta.Closable && (meta.Type == models.PaneTypeTodo || meta.Type == models.PaneTypePomodoro) {
-		title += " [fixed]"
-	}
-	if meta.CWD != "" && meta.Type == models.PaneTypeShell {
-		title += " [" + meta.CWD + "]"
-	}
-	if id == m.focused {
-		if m.mode == ModeShell && meta.Type == models.PaneTypeShell {
-			title += " [active]"
-		} else {
-			title += " [focus]"
-		}
-	}
-	return title
+	return formatPaneTitle(meta, id == m.focused, m.mode == ModeShell && meta.Type == models.PaneTypeShell)
 }
 
 func (m model) renderHelpLine(w int) string {
@@ -690,7 +692,7 @@ func (m model) renderHelpLine(w int) string {
 		return helpStyle.Render("  [enter]confirm  [esc]cancel")
 	}
 	if m.mode == ModeShell {
-		return helpStyle.Render("  [esc]normal  [ctrl+t]todo")
+		return helpStyle.Render("  [esc]normal  [ctrl+t]todo  [shell input active]")
 	}
 
 	left := "[tab]next  [ctrl+h/j/k/l]focus  [enter]activate"
@@ -710,7 +712,14 @@ func (m model) renderHelpLine(w int) string {
 			left = "[p]ause  [n]ext  [r]eset"
 		}
 	case models.PaneTypeShell:
-		left = "[tab]next  [ctrl+h/j/k/l]focus  [enter]shell"
+		switch m.paneMeta[m.focused].Status {
+		case models.PaneStatusExited:
+			left = "[tab]next  [ctrl+h/j/k/l]focus  [enter]restart shell"
+		case models.PaneStatusStarting:
+			left = "[tab]next  [ctrl+h/j/k/l]focus  [shell starting]"
+		default:
+			left = "[tab]next  [ctrl+h/j/k/l]focus  [enter]shell"
+		}
 	}
 	right := "[ctrl+\\/ctrl+-]split  [ctrl+shift+arrows]resize"
 	if meta, ok := m.paneMeta[m.focused]; ok && meta.Closable {
@@ -758,4 +767,88 @@ func max(a, b int) int {
 		return a
 	}
 	return b
+}
+
+func formatPaneTitle(meta models.PaneMeta, focused bool, shellActive bool) string {
+	title := strings.ToUpper(meta.Name)
+	if meta.CWD != "" && meta.Type == models.PaneTypeShell {
+		title += " [" + shortenCWD(meta.CWD) + "]"
+	}
+	if badge := paneStatusBadge(meta); badge != "" {
+		title += " [" + badge + "]"
+	}
+	if focused {
+		if shellActive {
+			title += " [active]"
+		} else {
+			title += " [focus]"
+		}
+	}
+	return title
+}
+
+func paneStatusBadge(meta models.PaneMeta) string {
+	switch meta.Type {
+	case models.PaneTypeShell:
+		switch meta.Status {
+		case models.PaneStatusStarting, models.PaneStatusRunning, models.PaneStatusExited:
+			return string(meta.Status)
+		}
+	case models.PaneTypeTodo, models.PaneTypePomodoro:
+		if !meta.Closable {
+			return "fixed"
+		}
+	}
+	return ""
+}
+
+func shortenCWD(cwd string) string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		home = ""
+	}
+	return shortenPath(cwd, home)
+}
+
+func shortenPath(path, home string) string {
+	if path == "" {
+		return ""
+	}
+	cleaned := filepath.Clean(path)
+	if home != "" {
+		home = filepath.Clean(home)
+		if cleaned == home {
+			cleaned = "~"
+		} else if strings.HasPrefix(cleaned, home+string(os.PathSeparator)) {
+			cleaned = "~" + strings.TrimPrefix(cleaned, home)
+		}
+	}
+	if cleaned == string(os.PathSeparator) || cleaned == "~" {
+		return cleaned
+	}
+	if strings.HasPrefix(cleaned, "~"+string(os.PathSeparator)) {
+		return shortenSegments("~", strings.TrimPrefix(cleaned, "~"+string(os.PathSeparator)))
+	}
+	if strings.HasPrefix(cleaned, string(os.PathSeparator)) {
+		return shortenSegments(string(os.PathSeparator), strings.TrimPrefix(cleaned, string(os.PathSeparator)))
+	}
+	return shortenSegments("", cleaned)
+}
+
+func shortenSegments(prefix, rest string) string {
+	parts := strings.Split(rest, string(os.PathSeparator))
+	if len(parts) <= 2 {
+		if prefix == "" {
+			return rest
+		}
+		return prefix + string(os.PathSeparator) + rest
+	}
+	short := filepath.Join("...", parts[len(parts)-2], parts[len(parts)-1])
+	if prefix == "" {
+		return short
+	}
+	if prefix == "~" {
+		return filepath.Join("~", short)
+	}
+	return prefix + short
 }

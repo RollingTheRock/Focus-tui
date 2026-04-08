@@ -18,10 +18,13 @@ const (
 type PaneStatus string
 
 const (
-	PaneStatusReady   PaneStatus = "ready"
-	PaneStatusActive  PaneStatus = "active"
-	PaneStatusIdle    PaneStatus = "idle"
-	PaneStatusPassive PaneStatus = "passive"
+	PaneStatusStarting PaneStatus = "starting"
+	PaneStatusRunning  PaneStatus = "running"
+	PaneStatusExited   PaneStatus = "exited"
+	PaneStatusReady    PaneStatus = "ready"
+	PaneStatusActive   PaneStatus = "active"
+	PaneStatusIdle     PaneStatus = "idle"
+	PaneStatusPassive  PaneStatus = "passive"
 )
 
 // PaneMeta stores app-level metadata for routing and titles.

@@ -15,13 +15,19 @@ import (
 	"github.com/charmbracelet/x/xpty"
 )
 
+const shellRefreshInterval = 33 * time.Millisecond
+
 // Messages for the Bubbletea event loop.
-type shellStartedMsg struct{}
-type shellRefreshMsg struct{}
-type shellExitedMsg struct{ err error }
+type StartedMsg struct{ PaneID models.PaneID }
+type RefreshMsg struct{ PaneID models.PaneID }
+type ExitedMsg struct {
+	PaneID models.PaneID
+	Err    error
+}
 
 // Model implements models.Panel for an embedded terminal shell.
 type Model struct {
+	id     models.PaneID
 	common *models.CommonModel
 	width  int
 	height int
@@ -46,14 +52,15 @@ type Model struct {
 
 	// Debounced PTY resize: store pending dims atomically so the timer goroutine
 	// can read them without a data race.
-	pendingW      atomic.Int32
-	pendingH      atomic.Int32
+	pendingW       atomic.Int32
+	pendingH       atomic.Int32
 	ptyResizeTimer *time.Timer
 }
 
 // New creates a new shell panel.
-func New(cm *models.CommonModel) *Model {
+func New(cm *models.CommonModel, id models.PaneID) *Model {
 	return &Model{
+		id:     id,
 		common: cm,
 		width:  80,
 		height: 24,
@@ -69,7 +76,7 @@ func (m *Model) startShell() tea.Cmd {
 	return func() tea.Msg {
 		p, err := xpty.NewPty(m.width, m.height)
 		if err != nil {
-			return shellExitedMsg{err: err}
+			return ExitedMsg{PaneID: m.id, Err: err}
 		}
 
 		vtm := vt.NewSafeEmulator(m.width, m.height)
@@ -88,7 +95,7 @@ func (m *Model) startShell() tea.Cmd {
 
 		if err := p.Start(cmd); err != nil {
 			p.Close()
-			return shellExitedMsg{err: err}
+			return ExitedMsg{PaneID: m.id, Err: err}
 		}
 
 		m.pty = p
@@ -100,7 +107,7 @@ func (m *Model) startShell() tea.Cmd {
 		m.viewDirty = true
 		m.cachedView = ""
 
-		return shellStartedMsg{}
+		return StartedMsg{PaneID: m.id}
 	}
 }
 
@@ -113,7 +120,7 @@ func (m *Model) readPtyLoop() tea.Cmd {
 		for {
 			n, err := m.pty.Read(buf)
 			if err != nil {
-				return shellExitedMsg{err: err}
+				return ExitedMsg{PaneID: m.id, Err: err}
 			}
 			m.vterm.Write(buf[:n])
 			m.dirty.Store(true)
@@ -121,21 +128,27 @@ func (m *Model) readPtyLoop() tea.Cmd {
 	}
 }
 
-// shellRefreshCmd returns a tick command that fires every 16ms (~62fps).
+// shellRefreshCmd returns a tick command that fires every 33ms (~30fps).
 // On each tick, Bubbletea calls Update → View, picking up any dirty output.
 func (m *Model) shellRefreshCmd() tea.Cmd {
-	return tea.Tick(16*time.Millisecond, func(t time.Time) tea.Msg {
-		return shellRefreshMsg{}
+	return tea.Tick(shellRefreshInterval, func(t time.Time) tea.Msg {
+		return RefreshMsg{PaneID: m.id}
 	})
 }
 
 // Update implements models.Panel.
 func (m *Model) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 	switch msg := msg.(type) {
-	case shellStartedMsg:
+	case StartedMsg:
+		if msg.PaneID != m.id {
+			return m, nil
+		}
 		return m, tea.Batch(m.readPtyLoop(), m.shellRefreshCmd())
 
-	case shellRefreshMsg:
+	case RefreshMsg:
+		if msg.PaneID != m.id {
+			return m, nil
+		}
 		if !m.running {
 			return m, nil
 		}
@@ -145,15 +158,23 @@ func (m *Model) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 		}
 		return m, m.shellRefreshCmd()
 
-	case shellExitedMsg:
+	case ExitedMsg:
+		if msg.PaneID != m.id {
+			return m, nil
+		}
 		m.running = false
 		m.exited = true
+		m.pty = nil
+		m.cmd = nil
 		m.viewDirty = true
 		return m, nil
 
 	case tea.KeyMsg:
 		if m.exited {
+			m.exited = false
+			m.running = false
 			m.scrollOffset = 0
+			m.viewDirty = true
 			return m, m.startShell()
 		}
 		m.forwardKey(msg)
@@ -385,6 +406,17 @@ func (m *Model) CursorPos() (x, y int, visible bool) {
 	}
 	pos := m.vterm.CursorPosition()
 	return pos.X, pos.Y, true
+}
+
+// SessionStatus reports the shell lifecycle state for pane metadata.
+func (m *Model) SessionStatus() models.PaneStatus {
+	if m.exited {
+		return models.PaneStatusExited
+	}
+	if m.running {
+		return models.PaneStatusRunning
+	}
+	return models.PaneStatusStarting
 }
 
 // View implements models.Panel.
