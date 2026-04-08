@@ -121,6 +121,11 @@ func RenderPanel(title, content string, w, h int, active bool) string {
 	tc := lipgloss.NewStyle().Foreground(styles.Accent).Bold(true)
 
 	totalW := w + 4 // border + padding on each side
+	maxTitleWidth := totalW - 6
+	if maxTitleWidth < 1 {
+		maxTitleWidth = 1
+	}
+	title = ansi.Truncate(title, maxTitleWidth, "…")
 
 	// Build top border with embedded title.
 	titleRendered := tc.Render(" " + title + " ")

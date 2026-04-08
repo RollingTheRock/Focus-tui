@@ -51,7 +51,7 @@ func TestFormatPaneTitleIncludesShellStatusAndFocus(t *testing.T) {
 		Status: models.PaneStatusRunning,
 	}
 
-	got := formatPaneTitle(meta, true, false)
+	got := formatPaneTitle(meta, true, false, 56)
 	want := "SHELL 2 [/.../projects/focus-tui] [running] [focus]"
 	if got != want {
 		t.Fatalf("expected %q, got %q", want, got)
@@ -61,7 +61,7 @@ func TestFormatPaneTitleIncludesShellStatusAndFocus(t *testing.T) {
 func TestFormatPaneTitleUsesFixedBadgeForNativePane(t *testing.T) {
 	meta := models.PaneMeta{Name: "Todo", Type: models.PaneTypeTodo, Closable: false}
 
-	got := formatPaneTitle(meta, false, false)
+	got := formatPaneTitle(meta, false, false, 20)
 	want := "TODO [fixed]"
 	if got != want {
 		t.Fatalf("expected %q, got %q", want, got)
@@ -71,8 +71,23 @@ func TestFormatPaneTitleUsesFixedBadgeForNativePane(t *testing.T) {
 func TestFormatPaneTitleUsesActiveForShellMode(t *testing.T) {
 	meta := models.PaneMeta{Name: "Shell", Type: models.PaneTypeShell, Status: models.PaneStatusRunning}
 
-	got := formatPaneTitle(meta, true, true)
+	got := formatPaneTitle(meta, true, true, 28)
 	want := "SHELL [running] [active]"
+	if got != want {
+		t.Fatalf("expected %q, got %q", want, got)
+	}
+}
+
+func TestFormatPaneTitleDropsCWDWhenPaneIsNarrow(t *testing.T) {
+	meta := models.PaneMeta{
+		Name:   "Shell 2",
+		Type:   models.PaneTypeShell,
+		CWD:    "/home/dev/projects/focus-tui",
+		Status: models.PaneStatusRunning,
+	}
+
+	got := formatPaneTitle(meta, true, false, 18)
+	want := "SHELL 2 [focus]"
 	if got != want {
 		t.Fatalf("expected %q, got %q", want, got)
 	}

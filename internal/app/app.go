@@ -278,13 +278,13 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "q", "ctrl+c":
 		m.closeShellPanes()
 		return m, tea.Quit
-	case "ctrl+shift+left":
+	case "ctrl+left", "ctrl+shift+left":
 		return m.adjustFocusedSplit(layout.FocusLeft)
-	case "ctrl+shift+right":
+	case "ctrl+right", "ctrl+shift+right":
 		return m.adjustFocusedSplit(layout.FocusRight)
-	case "ctrl+shift+up":
+	case "ctrl+up", "ctrl+shift+up":
 		return m.adjustFocusedSplit(layout.FocusUp)
-	case "ctrl+shift+down":
+	case "ctrl+down", "ctrl+shift+down":
 		return m.adjustFocusedSplit(layout.FocusDown)
 	case "tab":
 		m.focusCycle(1)
@@ -642,7 +642,7 @@ func (m model) renderBody(w, h int) string {
 		panel := m.pane(id)
 		active := id == m.focused
 		content := panel.View()
-		title := m.renderPaneTitle(id)
+		title := m.renderPaneTitle(id, max(frame.W-4, 8))
 		panelView := layout.RenderPanel(title, content, max(frame.W-4, 8), max(frame.H-2, 3), active)
 		base = layout.OverlayOnBase(base, panelView, frame.X, frame.Y)
 	}
@@ -674,9 +674,9 @@ func (m model) renderBody(w, h int) string {
 	return base
 }
 
-func (m model) renderPaneTitle(id models.PaneID) string {
+func (m model) renderPaneTitle(id models.PaneID, contentWidth int) string {
 	meta := m.paneMeta[id]
-	return formatPaneTitle(meta, id == m.focused, m.mode == ModeShell && meta.Type == models.PaneTypeShell)
+	return formatPaneTitle(meta, id == m.focused, m.mode == ModeShell && meta.Type == models.PaneTypeShell, contentWidth)
 }
 
 func (m model) renderHelpLine(w int) string {
@@ -721,7 +721,7 @@ func (m model) renderHelpLine(w int) string {
 			left = "[tab]next  [ctrl+h/j/k/l]focus  [enter]shell"
 		}
 	}
-	right := "[ctrl+\\/ctrl+-]split  [ctrl+shift+arrows]resize"
+	right := "[ctrl+\\/ctrl+-]split  [ctrl+arrows]resize"
 	if meta, ok := m.paneMeta[m.focused]; ok && meta.Closable {
 		right += "  [ctrl+w]close"
 	}
@@ -769,20 +769,57 @@ func max(a, b int) int {
 	return b
 }
 
-func formatPaneTitle(meta models.PaneMeta, focused bool, shellActive bool) string {
-	title := strings.ToUpper(meta.Name)
-	if meta.CWD != "" && meta.Type == models.PaneTypeShell {
-		title += " [" + shortenCWD(meta.CWD) + "]"
-	}
-	if badge := paneStatusBadge(meta); badge != "" {
-		title += " [" + badge + "]"
-	}
+func formatPaneTitle(meta models.PaneMeta, focused bool, shellActive bool, contentWidth int) string {
+	name := strings.ToUpper(meta.Name)
+	badge := paneStatusBadge(meta)
+	focusBadge := ""
 	if focused {
 		if shellActive {
-			title += " [active]"
+			focusBadge = "active"
 		} else {
-			title += " [focus]"
+			focusBadge = "focus"
 		}
+	}
+
+	var candidates []string
+	if meta.Type == models.PaneTypeShell && meta.CWD != "" {
+		cwd := shortenCWD(meta.CWD)
+		candidates = append(candidates,
+			composePaneTitle(name, cwd, badge, focusBadge),
+			composePaneTitle(name, "", badge, focusBadge),
+			composePaneTitle(name, "", "", focusBadge),
+			name,
+		)
+	} else {
+		candidates = append(candidates,
+			composePaneTitle(name, "", badge, focusBadge),
+			composePaneTitle(name, "", "", focusBadge),
+			name,
+		)
+	}
+
+	maxTitleWidth := contentWidth + 1
+	if maxTitleWidth < 8 {
+		maxTitleWidth = 8
+	}
+	for _, candidate := range candidates {
+		if lipgloss.Width(candidate) <= maxTitleWidth {
+			return candidate
+		}
+	}
+	return candidates[len(candidates)-1]
+}
+
+func composePaneTitle(name, cwd, badge, focusBadge string) string {
+	title := name
+	if cwd != "" {
+		title += " [" + cwd + "]"
+	}
+	if badge != "" {
+		title += " [" + badge + "]"
+	}
+	if focusBadge != "" {
+		title += " [" + focusBadge + "]"
 	}
 	return title
 }

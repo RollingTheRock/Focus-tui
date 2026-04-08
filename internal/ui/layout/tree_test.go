@@ -176,3 +176,23 @@ func TestCloseFocusFallbackChoosesClosestPaneAcrossDirections(t *testing.T) {
 		t.Fatalf("expected closest right neighbor, got %q", got)
 	}
 }
+
+func TestComputeFramesFourPaneGridStaysUsable(t *testing.T) {
+	root := Split(
+		SplitHorizontal,
+		50,
+		Split(SplitVertical, 50, Leaf("a"), Leaf("b")),
+		Split(SplitVertical, 50, Leaf("c"), Leaf("d")),
+	)
+
+	frames := ComputeFrames(root, models.PaneFrame{X: 0, Y: 0, W: 120, H: 32})
+	for _, id := range []models.PaneID{"a", "b", "c", "d"} {
+		frame := frames[id]
+		if frame.W < 24 {
+			t.Fatalf("expected pane %q width >= 24, got %d", id, frame.W)
+		}
+		if frame.H < 6 {
+			t.Fatalf("expected pane %q height >= 6, got %d", id, frame.H)
+		}
+	}
+}
