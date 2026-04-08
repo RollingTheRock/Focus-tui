@@ -152,3 +152,27 @@ func TestAdjustSplitRatioClampsToMinimumPaneSize(t *testing.T) {
 		t.Fatalf("expected ratio to remain 50, got %d", root.Ratio)
 	}
 }
+
+func TestCloseFocusFallbackPrefersAdjacentPane(t *testing.T) {
+	frames := map[models.PaneID]models.PaneFrame{
+		"left":    {X: 0, Y: 0, W: 20, H: 20},
+		"closing": {X: 20, Y: 0, W: 20, H: 20},
+		"right":   {X: 40, Y: 0, W: 20, H: 20},
+	}
+
+	if got := CloseFocusFallback("closing", frames); got != "left" {
+		t.Fatalf("expected left neighbor fallback, got %q", got)
+	}
+}
+
+func TestCloseFocusFallbackChoosesClosestPaneAcrossDirections(t *testing.T) {
+	frames := map[models.PaneID]models.PaneFrame{
+		"closing": {X: 20, Y: 10, W: 20, H: 20},
+		"right":   {X: 40, Y: 10, W: 20, H: 20},
+		"down":    {X: 20, Y: 40, W: 20, H: 20},
+	}
+
+	if got := CloseFocusFallback("closing", frames); got != "right" {
+		t.Fatalf("expected closest right neighbor, got %q", got)
+	}
+}

@@ -200,6 +200,64 @@ func MoveFocus(current models.PaneID, frames map[models.PaneID]models.PaneFrame,
 	return options[0].id
 }
 
+// CloseFocusFallback picks the closest neighboring pane for focus after a pane closes.
+func CloseFocusFallback(current models.PaneID, frames map[models.PaneID]models.PaneFrame) models.PaneID {
+	currentFrame, ok := frames[current]
+	if !ok {
+		return current
+	}
+
+	directions := []FocusDirection{FocusLeft, FocusRight, FocusUp, FocusDown}
+	bestID := current
+	bestScore := 0
+	found := false
+
+	for _, direction := range directions {
+		candidate := MoveFocus(current, frames, direction)
+		if candidate == current {
+			continue
+		}
+		score := closeFallbackScore(currentFrame, frames[candidate], direction)
+		if !found || score < bestScore {
+			bestID = candidate
+			bestScore = score
+			found = true
+		}
+	}
+
+	return bestID
+}
+
+func closeFallbackScore(current, candidate models.PaneFrame, direction FocusDirection) int {
+	switch direction {
+	case FocusLeft:
+		return axisGap(current.X, candidate.X+candidate.W)*1000 + rangeGap(current.Y, current.Y+current.H, candidate.Y, candidate.Y+candidate.H)
+	case FocusRight:
+		return axisGap(candidate.X, current.X+current.W)*1000 + rangeGap(current.Y, current.Y+current.H, candidate.Y, candidate.Y+candidate.H)
+	case FocusUp:
+		return axisGap(current.Y, candidate.Y+candidate.H)*1000 + rangeGap(current.X, current.X+current.W, candidate.X, candidate.X+candidate.W)
+	default:
+		return axisGap(candidate.Y, current.Y+current.H)*1000 + rangeGap(current.X, current.X+current.W, candidate.X, candidate.X+candidate.W)
+	}
+}
+
+func axisGap(start, end int) int {
+	if start <= end {
+		return 0
+	}
+	return start - end
+}
+
+func rangeGap(startA, endA, startB, endB int) int {
+	if endA <= startB {
+		return startB - endA
+	}
+	if endB <= startA {
+		return startA - endB
+	}
+	return 0
+}
+
 func abs(n int) int {
 	if n < 0 {
 		return -n

@@ -439,6 +439,7 @@ func (m model) closeFocusedPane() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	closing := m.focused
+	fallback := layout.CloseFocusFallback(closing, m.frames)
 	if sh, ok := m.pane(closing).(*shell.Model); ok {
 		_ = sh.Close()
 	}
@@ -446,9 +447,13 @@ func (m model) closeFocusedPane() (tea.Model, tea.Cmd) {
 	delete(m.panes, closing)
 	delete(m.paneMeta, closing)
 	m.removePaneOrder(closing)
-	remaining := layout.LeafOrder(m.bodyTree)
-	if len(remaining) > 0 {
-		m.setFocus(remaining[0])
+	if fallback != closing {
+		m.setFocus(fallback)
+	} else {
+		remaining := layout.LeafOrder(m.bodyTree)
+		if len(remaining) > 0 {
+			m.setFocus(remaining[0])
+		}
 	}
 	m.updateSizes(m.common.Width, m.common.Height)
 	m.invalidateView()
