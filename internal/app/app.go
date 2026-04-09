@@ -3,12 +3,17 @@ package app
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
+	"focus/internal/adapters"
 	"focus/internal/avatar"
 	"focus/internal/config"
 	"focus/internal/models"
+	"focus/internal/plugins"
+	filebrowser "focus/internal/plugins/filebrowser"
+	gitplugin "focus/internal/plugins/git"
 	"focus/internal/styles"
 	"focus/internal/ui/footer"
 	"focus/internal/ui/header"
@@ -23,11 +28,13 @@ import (
 )
 
 const (
-	paneHeader   models.PaneID = "header"
-	paneShell    models.PaneID = "shell-main"
-	paneTodo     models.PaneID = "todo-main"
-	panePomodoro models.PaneID = "pomodoro-main"
-	paneFooter   models.PaneID = "footer"
+	paneHeader    models.PaneID = "header"
+	paneShell     models.PaneID = "shell-main"
+	paneGitStatus models.PaneID = "git-status-main"
+	paneTodo      models.PaneID = "todo-main"
+	paneFileTree  models.PaneID = "file-tree-main"
+	panePomodoro  models.PaneID = "pomodoro-main"
+	paneFooter    models.PaneID = "footer"
 
 	splitRatioStep = 5
 
@@ -70,6 +77,9 @@ type model struct {
 
 	zoomedPane  models.PaneID
 	preZoomTree *layout.TreeNode
+
+	pluginRegistry *plugins.Registry
+	adapterManager *adapters.Manager
 }
 
 // New creates and returns the initial application model.
@@ -94,16 +104,63 @@ func New(cfg config.Config, store models.Store) tea.Model {
 			layout.Leaf(paneShell),
 			layout.Split(layout.SplitVertical, 55, layout.Leaf(paneTodo), layout.Leaf(panePomodoro)),
 		),
-		focused:   paneShell,
-		nextShell: 2,
-		vc:        &viewCache{},
+		focused:        paneShell,
+		nextShell:      2,
+		vc:             &viewCache{},
+		pluginRegistry: plugins.NewRegistry(),
+		adapterManager: adapters.NewManager(),
 	}
+
+	gitAdapter := adapters.NewGitLocalAdapter()
+	_ = m.adapterManager.Register(gitAdapter.Name(), gitAdapter)
+
+	gitPaneMeta := models.PaneMeta{ID: paneGitStatus, Name: "Git Status", Type: models.PaneTypeGitStatus, CWD: cwd, Status: models.PaneStatusIdle, Closable: false}
+	fileTreeMeta := models.PaneMeta{ID: paneFileTree, Name: "File Tree", Type: models.PaneTypeFileTree, CWD: cwd, Status: models.PaneStatusIdle, Closable: false}
+
+	gitPlugin := gitplugin.New(m.adapterManager.Git())
+	fileTreePlugin := filebrowser.New()
+	_ = m.pluginRegistry.Register(gitPlugin)
+	_ = m.pluginRegistry.Register(fileTreePlugin)
 
 	m.registerPane(paneHeader, header.New(cfg, cm.Theme), models.PaneMeta{ID: paneHeader, Name: "Header", Type: models.PaneTypeHeader, Status: models.PaneStatusPassive, Closable: false})
 	m.registerPane(paneShell, shell.New(cm, paneShell), models.PaneMeta{ID: paneShell, Name: "Shell", Type: models.PaneTypeShell, CWD: cwd, Status: models.PaneStatusStarting, Closable: true})
 	m.registerPane(paneTodo, todo.New(cm), models.PaneMeta{ID: paneTodo, Name: "Todo", Type: models.PaneTypeTodo, Status: models.PaneStatusIdle, Closable: false})
 	m.registerPane(panePomodoro, pomodoro.New(cm), models.PaneMeta{ID: panePomodoro, Name: "Pomodoro", Type: models.PaneTypePomodoro, Status: models.PaneStatusIdle, Closable: false})
 	m.registerPane(paneFooter, footer.New(cm), models.PaneMeta{ID: paneFooter, Name: "Footer", Type: models.PaneTypeFooter, Status: models.PaneStatusPassive, Closable: false})
+
+	if panel, err := m.pluginRegistry.CreatePane(models.PaneTypeFileTree, paneFileTree, fileTreeMeta, *cm); err == nil {
+		m.registerPane(paneFileTree, panel, fileTreeMeta)
+	}
+
+	if repoRoot, ok := gitRepoRoot(cwd); ok {
+		gitPaneMeta.CWD = repoRoot
+		if panel, err := m.pluginRegistry.CreatePane(models.PaneTypeGitStatus, paneGitStatus, gitPaneMeta, *cm); err == nil {
+			m.registerPane(paneGitStatus, panel, gitPaneMeta)
+			m.bodyTree = layout.Split(
+				layout.SplitHorizontal,
+				40,
+				layout.Leaf(paneShell),
+				layout.Split(
+					layout.SplitHorizontal,
+					50,
+					layout.Split(layout.SplitVertical, 50, layout.Leaf(paneGitStatus), layout.Leaf(paneTodo)),
+					layout.Split(layout.SplitVertical, 50, layout.Leaf(paneFileTree), layout.Leaf(panePomodoro)),
+				),
+			)
+		}
+	} else {
+		m.bodyTree = layout.Split(
+			layout.SplitHorizontal,
+			40,
+			layout.Leaf(paneShell),
+			layout.Split(
+				layout.SplitHorizontal,
+				50,
+				layout.Split(layout.SplitVertical, 50, layout.Leaf(paneTodo), layout.Leaf(panePomodoro)),
+				layout.Leaf(paneFileTree),
+			),
+		)
+	}
 	m.refreshPaneStatuses()
 
 	return m
@@ -126,6 +183,16 @@ func (m *model) setPane(id models.PaneID, panel models.Panel) {
 // Init implements tea.Model.
 func (m model) Init() tea.Cmd {
 	var cmds []tea.Cmd
+	if m.adapterManager != nil {
+		if err := m.adapterManager.Init(); err != nil {
+			if meta, ok := m.paneMeta[paneGitStatus]; ok {
+				repoPath := meta.CWD
+				cmds = append(cmds, func() tea.Msg {
+					return adapters.StatusEvent{RepoPath: repoPath, Error: err}
+				})
+			}
+		}
+	}
 	for _, id := range m.paneOrder {
 		if cmd := m.pane(id).Init(); cmd != nil {
 			cmds = append(cmds, cmd)
@@ -191,6 +258,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case shell.ExitedMsg:
 		m.invalidateView()
 		return m.routeToPane(msg.PaneID, msg)
+
+	case adapters.StatusEvent:
+		m.invalidateView()
+		var cmds []tea.Cmd
+		for _, id := range m.paneOrder {
+			if m.paneMeta[id].Type != models.PaneTypeGitStatus {
+				continue
+			}
+			newPanel, cmd := m.pane(id).Update(msg)
+			m.setPane(id, newPanel)
+			if cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		}
+		m.refreshPaneStatuses()
+		return m, tea.Batch(cmds...)
 
 	case tea.WindowSizeMsg:
 		m.common.Width = msg.Width
@@ -593,6 +676,20 @@ func (m *model) updateSizes(w, h int) {
 		}
 		m.pane(id).SetSize(contentW, contentH)
 	}
+}
+
+func gitRepoRoot(path string) (string, bool) {
+	output, err := exec.Command("git", "-C", path, "rev-parse", "--show-toplevel").Output()
+	if err != nil {
+		return "", false
+	}
+
+	root := strings.TrimSpace(string(output))
+	if root == "" {
+		return "", false
+	}
+
+	return root, true
 }
 
 func (m model) bodyBounds() models.PaneFrame {

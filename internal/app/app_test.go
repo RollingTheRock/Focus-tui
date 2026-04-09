@@ -138,8 +138,8 @@ func TestSplitFocusedHorizontal(t *testing.T) {
 	m := New(cfg, st).(model)
 
 	initialOrder := layout.LeafOrder(m.bodyTree)
-	if len(initialOrder) != 3 {
-		t.Fatalf("expected 3 panes initially (shell + todo + pomodoro), got %d", len(initialOrder))
+	if len(initialOrder) != 5 {
+		t.Fatalf("expected 5 panes initially (shell + git + todo + file-tree + pomodoro), got %d", len(initialOrder))
 	}
 
 	newM, cmd := m.Update(keyCtrlBackslash())
@@ -149,13 +149,13 @@ func TestSplitFocusedHorizontal(t *testing.T) {
 	m = newM.(model)
 
 	newOrder := layout.LeafOrder(m.bodyTree)
-	if len(newOrder) != 4 {
-		t.Fatalf("expected 4 panes after split, got %d", len(newOrder))
+	if len(newOrder) != 6 {
+		t.Fatalf("expected 6 panes after split, got %d", len(newOrder))
 	}
 
 	foundNewPane := false
 	for _, id := range newOrder {
-		if string(id) != string(paneShell) && string(id) != string(paneTodo) && string(id) != string(panePomodoro) {
+		if string(id) != string(paneShell) && string(id) != string(paneGitStatus) && string(id) != string(paneTodo) && string(id) != string(paneFileTree) && string(id) != string(panePomodoro) {
 			foundNewPane = true
 			if m.focused != id {
 				t.Fatalf("expected focus on new pane %s, got %s", id, m.focused)
