@@ -19,6 +19,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 const (
@@ -29,6 +30,11 @@ const (
 	paneFooter   models.PaneID = "footer"
 
 	splitRatioStep = 5
+
+	simplifiedHelpMaxWidth = 40
+	hideFooterBelowHeight  = 10
+	tinyWindowMinWidth     = 20
+	tinyWindowMinHeight    = 5
 )
 
 // avatarRenderedMsg carries the pre-rendered avatar string from chafa.
@@ -61,6 +67,9 @@ type model struct {
 
 	viewGen uint64
 	vc      *viewCache
+
+	zoomedPane  models.PaneID
+	preZoomTree *layout.TreeNode
 }
 
 // New creates and returns the initial application model.
@@ -297,7 +306,7 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "ctrl+\\":
 		return m.splitFocused(layout.SplitHorizontal)
-	case "ctrl+-":
+	case "ctrl+-", "ctrl+_":
 		return m.splitFocused(layout.SplitVertical)
 	case "ctrl+w":
 		return m.closeFocusedPane()
@@ -314,8 +323,11 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.setFocus(layout.MoveFocus(m.focused, m.frames, layout.FocusDown))
 		return m, nil
 	case "ctrl+t":
+		m.restoreZoom()
 		m.setFocus(paneTodo)
 		return m, nil
+	case "z":
+		return m.toggleZoom()
 	case "enter":
 		if m.paneMeta[m.focused].Type == models.PaneTypeShell {
 			m.mode = ModeShell
@@ -453,6 +465,9 @@ func (m model) closeFocusedPane() (tea.Model, tea.Cmd) {
 	if len(order) <= 1 {
 		return m, nil
 	}
+	if m.zoomedPane == m.focused {
+		m.restoreZoom()
+	}
 	closing := m.focused
 	fallback := layout.CloseFocusFallback(closing, m.frames)
 	if sh, ok := m.pane(closing).(*shell.Model); ok {
@@ -475,17 +490,10 @@ func (m model) closeFocusedPane() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m *model) removePaneOrder(id models.PaneID) {
-	filtered := m.paneOrder[:0]
-	for _, existing := range m.paneOrder {
-		if existing != id {
-			filtered = append(filtered, existing)
-		}
-	}
-	m.paneOrder = filtered
-}
-
 func (m *model) focusCycle(delta int) {
+	if m.zoomedPane != "" {
+		m.restoreZoom()
+	}
 	order := layout.LeafOrder(m.bodyTree)
 	if len(order) == 0 {
 		return
@@ -499,6 +507,45 @@ func (m *model) focusCycle(delta int) {
 	}
 	idx = (idx + delta + len(order)) % len(order)
 	m.setFocus(order[idx])
+}
+
+func (m model) toggleZoom() (tea.Model, tea.Cmd) {
+	if m.zoomedPane != "" {
+		m.restoreZoom()
+	} else {
+		if m.focused == "" || m.focused == paneHeader || m.focused == paneFooter {
+			return m, nil
+		}
+		m.preZoomTree = m.bodyTree
+		m.bodyTree = layout.Leaf(m.focused)
+		m.zoomedPane = m.focused
+		m.updateSizes(m.common.Width, m.common.Height)
+		m.invalidateView()
+	}
+	return m, nil
+}
+
+func (m *model) restoreZoom() {
+	if m.zoomedPane == "" {
+		return
+	}
+	if m.preZoomTree != nil {
+		m.bodyTree = m.preZoomTree
+		m.preZoomTree = nil
+	}
+	m.zoomedPane = ""
+	m.updateSizes(m.common.Width, m.common.Height)
+	m.invalidateView()
+}
+
+func (m *model) removePaneOrder(id models.PaneID) {
+	filtered := m.paneOrder[:0]
+	for _, existing := range m.paneOrder {
+		if existing != id {
+			filtered = append(filtered, existing)
+		}
+	}
+	m.paneOrder = filtered
 }
 
 func (m *model) paneAt(x, y int) models.PaneID {
@@ -528,7 +575,11 @@ func (m model) routeToPane(id models.PaneID, msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m *model) updateSizes(w, h int) {
 	dims := layout.ComputeBanner(w, h)
 	m.pane(paneHeader).SetSize(w, dims.HeaderH)
-	m.pane(paneFooter).SetSize(w, 1)
+	footerHeight := 0
+	if footerVisible(h) {
+		footerHeight = 1
+	}
+	m.pane(paneFooter).SetSize(w, footerHeight)
 
 	m.frames = layout.ComputeFrames(m.bodyTree, m.bodyBounds())
 	for id, frame := range m.frames {
@@ -554,9 +605,12 @@ func (m model) bodyBounds() models.PaneFrame {
 		h = 24
 	}
 	dims := layout.ComputeBanner(w, h)
-	bodyHeight := h - dims.HeaderH - 1 - 1
-	if bodyHeight < 6 {
-		bodyHeight = 6
+	bodyHeight := h - dims.HeaderH - 1
+	if footerVisible(h) {
+		bodyHeight--
+	}
+	if bodyHeight < 0 {
+		bodyHeight = 0
 	}
 	return models.PaneFrame{X: 0, Y: 0, W: w, H: bodyHeight}
 }
@@ -619,11 +673,25 @@ func (m model) buildView(dims layout.Dimensions, w, h int) string {
 		headerView = hdr.ViewCompact(w, dims.ShowQuote)
 	}
 
-	bodyView := m.renderBody(w, h-dims.HeaderH-1-1)
-	statsView := m.pane(paneFooter).View()
+	bodyHeight := h - dims.HeaderH - 1
+	if footerVisible(h) {
+		bodyHeight--
+	}
+	if bodyHeight < 0 {
+		bodyHeight = 0
+	}
+	bodyView := m.renderBody(w, bodyHeight)
+	if windowTooSmall(w, h) {
+		bodyView = renderWindowTooSmallBody(w, bodyHeight)
+	}
 	helpLine := m.renderHelpLine(w)
 
-	return lipgloss.JoinVertical(lipgloss.Left, headerView, bodyView, statsView, helpLine)
+	sections := []string{headerView, bodyView}
+	if footerVisible(h) {
+		sections = append(sections, m.pane(paneFooter).View())
+	}
+	sections = append(sections, helpLine)
+	return lipgloss.JoinVertical(lipgloss.Left, sections...)
 }
 
 func (m model) renderBody(w, h int) string {
@@ -680,46 +748,65 @@ func (m model) renderPaneTitle(id models.PaneID, contentWidth int) string {
 }
 
 func (m model) renderHelpLine(w int) string {
+	if w <= 0 {
+		return ""
+	}
 	helpStyle := lipgloss.NewStyle().Foreground(styles.Subtle)
 	pomo := m.pane(panePomodoro).(*pomodoro.Model)
 	todoModel := m.pane(paneTodo).(*todo.Model)
 	focusedType := m.paneMeta[m.focused].Type
 
 	if m.overlay == OverlayPicker {
-		return helpStyle.Render("  [enter]select  [esc]skip")
+		return renderCompactHelpLine(helpStyle, "[enter]select  [esc]skip", w)
 	}
 	if m.mode == ModeInput {
-		return helpStyle.Render("  [enter]confirm  [esc]cancel")
+		return renderCompactHelpLine(helpStyle, "[enter]confirm  [esc]cancel", w)
 	}
 	if m.mode == ModeShell {
-		return helpStyle.Render("  [esc]normal  [ctrl+t]todo  [shell input active]")
+		text := "[esc]normal  [ctrl+t]todo  [shell input active]"
+		if w < simplifiedHelpMaxWidth {
+			text = "[esc]normal  [ctrl+t]todo"
+		}
+		return renderCompactHelpLine(helpStyle, text, w)
 	}
 
 	left := "[tab]next  [ctrl+h/j/k/l]focus  [enter]activate"
+	compact := "[tab]next  [enter]open  [q]uit"
 	switch focusedType {
 	case models.PaneTypeTodo:
 		if todoModel.IsConfirmingDelete() {
 			left = "[j/k]move  [y/n]delete"
+			compact = "[j/k]move  [y/n]delete"
 		} else {
 			left = "[j/k]move  [a]dd  [e]dit  [d]el  [space]done  [shift+tab]list"
+			compact = "[j/k]move  [a]dd  [space]done"
 		}
 	case models.PaneTypePomodoro:
 		if pomo.CurrentPhase() == pomodoro.PhaseIdle {
 			left = "[s]tart pomo"
+			compact = "[s]tart pomo  [q]uit"
 		} else if pomo.IsPaused() {
 			left = "[p]resume  [r]eset"
+			compact = "[p]resume  [r]eset"
 		} else {
 			left = "[p]ause  [n]ext  [r]eset"
+			compact = "[p]ause  [r]eset"
 		}
 	case models.PaneTypeShell:
 		switch m.paneMeta[m.focused].Status {
 		case models.PaneStatusExited:
 			left = "[tab]next  [ctrl+h/j/k/l]focus  [enter]restart shell"
+			compact = "[tab]next  [enter]restart  [q]uit"
 		case models.PaneStatusStarting:
 			left = "[tab]next  [ctrl+h/j/k/l]focus  [shell starting]"
+			compact = "[tab]next  [shell starting]"
 		default:
 			left = "[tab]next  [ctrl+h/j/k/l]focus  [enter]shell"
+			compact = "[tab]next  [enter]shell  [q]uit"
 		}
+	}
+	if w < simplifiedHelpMaxWidth {
+		return renderCompactHelpLine(helpStyle, compact, w)
 	}
 	right := "[ctrl+\\/ctrl+-]split  [ctrl+arrows]resize"
 	if meta, ok := m.paneMeta[m.focused]; ok && meta.Closable {
@@ -737,6 +824,51 @@ func renderHelpBar(helpStyle lipgloss.Style, left, right string, w int) string {
 		gap = 1
 	}
 	return leftRendered + strings.Repeat(" ", gap) + rightRendered
+}
+
+func renderCompactHelpLine(helpStyle lipgloss.Style, text string, w int) string {
+	if w <= 0 {
+		return ""
+	}
+	if w <= 2 {
+		return helpStyle.Render(strings.Repeat(" ", w))
+	}
+	content := text
+	if ansi.StringWidth(content) > w-2 {
+		content = ansi.Truncate(content, w-2, "")
+	}
+	return helpStyle.Render("  " + content)
+}
+
+func footerVisible(h int) bool {
+	return h >= hideFooterBelowHeight
+}
+
+func windowTooSmall(w, h int) bool {
+	return w < tinyWindowMinWidth || h < tinyWindowMinHeight
+}
+
+func renderWindowTooSmallBody(w, h int) string {
+	base := blankCanvas(w, h)
+	if base == "" {
+		return ""
+	}
+	message := "Window too small"
+	if w < ansi.StringWidth(message) {
+		message = ansi.Truncate(message, w, "")
+	}
+	x := (w - ansi.StringWidth(message)) / 2
+	if x < 0 {
+		x = 0
+	}
+	y := h / 2
+	if y >= h {
+		y = h - 1
+	}
+	if y < 0 {
+		y = 0
+	}
+	return layout.OverlayOnBase(base, message, x, y)
 }
 
 func (m *model) closeShellPanes() {

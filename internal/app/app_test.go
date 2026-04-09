@@ -3,7 +3,10 @@ package app
 import (
 	"testing"
 
+	"focus/internal/config"
 	"focus/internal/models"
+	"focus/internal/store"
+	"focus/internal/ui/layout"
 	"focus/internal/ui/shell"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -118,5 +121,84 @@ func TestShellRefreshMsgRoutesOnlyToTargetPane(t *testing.T) {
 	}
 	if len(otherPanel.updates) != 0 {
 		t.Fatalf("expected other pane to receive 0 updates, got %d", len(otherPanel.updates))
+	}
+}
+
+func keyCtrlBackslash() tea.KeyMsg {
+	return tea.KeyMsg{Type: tea.KeyCtrlBackslash}
+}
+
+func keyCtrlW() tea.KeyMsg {
+	return tea.KeyMsg{Type: tea.KeyCtrlW}
+}
+
+func TestSplitFocusedHorizontal(t *testing.T) {
+	cfg := config.DefaultConfig()
+	st, _ := store.New(":memory:")
+	m := New(cfg, st).(model)
+
+	initialOrder := layout.LeafOrder(m.bodyTree)
+	if len(initialOrder) != 3 {
+		t.Fatalf("expected 3 panes initially (shell + todo + pomodoro), got %d", len(initialOrder))
+	}
+
+	newM, cmd := m.Update(keyCtrlBackslash())
+	if cmd == nil {
+		t.Fatal("expected cmd from split, got nil")
+	}
+	m = newM.(model)
+
+	newOrder := layout.LeafOrder(m.bodyTree)
+	if len(newOrder) != 4 {
+		t.Fatalf("expected 4 panes after split, got %d", len(newOrder))
+	}
+
+	foundNewPane := false
+	for _, id := range newOrder {
+		if string(id) != string(paneShell) && string(id) != string(paneTodo) && string(id) != string(panePomodoro) {
+			foundNewPane = true
+			if m.focused != id {
+				t.Fatalf("expected focus on new pane %s, got %s", id, m.focused)
+			}
+			if meta, ok := m.paneMeta[id]; !ok || meta.Type != models.PaneTypeShell {
+				t.Fatalf("expected new pane to be shell type, got %v", meta.Type)
+			}
+			break
+		}
+	}
+	if !foundNewPane {
+		t.Fatal("new pane not found after split")
+	}
+}
+
+func TestZoomToggle(t *testing.T) {
+	cfg := config.DefaultConfig()
+	st, _ := store.New(":memory:")
+	m := New(cfg, st).(model)
+
+	initialOrder := layout.LeafOrder(m.bodyTree)
+
+	newM, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'z'}})
+	m = newM.(model)
+
+	if m.zoomedPane != paneShell {
+		t.Fatalf("expected zoomed pane to be shell, got %s", m.zoomedPane)
+	}
+
+	zoomedOrder := layout.LeafOrder(m.bodyTree)
+	if len(zoomedOrder) != 1 {
+		t.Fatalf("expected 1 pane when zoomed, got %d", len(zoomedOrder))
+	}
+
+	newM, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'z'}})
+	m = newM.(model)
+
+	if m.zoomedPane != "" {
+		t.Fatalf("expected zoom to be restored, got %s", m.zoomedPane)
+	}
+
+	restoredOrder := layout.LeafOrder(m.bodyTree)
+	if len(restoredOrder) != len(initialOrder) {
+		t.Fatalf("expected %d panes after restore, got %d", len(initialOrder), len(restoredOrder))
 	}
 }
