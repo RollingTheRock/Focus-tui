@@ -15,3 +15,14 @@ func TestRenderPanelTruncatesLongTitle(t *testing.T) {
 		t.Fatalf("expected truncated title to contain ellipsis")
 	}
 }
+
+func TestComputeBannerDisablesBannerWhenHeightIsTooSmall(t *testing.T) {
+	dims := ComputeBanner(80, 7)
+
+	if dims.UseBanner {
+		t.Fatal("expected compact header when height is below 8")
+	}
+	if dims.HeaderH != 1 {
+		t.Fatalf("expected compact header height 1, got %d", dims.HeaderH)
+	}
+}

@@ -52,7 +52,7 @@ func ComputeBanner(w, h int) Dimensions {
 		Height: h,
 	}
 
-	d.UseBanner = w >= BannerMinWidth
+	d.UseBanner = w >= BannerMinWidth && h >= 8
 	d.ShowQuote = h >= CrampedHeight
 
 	// Header height.
