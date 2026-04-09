@@ -1,0 +1,355 @@
+// Package adapters provides adapter implementations for external tools.
+package adapters
+
+import (
+	"bufio"
+	"bytes"
+	"fmt"
+	"os/exec"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"time"
+
+	"focus/internal/git"
+	tea "github.com/charmbracelet/bubbletea"
+)
+
+// GitLocalAdapter implements GitAdapter using local git CLI.
+type GitLocalAdapter struct {
+	name    string
+	watches map[string]chan StatusEvent
+}
+
+// NewGitLocalAdapter creates a new GitLocalAdapter.
+func NewGitLocalAdapter() *GitLocalAdapter {
+	return &GitLocalAdapter{
+		name:    "git-local",
+		watches: make(map[string]chan StatusEvent),
+	}
+}
+
+// Name returns the adapter name.
+func (g *GitLocalAdapter) Name() string {
+	return g.name
+}
+
+// Init initializes the adapter.
+func (g *GitLocalAdapter) Init() error {
+	// Verify git is available
+	_, err := exec.LookPath("git")
+	if err != nil {
+		return fmt.Errorf("git not found in PATH: %w", err)
+	}
+	return nil
+}
+
+// Destroy cleans up the adapter.
+func (g *GitLocalAdapter) Destroy() error {
+	// Close all watch channels
+	for path, ch := range g.watches {
+		close(ch)
+		delete(g.watches, path)
+	}
+	return nil
+}
+
+// GetStatus retrieves the git status for a repository.
+// Uses porcelain=v2 format for reliable parsing.
+func (g *GitLocalAdapter) GetStatus(repoPath string) (*git.Status, error) {
+	// Get branch info
+	branch, upstream, ahead, behind, err := g.getBranchInfo(repoPath)
+	if err != nil {
+		return nil, err
+	}
+
+	status := &git.Status{
+		Branch:   branch,
+		Upstream: upstream,
+		Ahead:    ahead,
+		Behind:   behind,
+	}
+
+	// Get file status using porcelain=v2
+	cmd := exec.Command("git", "-C", repoPath, "status", "--porcelain=v2", "-z")
+	output, err := cmd.Output()
+	if err != nil {
+		// Check if this is a git repository
+		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 128 {
+			return nil, fmt.Errorf("not a git repository: %s", repoPath)
+		}
+		return nil, fmt.Errorf("git status failed: %w", err)
+	}
+
+	// Parse porcelain=v2 output
+	if err := g.parsePorcelainV2(output, status); err != nil {
+		return nil, err
+	}
+
+	return status, nil
+}
+
+// getBranchInfo retrieves branch and upstream information.
+func (g *GitLocalAdapter) getBranchInfo(repoPath string) (branch, upstream string, ahead, behind int, err error) {
+	cmd := exec.Command("git", "-C", repoPath, "rev-parse", "--abbrev-ref", "HEAD")
+	branchBytes, err := cmd.Output()
+	if err != nil {
+		return "", "", 0, 0, fmt.Errorf("failed to get branch: %w", err)
+	}
+	branch = strings.TrimSpace(string(branchBytes))
+
+	// Check for upstream
+	cmd = exec.Command("git", "-C", repoPath, "rev-parse", "--abbrev-ref", "@{upstream}")
+	upstreamBytes, err := cmd.Output()
+	if err == nil {
+		upstream = strings.TrimSpace(string(upstreamBytes))
+
+		// Get ahead/behind count
+		cmd = exec.Command("git", "-C", repoPath, "rev-list", "--left-right", "--count", "HEAD...@{upstream}")
+		countBytes, err := cmd.Output()
+		if err == nil {
+			parts := strings.Fields(string(countBytes))
+			if len(parts) == 2 {
+				ahead, _ = strconv.Atoi(parts[0])
+				behind, _ = strconv.Atoi(parts[1])
+			}
+		}
+	}
+
+	return branch, upstream, ahead, behind, nil
+}
+
+// parsePorcelainV2 parses git status --porcelain=v2 -z output.
+// Reference: /mnt/d/dev/dev-learn/sidecar/internal/plugins/gitstatus/tree.go
+func (g *GitLocalAdapter) parsePorcelainV2(output []byte, status *git.Status) error {
+	if len(output) == 0 {
+		return nil
+	}
+
+	// -z flag uses NUL as delimiter instead of newline
+	entries := bytes.Split(output, []byte{0})
+
+	for i := 0; i < len(entries); i++ {
+		entry := string(entries[i])
+		if entry == "" {
+			continue
+		}
+
+		parts := strings.Fields(entry)
+		if len(parts) < 2 {
+			continue
+		}
+
+		switch parts[0] {
+		case "1": // Ordinary changed entries
+			if len(parts) >= 9 {
+				file := git.File{
+					Path:           parts[8],
+					StagedStatus:   git.FileStatus(parts[1][0]),
+					WorktreeStatus: git.FileStatus(parts[1][1]),
+				}
+				g.categorizeFile(file, status)
+			}
+		case "2": // Renamed or copied entries
+			if len(parts) >= 10 {
+				file := git.File{
+					Path:           parts[9],
+					OriginalPath:   parts[8],
+					StagedStatus:   git.FileStatus(parts[1][0]),
+					WorktreeStatus: git.FileStatus(parts[1][1]),
+				}
+				g.categorizeFile(file, status)
+			}
+		case "u": // Unmerged entries
+			if len(parts) >= 11 {
+				file := git.File{
+					Path:           parts[10],
+					StagedStatus:   git.FileStatus(parts[1][0]),
+					WorktreeStatus: git.FileStatus(parts[1][1]),
+				}
+				status.ConflictedFiles = append(status.ConflictedFiles, file)
+			}
+		case "?": // Untracked files
+			if len(parts) >= 2 {
+				file := git.File{
+					Path:   parts[1],
+					Status: git.Untracked,
+				}
+				status.UntrackedFiles = append(status.UntrackedFiles, file)
+			}
+		case "!": // Ignored files
+			// Skip ignored files for now
+		}
+	}
+
+	return nil
+}
+
+// categorizeFile adds a file to the appropriate status list.
+func (g *GitLocalAdapter) categorizeFile(file git.File, status *git.Status) {
+	hasStaged := file.StagedStatus != git.Unmodified && file.StagedStatus != ' '
+	hasUnstaged := file.WorktreeStatus != git.Unmodified && file.WorktreeStatus != ' '
+
+	if hasStaged {
+		status.StagedFiles = append(status.StagedFiles, file)
+	}
+	if hasUnstaged {
+		status.UnstagedFiles = append(status.UnstagedFiles, file)
+	}
+}
+
+// GetBranches retrieves all branches for a repository.
+func (g *GitLocalAdapter) GetBranches(repoPath string) ([]git.Branch, error) {
+	cmd := exec.Command("git", "-C", repoPath, "branch", "-vv", "--format=%(refname:short) %(upstream:short) %(upstream:track)")
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get branches: %w", err)
+	}
+
+	var branches []git.Branch
+	scanner := bufio.NewScanner(bytes.NewReader(output))
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line == "" {
+			continue
+		}
+
+		parts := strings.Fields(line)
+		if len(parts) < 1 {
+			continue
+		}
+
+		branch := git.Branch{
+			Name: parts[0],
+		}
+
+		// Check if current branch (starts with *)
+		if strings.HasPrefix(parts[0], "*") {
+			branch.Name = strings.TrimPrefix(parts[0], "*")
+			branch.Current = true
+		}
+
+		// Parse upstream and tracking info
+		if len(parts) >= 2 {
+			branch.Upstream = parts[1]
+		}
+		if len(parts) >= 3 {
+			// Parse [ahead N, behind M]
+			tracking := parts[2]
+			if strings.Contains(tracking, "ahead") {
+				fmt.Sscanf(tracking, "[ahead %d]", &branch.Ahead)
+			}
+			if strings.Contains(tracking, "behind") {
+				fmt.Sscanf(tracking, "[behind %d]", &branch.Behind)
+			}
+		}
+
+		branches = append(branches, branch)
+	}
+
+	return branches, scanner.Err()
+}
+
+// GetDiff retrieves the diff for a specific file.
+func (g *GitLocalAdapter) GetDiff(repoPath string, path string, staged bool) (string, error) {
+	args := []string{"-C", repoPath, "diff"}
+	if staged {
+		args = append(args, "--cached")
+	}
+	args = append(args, "--", path)
+
+	cmd := exec.Command("git", args...)
+	output, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("git diff failed: %w", err)
+	}
+
+	return string(output), nil
+}
+
+// WatchStatus starts watching a repository for status changes.
+// Returns a channel that receives status updates.
+func (g *GitLocalAdapter) WatchStatus(repoPath string) (<-chan StatusEvent, error) {
+	// Resolve to absolute path
+	absPath, err := filepath.Abs(repoPath)
+	if err != nil {
+		return nil, err
+	}
+
+	// Check if already watching
+	if ch, exists := g.watches[absPath]; exists {
+		return ch, nil
+	}
+
+	// Create channel
+	ch := make(chan StatusEvent, 1)
+	g.watches[absPath] = ch
+
+	// Start background watcher
+	go g.watchLoop(absPath, ch)
+
+	return ch, nil
+}
+
+// watchLoop runs in a goroutine and periodically checks for status changes.
+func (g *GitLocalAdapter) watchLoop(repoPath string, ch chan StatusEvent) {
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	var lastStatus *git.Status
+
+	for range ticker.C {
+		status, err := g.GetStatus(repoPath)
+		if err != nil {
+			select {
+			case ch <- StatusEvent{
+				RepoPath: repoPath,
+				Error:    err,
+			}:
+			default:
+			}
+			continue
+		}
+
+		// Only send if status changed
+		if !g.statusEqual(lastStatus, status) {
+			select {
+			case ch <- StatusEvent{
+				RepoPath: repoPath,
+				Status:   status,
+			}:
+			default:
+			}
+			lastStatus = status
+		}
+	}
+}
+
+// statusEqual compares two status objects for equality.
+func (g *GitLocalAdapter) statusEqual(a, b *git.Status) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return a.Branch == b.Branch &&
+		a.Ahead == b.Ahead &&
+		a.Behind == b.Behind &&
+		len(a.StagedFiles) == len(b.StagedFiles) &&
+		len(a.UnstagedFiles) == len(b.UnstagedFiles) &&
+		len(a.UntrackedFiles) == len(b.UntrackedFiles)
+}
+
+// RefreshStatus returns a Bubble Tea command that refreshes the status.
+func (g *GitLocalAdapter) RefreshStatus(repoPath string) tea.Cmd {
+	return func() tea.Msg {
+		status, err := g.GetStatus(repoPath)
+		return StatusEvent{
+			RepoPath: repoPath,
+			Status:   status,
+			Error:    err,
+		}
+	}
+}
+
+// Ensure GitLocalAdapter implements GitAdapter
+var _ GitAdapter = (*GitLocalAdapter)(nil)

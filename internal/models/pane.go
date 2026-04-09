@@ -7,11 +7,18 @@ type PaneID string
 type PaneType string
 
 const (
+	// Core panes (保留现有)
 	PaneTypeHeader   PaneType = "header"
 	PaneTypeShell    PaneType = "shell"
 	PaneTypeTodo     PaneType = "todo"
 	PaneTypePomodoro PaneType = "pomodoro"
 	PaneTypeFooter   PaneType = "footer"
+
+	// Plugin panes (新增 - Phase 2.4)
+	PaneTypeGitStatus PaneType = "git-status"
+	PaneTypeFileTree  PaneType = "file-tree"
+	PaneTypeDiffView  PaneType = "diff-view"
+	PaneTypeLogView   PaneType = "log-view"
 )
 
 // PaneStatus is lightweight display metadata for a pane.
