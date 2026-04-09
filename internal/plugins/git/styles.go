@@ -1,0 +1,57 @@
+package git
+
+import (
+	appstyles "focus/internal/styles"
+
+	"github.com/charmbracelet/lipgloss"
+)
+
+var (
+	branchStyle = lipgloss.NewStyle().Bold(true).Foreground(appstyles.Accent)
+
+	upstreamStyle = lipgloss.NewStyle().Foreground(appstyles.Subtle)
+	aheadStyle    = lipgloss.NewStyle().Foreground(appstyles.Success)
+	behindStyle   = lipgloss.NewStyle().Foreground(appstyles.Warning)
+
+	sectionStyle = lipgloss.NewStyle().Bold(true).Foreground(appstyles.Text)
+	pathStyle    = lipgloss.NewStyle().Foreground(appstyles.Text)
+	emptyStyle   = lipgloss.NewStyle().Foreground(appstyles.Subtle)
+	errorStyle   = lipgloss.NewStyle().Foreground(appstyles.Overdue)
+
+	selectedRowStyle = lipgloss.NewStyle().Background(appstyles.Highlight)
+	loadingStyle     = lipgloss.NewStyle().Foreground(appstyles.Subtle)
+
+	modifiedIconStyle   = lipgloss.NewStyle().Foreground(appstyles.Warning)
+	addedIconStyle      = lipgloss.NewStyle().Foreground(appstyles.Success)
+	deletedIconStyle    = lipgloss.NewStyle().Foreground(appstyles.Overdue)
+	renamedIconStyle    = lipgloss.NewStyle().Foreground(appstyles.Accent)
+	untrackedIconStyle  = lipgloss.NewStyle().Foreground(appstyles.Subtle)
+	conflictedIconStyle = lipgloss.NewStyle().Foreground(appstyles.Overdue).Bold(true)
+)
+
+func renderStatusIcon(icon string) string {
+	switch icon {
+	case "M":
+		return modifiedIconStyle.Render(icon)
+	case "A":
+		return addedIconStyle.Render(icon)
+	case "D":
+		return deletedIconStyle.Render(icon)
+	case "R":
+		return renamedIconStyle.Render(icon)
+	case "?":
+		return untrackedIconStyle.Render(icon)
+	case "!":
+		return conflictedIconStyle.Render(icon)
+	default:
+		return emptyStyle.Render(icon)
+	}
+}
+
+func renderLoadingLine(width int) string {
+	line := "▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒"
+	if width > 0 {
+		return loadingStyle.Width(width).Render(line)
+	}
+	return loadingStyle.Render(line)
+}
