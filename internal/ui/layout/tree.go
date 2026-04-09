@@ -3,6 +3,7 @@ package layout
 import (
 	"math"
 	"sort"
+	"strings"
 
 	"focus/internal/models"
 )
@@ -24,11 +25,6 @@ type TreeNode struct {
 	First     *TreeNode
 	Second    *TreeNode
 }
-
-const (
-	minHorizontalPaneWidth = 12
-	minVerticalPaneHeight  = 3
-)
 
 // Leaf creates a leaf node for a pane.
 func Leaf(id models.PaneID) *TreeNode {
@@ -80,25 +76,25 @@ func splitBounds(node *TreeNode, bounds models.PaneFrame) (models.PaneFrame, mod
 	switch node.Direction {
 	case SplitVertical:
 		desiredFirst := int(math.Round(float64(bounds.H) * ratio))
-		firstH, secondH := splitSpan(bounds.H, desiredFirst, minVerticalPaneHeight)
+		firstH, secondH := splitSpan(bounds.H, desiredFirst, minSubtreeHeight(node.First), minSubtreeHeight(node.Second))
 		return models.PaneFrame{X: bounds.X, Y: bounds.Y, W: bounds.W, H: firstH},
 			models.PaneFrame{X: bounds.X, Y: bounds.Y + firstH, W: bounds.W, H: secondH}
 	default:
 		desiredFirst := int(math.Round(float64(bounds.W) * ratio))
-		firstW, secondW := splitSpan(bounds.W, desiredFirst, minHorizontalPaneWidth)
+		firstW, secondW := splitSpan(bounds.W, desiredFirst, minSubtreeWidth(node.First), minSubtreeWidth(node.Second))
 		return models.PaneFrame{X: bounds.X, Y: bounds.Y, W: firstW, H: bounds.H},
 			models.PaneFrame{X: bounds.X + firstW, Y: bounds.Y, W: secondW, H: bounds.H}
 	}
 }
 
-func splitSpan(total, desiredFirst, minSize int) (int, int) {
+func splitSpan(total, desiredFirst, minFirst, minSecond int) (int, int) {
 	if total <= 0 {
 		return 0, 0
 	}
 	if total == 1 {
 		return 1, 0
 	}
-	if total < minSize*2 {
+	if total < minFirst+minSecond {
 		first := total / 2
 		if first < 1 {
 			first = 1
@@ -110,13 +106,86 @@ func splitSpan(total, desiredFirst, minSize int) (int, int) {
 		}
 		return first, second
 	}
-	if desiredFirst < minSize {
-		desiredFirst = minSize
+	if desiredFirst < minFirst {
+		desiredFirst = minFirst
 	}
-	if desiredFirst > total-minSize {
-		desiredFirst = total - minSize
+	if desiredFirst > total-minSecond {
+		desiredFirst = total - minSecond
 	}
 	return desiredFirst, total - desiredFirst
+}
+
+func minSubtreeWidth(node *TreeNode) int {
+	if node == nil {
+		return 1
+	}
+	if node.PaneID != "" {
+		return minPaneWidth(node.PaneID)
+	}
+	if node.Direction == SplitHorizontal {
+		return minSubtreeWidth(node.First) + minSubtreeWidth(node.Second)
+	}
+	return maxInt(minSubtreeWidth(node.First), minSubtreeWidth(node.Second))
+}
+
+func minSubtreeHeight(node *TreeNode) int {
+	if node == nil {
+		return 1
+	}
+	if node.PaneID != "" {
+		return minPaneHeight(node.PaneID)
+	}
+	if node.Direction == SplitVertical {
+		return minSubtreeHeight(node.First) + minSubtreeHeight(node.Second)
+	}
+	return maxInt(minSubtreeHeight(node.First), minSubtreeHeight(node.Second))
+}
+
+func minPaneWidth(id models.PaneID) int {
+	switch paneTypeForID(id) {
+	case models.PaneTypeShell:
+		return 20
+	case models.PaneTypeTodo, models.PaneTypePomodoro:
+		return 15
+	default:
+		return 12
+	}
+}
+
+func minPaneHeight(id models.PaneID) int {
+	switch paneTypeForID(id) {
+	case models.PaneTypeShell:
+		return 5
+	case models.PaneTypeTodo, models.PaneTypePomodoro:
+		return 4
+	default:
+		return 3
+	}
+}
+
+func paneTypeForID(id models.PaneID) models.PaneType {
+	name := string(id)
+	switch {
+	case strings.HasPrefix(name, string(models.PaneTypeShell)):
+		return models.PaneTypeShell
+	case strings.HasPrefix(name, string(models.PaneTypeTodo)):
+		return models.PaneTypeTodo
+	case strings.HasPrefix(name, string(models.PaneTypePomodoro)):
+		return models.PaneTypePomodoro
+	case strings.HasPrefix(name, string(models.PaneTypeHeader)):
+		return models.PaneTypeHeader
+	case strings.HasPrefix(name, string(models.PaneTypeFooter)):
+		return models.PaneTypeFooter
+	default:
+		return ""
+	}
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 // LeafOrder returns the visible leaves in traversal order.
@@ -339,17 +408,25 @@ func adjustSplitRatio(node *TreeNode, bounds models.PaneFrame, target models.Pan
 	}
 
 	span := bounds.W
-	minSize := minHorizontalPaneWidth
+	minFirst := minSubtreeWidth(node.First)
+	minSecond := minSubtreeWidth(node.Second)
+	currentFirst := firstBounds.W
 	if direction == SplitVertical {
 		span = bounds.H
-		minSize = minVerticalPaneHeight
+		minFirst = minSubtreeHeight(node.First)
+		minSecond = minSubtreeHeight(node.Second)
+		currentFirst = firstBounds.H
 	}
 	if span <= 1 {
 		return true, false
 	}
 
-	desiredFirst := int(math.Round(float64(span) * float64(node.Ratio+delta) / 100))
-	first, _ := splitSpan(span, desiredFirst, minSize)
+	currentRatio := int(math.Round(float64(currentFirst) * 100 / float64(span)))
+	desiredFirst := int(math.Round(float64(span) * float64(currentRatio+delta) / 100))
+	first, _ := splitSpan(span, desiredFirst, minFirst, minSecond)
+	if first == currentFirst {
+		return true, false
+	}
 	newRatio := int(math.Round(float64(first) * 100 / float64(span)))
 	if newRatio <= 0 {
 		newRatio = 1

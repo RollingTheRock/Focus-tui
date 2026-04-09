@@ -51,6 +51,24 @@ func TestComputeFramesSmallWidthStaysNonNegative(t *testing.T) {
 	}
 }
 
+func TestComputeFramesHorizontalSplitUsesPaneMinimumWidths(t *testing.T) {
+	root := Split(SplitHorizontal, 50, Leaf("shell-main"), Leaf("todo-main"))
+	frames := ComputeFrames(root, models.PaneFrame{X: 0, Y: 0, W: 35, H: 12})
+
+	if frames["shell-main"].W != 20 || frames["todo-main"].W != 15 {
+		t.Fatalf("expected widths 20/15, got %d/%d", frames["shell-main"].W, frames["todo-main"].W)
+	}
+}
+
+func TestComputeFramesVerticalSplitUsesPaneMinimumHeights(t *testing.T) {
+	root := Split(SplitVertical, 50, Leaf("todo-main"), Leaf("pomodoro-main"))
+	frames := ComputeFrames(root, models.PaneFrame{X: 0, Y: 0, W: 40, H: 8})
+
+	if frames["todo-main"].H != 4 || frames["pomodoro-main"].H != 4 {
+		t.Fatalf("expected heights 4/4, got %d/%d", frames["todo-main"].H, frames["pomodoro-main"].H)
+	}
+}
+
 func TestLeafOrderReturnsTraversalOrder(t *testing.T) {
 	root := Split(
 		SplitHorizontal,
@@ -147,6 +165,18 @@ func TestAdjustSplitRatioClampsToMinimumPaneSize(t *testing.T) {
 	changed := AdjustSplitRatio(root, models.PaneFrame{X: 0, Y: 0, W: 24, H: 10}, "left", SplitHorizontal, -20)
 	if changed {
 		t.Fatalf("expected ratio adjustment to no-op at minimum width")
+	}
+	if root.Ratio != 50 {
+		t.Fatalf("expected ratio to remain 50, got %d", root.Ratio)
+	}
+}
+
+func TestAdjustSplitRatioHonorsPaneSpecificMinimumWidth(t *testing.T) {
+	root := Split(SplitHorizontal, 50, Leaf("shell-main"), Leaf("todo-main"))
+
+	changed := AdjustSplitRatio(root, models.PaneFrame{X: 0, Y: 0, W: 35, H: 10}, "shell-main", SplitHorizontal, -20)
+	if changed {
+		t.Fatalf("expected ratio adjustment to no-op at shell minimum width")
 	}
 	if root.Ratio != 50 {
 		t.Fatalf("expected ratio to remain 50, got %d", root.Ratio)
