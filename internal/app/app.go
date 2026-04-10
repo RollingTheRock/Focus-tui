@@ -31,10 +31,14 @@ const (
 	paneHeader    models.PaneID = "header"
 	paneShell     models.PaneID = "shell-main"
 	paneGitStatus models.PaneID = "git-status-main"
+	paneGitDiff   models.PaneID = "git-diff-overlay"
+	paneGitCommit models.PaneID = "git-commit-overlay"
 	paneTodo      models.PaneID = "todo-main"
 	paneFileTree  models.PaneID = "file-tree-main"
 	panePomodoro  models.PaneID = "pomodoro-main"
 	paneFooter    models.PaneID = "footer"
+
+	paneTypeGitCommit models.PaneType = "git-commit"
 
 	splitRatioStep = 5
 
@@ -77,6 +81,8 @@ type model struct {
 
 	zoomedPane  models.PaneID
 	preZoomTree *layout.TreeNode
+
+	overlayBaseFocus models.PaneID
 
 	pluginRegistry *plugins.Registry
 	adapterManager *adapters.Manager
@@ -231,6 +237,34 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.invalidateView()
 		return m.routeToPane(panePomodoro, msg)
 
+	case gitplugin.OpenDiffMsg:
+		cmd := m.openDiffPane(msg)
+		m.invalidateView()
+		return m, cmd
+
+	case gitplugin.OpenCommitMsg:
+		cmd := m.openCommitPane(msg)
+		m.invalidateView()
+		return m, cmd
+
+	case gitplugin.CloseDiffMsg:
+		m.closePane(msg.ID)
+		m.invalidateView()
+		return m, nil
+
+	case gitplugin.CloseCommitMsg:
+		m.closePane(msg.ID)
+		m.invalidateView()
+		return m, nil
+
+	case gitplugin.CommitCompletedMsg:
+		m.closePane(msg.ID)
+		m.invalidateView()
+		if _, ok := m.paneMeta[paneGitStatus]; ok {
+			return m.routeToPane(paneGitStatus, msg)
+		}
+		return m, nil
+
 	case todo.ModeChangeMsg:
 		m.setFocus(paneTodo)
 		if msg.InputActive {
@@ -297,6 +331,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	m.invalidateView()
+	if m.activeOverlayPane() != "" {
+		return m, nil
+	}
 	dims := layout.ComputeBanner(m.common.Width, m.common.Height)
 	bodyY := msg.Y - dims.HeaderH
 	bodyX := msg.X
@@ -338,6 +375,10 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.overlay = OverlayNone
 		return m, nil
+	}
+
+	if overlayID := m.activeOverlayPane(); overlayID != "" {
+		return m.routeToPane(overlayID, msg)
 	}
 
 	if m.mode == ModeInput {
@@ -631,6 +672,20 @@ func (m *model) removePaneOrder(id models.PaneID) {
 	m.paneOrder = filtered
 }
 
+func (m model) activeOverlayPane() models.PaneID {
+	if _, ok := m.paneMeta[paneGitCommit]; ok {
+		return paneGitCommit
+	}
+	if _, ok := m.paneMeta[paneGitDiff]; ok {
+		return paneGitDiff
+	}
+	return ""
+}
+
+func (m model) isOverlayPane(id models.PaneID) bool {
+	return id == paneGitDiff || id == paneGitCommit
+}
+
 func (m *model) paneAt(x, y int) models.PaneID {
 	for _, id := range layout.LeafOrder(m.bodyTree) {
 		frame, ok := m.frames[id]
@@ -675,6 +730,12 @@ func (m *model) updateSizes(w, h int) {
 			contentH = 3
 		}
 		m.pane(id).SetSize(contentW, contentH)
+	}
+	if overlayID := m.activeOverlayPane(); overlayID != "" {
+		overlayW, overlayH := m.overlayContentSize()
+		if panel := m.pane(overlayID); panel != nil {
+			panel.SetSize(overlayW, overlayH)
+		}
 	}
 }
 
@@ -836,6 +897,10 @@ func (m model) renderBody(w, h int) string {
 		}
 	}
 
+	if overlayID := m.activeOverlayPane(); overlayID != "" {
+		base = m.renderOverlayPane(base, overlayID)
+	}
+
 	return base
 }
 
@@ -855,6 +920,14 @@ func (m model) renderHelpLine(w int) string {
 
 	if m.overlay == OverlayPicker {
 		return renderCompactHelpLine(helpStyle, "[enter]select  [esc]skip", w)
+	}
+	if overlayID := m.activeOverlayPane(); overlayID != "" {
+		switch m.paneMeta[overlayID].Type {
+		case models.PaneTypeDiffView:
+			return renderCompactHelpLine(helpStyle, "[j/k]scroll  [esc]close", w)
+		case paneTypeGitCommit:
+			return renderCompactHelpLine(helpStyle, "[ctrl+j]commit  [esc]cancel", w)
+		}
 	}
 	if m.mode == ModeInput {
 		return renderCompactHelpLine(helpStyle, "[enter]confirm  [esc]cancel", w)
@@ -977,6 +1050,172 @@ func (m *model) closeShellPanes() {
 			_ = sh.Close()
 		}
 	}
+}
+
+func (m *model) openDiffPane(msg gitplugin.OpenDiffMsg) tea.Cmd {
+	m.closePane(paneGitCommit)
+	m.closePane(paneGitDiff)
+
+	baseFocus := m.focused
+	if baseFocus == "" {
+		baseFocus = paneGitStatus
+	}
+
+	meta := models.PaneMeta{
+		ID:       paneGitDiff,
+		Name:     "Diff",
+		Type:     models.PaneTypeDiffView,
+		CWD:      m.gitRepoPath(),
+		Status:   models.PaneStatusReady,
+		Closable: true,
+	}
+	panel := gitplugin.NewDiffPane(meta.ID, meta, *m.common, m.adapterManager.Git(), msg.FilePath, msg.Staged)
+	m.registerPane(meta.ID, panel, meta)
+	m.overlayBaseFocus = baseFocus
+	m.setFocus(meta.ID)
+	m.updateSizes(m.common.Width, m.common.Height)
+	return panel.Init()
+}
+
+func (m *model) openCommitPane(msg gitplugin.OpenCommitMsg) tea.Cmd {
+	m.closePane(paneGitDiff)
+	m.closePane(paneGitCommit)
+
+	baseFocus := m.focused
+	if baseFocus == "" {
+		baseFocus = paneGitStatus
+	}
+
+	repoPath := msg.RepoPath
+	if repoPath == "" {
+		repoPath = m.gitRepoPath()
+	}
+
+	meta := models.PaneMeta{
+		ID:       paneGitCommit,
+		Name:     "Commit",
+		Type:     paneTypeGitCommit,
+		CWD:      repoPath,
+		Status:   models.PaneStatusReady,
+		Closable: true,
+	}
+	panel := gitplugin.NewCommitPane(meta.ID, meta, *m.common, m.adapterManager.Git(), msg.StagedFiles)
+	m.registerPane(meta.ID, panel, meta)
+	m.overlayBaseFocus = baseFocus
+	m.setFocus(meta.ID)
+	m.updateSizes(m.common.Width, m.common.Height)
+	return panel.Init()
+}
+
+func (m *model) closePane(id models.PaneID) {
+	meta, ok := m.paneMeta[id]
+	if !ok || !meta.Closable {
+		return
+	}
+
+	if sh, ok := m.pane(id).(*shell.Model); ok {
+		_ = sh.Close()
+	}
+
+	wasFocused := m.focused == id
+	wasOverlay := m.isOverlayPane(id)
+	var fallback models.PaneID
+	leafOrder := layout.LeafOrder(m.bodyTree)
+	leafCount := len(leafOrder)
+	leafPresent := false
+	for _, leafID := range leafOrder {
+		if leafID == id {
+			leafPresent = true
+			break
+		}
+	}
+	if leafPresent {
+		if leafCount <= 1 {
+			return
+		}
+		if wasFocused {
+			fallback = layout.CloseFocusFallback(id, m.frames)
+		}
+		m.bodyTree = layout.RemoveLeaf(m.bodyTree, id)
+	}
+
+	delete(m.panes, id)
+	delete(m.paneMeta, id)
+	m.removePaneOrder(id)
+
+	if wasOverlay {
+		restore := m.overlayBaseFocus
+		m.overlayBaseFocus = ""
+		if restore != "" {
+			if _, ok := m.paneMeta[restore]; ok {
+				m.setFocus(restore)
+			} else if _, ok := m.paneMeta[paneGitStatus]; ok {
+				m.setFocus(paneGitStatus)
+			}
+		} else if _, ok := m.paneMeta[paneGitStatus]; ok {
+			m.setFocus(paneGitStatus)
+		}
+	} else if wasFocused {
+		if fallback != "" && fallback != id {
+			m.setFocus(fallback)
+		} else {
+			remaining := layout.LeafOrder(m.bodyTree)
+			if len(remaining) > 0 {
+				m.setFocus(remaining[0])
+			}
+		}
+	}
+
+	m.updateSizes(m.common.Width, m.common.Height)
+	m.refreshPaneStatuses()
+}
+
+func (m model) gitRepoPath() string {
+	if meta, ok := m.paneMeta[paneGitStatus]; ok && meta.CWD != "" {
+		return meta.CWD
+	}
+	return m.currentCWD()
+}
+
+func (m model) overlayContentSize() (int, int) {
+	bounds := m.bodyBounds()
+	width := bounds.W - 12
+	if width > 96 {
+		width = 96
+	}
+	if width < 20 {
+		width = 20
+	}
+
+	height := bounds.H - 6
+	if height > 18 {
+		height = 18
+	}
+	if height < 4 {
+		height = 4
+	}
+
+	return width, height
+}
+
+func (m model) renderOverlayPane(base string, id models.PaneID) string {
+	panel := m.pane(id)
+	if panel == nil {
+		return base
+	}
+
+	bounds := m.bodyBounds()
+	overlayW, overlayH := m.overlayContentSize()
+	overlayView := layout.RenderPanel(m.renderPaneTitle(id, overlayW), panel.View(), overlayW, overlayH, true)
+	x := bounds.X + (bounds.W-(overlayW+4))/2
+	y := bounds.Y + (bounds.H-(overlayH+2))/2
+	if x < bounds.X {
+		x = bounds.X
+	}
+	if y < bounds.Y {
+		y = bounds.Y
+	}
+	return layout.OverlayOnBase(base, overlayView, x, y)
 }
 
 func blankCanvas(w, h int) string {
