@@ -269,6 +269,152 @@ func TestStatusPaneStageError(t *testing.T) {
 	}
 }
 
+func TestStatusPaneDiscardStagedFile(t *testing.T) {
+	status := &gitmodel.Status{
+		Branch:      "main",
+		StagedFiles: []gitmodel.File{{Path: "staged.go", StagedStatus: gitmodel.Added}},
+	}
+	adapter := &fakeGitAdapter{
+		status:  status,
+		watchCh: make(chan adapters.StatusEvent, 2),
+	}
+	pane := NewStatusPane("git-1", models.PaneMeta{ID: "git-1", Type: models.PaneTypeGitStatus, CWD: "/repo"}, models.CommonModel{}, adapter)
+	pane.SetSize(80, 20)
+
+	msg := runCmd(t, pane.loadStatusCmd())
+	updated, _ := pane.Update(msg)
+	pane = updated.(*StatusPane)
+
+	updated, cmd := pane.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
+	pane = updated.(*StatusPane)
+
+	if cmd != nil {
+		t.Fatalf("expected no command before discard confirmation")
+	}
+	if !pane.confirmDiscard {
+		t.Fatalf("expected discard confirmation to be active")
+	}
+
+	updated, cmd = pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
+	pane = updated.(*StatusPane)
+
+	if cmd == nil {
+		t.Fatalf("expected refresh command after discarding staged file")
+	}
+	if pane.confirmDiscard {
+		t.Fatalf("expected discard confirmation to close")
+	}
+	if !adapter.discardCalled {
+		t.Fatalf("expected DiscardChanges to be called")
+	}
+	if adapter.discardedPath != "staged.go" {
+		t.Fatalf("expected to discard staged.go, got %s", adapter.discardedPath)
+	}
+}
+
+func TestStatusPaneDiscardUnstagedFile(t *testing.T) {
+	status := &gitmodel.Status{
+		Branch:        "main",
+		UnstagedFiles: []gitmodel.File{{Path: "modified.go", WorktreeStatus: gitmodel.Modified}},
+	}
+	adapter := &fakeGitAdapter{
+		status:  status,
+		watchCh: make(chan adapters.StatusEvent, 2),
+	}
+	pane := NewStatusPane("git-1", models.PaneMeta{ID: "git-1", Type: models.PaneTypeGitStatus, CWD: "/repo"}, models.CommonModel{}, adapter)
+	pane.SetSize(80, 20)
+
+	msg := runCmd(t, pane.loadStatusCmd())
+	updated, _ := pane.Update(msg)
+	pane = updated.(*StatusPane)
+
+	updated, _ = pane.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
+	pane = updated.(*StatusPane)
+
+	updated, cmd := pane.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	pane = updated.(*StatusPane)
+
+	if cmd == nil {
+		t.Fatalf("expected refresh command after discarding unstaged file")
+	}
+	if !adapter.discardCalled {
+		t.Fatalf("expected DiscardChanges to be called")
+	}
+	if adapter.discardedPath != "modified.go" {
+		t.Fatalf("expected to discard modified.go, got %s", adapter.discardedPath)
+	}
+}
+
+func TestStatusPaneDiscardUntrackedFile(t *testing.T) {
+	status := &gitmodel.Status{
+		Branch:         "main",
+		UntrackedFiles: []gitmodel.File{{Path: "new.txt", Status: gitmodel.Untracked}},
+	}
+	adapter := &fakeGitAdapter{
+		status:  status,
+		watchCh: make(chan adapters.StatusEvent, 2),
+	}
+	pane := NewStatusPane("git-1", models.PaneMeta{ID: "git-1", Type: models.PaneTypeGitStatus, CWD: "/repo"}, models.CommonModel{}, adapter)
+	pane.SetSize(80, 20)
+
+	msg := runCmd(t, pane.loadStatusCmd())
+	updated, _ := pane.Update(msg)
+	pane = updated.(*StatusPane)
+
+	updated, _ = pane.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
+	pane = updated.(*StatusPane)
+
+	updated, cmd := pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
+	pane = updated.(*StatusPane)
+
+	if cmd == nil {
+		t.Fatalf("expected refresh command after discarding untracked file")
+	}
+	if !adapter.discardCalled {
+		t.Fatalf("expected DiscardChanges to be called")
+	}
+	if adapter.discardedPath != "new.txt" {
+		t.Fatalf("expected to discard new.txt, got %s", adapter.discardedPath)
+	}
+}
+
+func TestStatusPaneDiscardConfirmationCancel(t *testing.T) {
+	status := &gitmodel.Status{
+		Branch:        "main",
+		UnstagedFiles: []gitmodel.File{{Path: "modified.go", WorktreeStatus: gitmodel.Modified}},
+	}
+	adapter := &fakeGitAdapter{
+		status:  status,
+		watchCh: make(chan adapters.StatusEvent, 2),
+	}
+	pane := NewStatusPane("git-1", models.PaneMeta{ID: "git-1", Type: models.PaneTypeGitStatus, CWD: "/repo"}, models.CommonModel{}, adapter)
+	pane.SetSize(80, 20)
+
+	msg := runCmd(t, pane.loadStatusCmd())
+	updated, _ := pane.Update(msg)
+	pane = updated.(*StatusPane)
+
+	updated, _ = pane.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
+	pane = updated.(*StatusPane)
+
+	if !strings.Contains(pane.View(), "Discard selected changes for modified.go? [y/n]") {
+		t.Fatalf("expected discard confirmation prompt, got:\n%s", pane.View())
+	}
+
+	updated, cmd := pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+	pane = updated.(*StatusPane)
+
+	if cmd != nil {
+		t.Fatalf("expected no command when discard confirmation is cancelled")
+	}
+	if pane.confirmDiscard {
+		t.Fatalf("expected discard confirmation to close after cancel")
+	}
+	if adapter.discardCalled {
+		t.Fatalf("expected DiscardChanges not to be called when cancelled")
+	}
+}
+
 type fakeGitAdapter struct {
 	status       *gitmodel.Status
 	getStatusErr error
@@ -283,6 +429,9 @@ type fakeGitAdapter struct {
 	unstageCalled bool
 	unstagedPath  string
 	unstageErr    error
+	discardCalled bool
+	discardedPath string
+	discardErr    error
 }
 
 func (f *fakeGitAdapter) Name() string { return "fake-git" }
@@ -318,6 +467,12 @@ func (f *fakeGitAdapter) UnstageFile(repoPath string, path string) error {
 	f.unstageCalled = true
 	f.unstagedPath = path
 	return f.unstageErr
+}
+
+func (f *fakeGitAdapter) DiscardChanges(repoPath string, path string) error {
+	f.discardCalled = true
+	f.discardedPath = path
+	return f.discardErr
 }
 
 func runBatchMsg(t *testing.T, cmd tea.Cmd) tea.BatchMsg {

@@ -27,6 +27,8 @@ type StatusPane struct {
 	width  int
 	height int
 	err    error
+
+	confirmDiscard bool
 }
 
 type initialStatusMsg struct {
@@ -60,6 +62,12 @@ func (p *StatusPane) Init() tea.Cmd {
 }
 
 func (p *StatusPane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
+	if p.confirmDiscard {
+		if _, ok := msg.(tea.KeyMsg); ok {
+			return p.updateDiscardConfirm(msg)
+		}
+	}
+
 	switch msg := msg.(type) {
 	case initialStatusMsg:
 		p.applyStatus(msg.event)
@@ -122,6 +130,10 @@ func (p *StatusPane) View() string {
 		lines = append(lines, p.renderSections(rows)...)
 	}
 
+	if p.confirmDiscard {
+		lines = append(lines, "", errorStyle.Render("Discard selected changes for "+p.getSelectedPath()+"? [y/n]"))
+	}
+
 	if p.height > 0 && len(lines) > p.height {
 		lines = lines[:p.height]
 	}
@@ -161,6 +173,12 @@ func (p *StatusPane) updateKey(msg tea.KeyMsg) (models.Panel, tea.Cmd) {
 		return p, openDiffCmd(file.Path, staged)
 	case " ":
 		return p.handleStageToggle()
+	case "ctrl+d":
+		if p.getSelectedPath() == "" {
+			return p, nil
+		}
+		p.confirmDiscard = true
+		return p, nil
 	}
 
 	return p, nil
@@ -228,6 +246,39 @@ func (p *StatusPane) getSelectedFile() (*gitmodel.File, bool) {
 	}
 
 	return nil, false
+}
+
+func (p *StatusPane) getSelectedPath() string {
+	file, _ := p.getSelectedFile()
+	if file == nil {
+		return ""
+	}
+	return file.Path
+}
+
+func (p *StatusPane) updateDiscardConfirm(msg tea.Msg) (models.Panel, tea.Cmd) {
+	keyMsg, ok := msg.(tea.KeyMsg)
+	if !ok {
+		return p, nil
+	}
+
+	switch keyMsg.String() {
+	case "y", "enter":
+		path := p.getSelectedPath()
+		p.confirmDiscard = false
+		if path == "" || p.adapter == nil {
+			return p, nil
+		}
+		if err := p.adapter.DiscardChanges(p.repoPath, path); err != nil {
+			p.err = err
+			return p, nil
+		}
+		p.err = nil
+		return p, p.refreshCmd()
+	default:
+		p.confirmDiscard = false
+		return p, nil
+	}
 }
 
 func (p *StatusPane) refreshCmd() tea.Cmd {

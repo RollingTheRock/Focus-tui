@@ -286,6 +286,63 @@ func (g *GitLocalAdapter) UnstageFile(repoPath string, path string) error {
 	return nil
 }
 
+// DiscardChanges discards tracked or untracked changes for a file path.
+func (g *GitLocalAdapter) DiscardChanges(repoPath string, path string) error {
+	statusLine, err := g.statusLine(repoPath, path)
+	if err != nil {
+		return err
+	}
+	if statusLine == "" {
+		return fmt.Errorf("no changes to discard for %s", path)
+	}
+
+	if strings.HasPrefix(statusLine, "??") {
+		cleanCmd := exec.Command("git", "-C", repoPath, "clean", "-f", "--", path)
+		if err := cleanCmd.Run(); err != nil {
+			return fmt.Errorf("git clean failed: %w", err)
+		}
+		return nil
+	}
+
+	if len(statusLine) >= 1 && statusLine[0] != ' ' {
+		resetCmd := exec.Command("git", "-C", repoPath, "reset", "HEAD", "--", path)
+		if err := resetCmd.Run(); err != nil {
+			return fmt.Errorf("git reset failed: %w", err)
+		}
+
+		statusLine, err = g.statusLine(repoPath, path)
+		if err != nil {
+			return err
+		}
+		if statusLine == "" {
+			return nil
+		}
+		if strings.HasPrefix(statusLine, "??") {
+			cleanCmd := exec.Command("git", "-C", repoPath, "clean", "-f", "--", path)
+			if err := cleanCmd.Run(); err != nil {
+				return fmt.Errorf("git clean failed: %w", err)
+			}
+			return nil
+		}
+	}
+
+	checkoutCmd := exec.Command("git", "-C", repoPath, "checkout", "--", path)
+	if err := checkoutCmd.Run(); err != nil {
+		return fmt.Errorf("git checkout failed: %w", err)
+	}
+
+	return nil
+}
+
+func (g *GitLocalAdapter) statusLine(repoPath string, path string) (string, error) {
+	statusCmd := exec.Command("git", "-C", repoPath, "status", "--porcelain", "--", path)
+	statusOutput, err := statusCmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("git status failed: %w", err)
+	}
+	return strings.TrimSpace(string(statusOutput)), nil
+}
+
 // WatchStatus starts watching a repository for status changes.
 // Returns a channel that receives status updates.
 func (g *GitLocalAdapter) WatchStatus(repoPath string) (<-chan StatusEvent, error) {

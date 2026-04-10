@@ -11,6 +11,7 @@ type GitAdapter interface {
 
 	StageFile(repoPath string, path string) error
 	UnstageFile(repoPath string, path string) error
+	DiscardChanges(repoPath string, path string) error
 }
 
 type StatusEvent struct {
