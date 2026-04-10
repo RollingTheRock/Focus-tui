@@ -31,7 +31,7 @@ func (p *Plugin) CreatePane(paneType models.PaneType, id models.PaneID, meta mod
 	case models.PaneTypeGitStatus:
 		return NewStatusPane(id, meta, common, p.adapter), nil
 	case models.PaneTypeDiffView:
-		return nil, fmt.Errorf("git plugin: pane type %q is not implemented", paneType)
+		return NewDiffPane(id, meta, common, p.adapter, "", false), nil
 	default:
 		return nil, fmt.Errorf("git plugin: unsupported pane type %q", paneType)
 	}

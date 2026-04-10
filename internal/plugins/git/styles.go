@@ -18,6 +18,10 @@ var (
 	emptyStyle   = lipgloss.NewStyle().Foreground(appstyles.Subtle)
 	errorStyle   = lipgloss.NewStyle().Foreground(appstyles.Overdue)
 
+	diffHeaderStyle  = lipgloss.NewStyle().Foreground(appstyles.Subtle)
+	addedLineStyle   = lipgloss.NewStyle().Foreground(appstyles.Success)
+	removedLineStyle = lipgloss.NewStyle().Foreground(appstyles.Overdue)
+
 	selectedRowStyle = lipgloss.NewStyle().Background(appstyles.Highlight)
 	loadingStyle     = lipgloss.NewStyle().Foreground(appstyles.Subtle)
 

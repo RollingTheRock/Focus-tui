@@ -268,6 +268,24 @@ func (g *GitLocalAdapter) GetDiff(repoPath string, path string, staged bool) (st
 	return string(output), nil
 }
 
+// StageFile adds a file to the staging area.
+func (g *GitLocalAdapter) StageFile(repoPath string, path string) error {
+	cmd := exec.Command("git", "-C", repoPath, "add", "--", path)
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("git add failed: %w", err)
+	}
+	return nil
+}
+
+// UnstageFile removes a file from the staging area.
+func (g *GitLocalAdapter) UnstageFile(repoPath string, path string) error {
+	cmd := exec.Command("git", "-C", repoPath, "reset", "HEAD", "--", path)
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("git reset failed: %w", err)
+	}
+	return nil
+}
+
 // WatchStatus starts watching a repository for status changes.
 // Returns a channel that receives status updates.
 func (g *GitLocalAdapter) WatchStatus(repoPath string) (<-chan StatusEvent, error) {

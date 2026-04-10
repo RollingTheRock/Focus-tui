@@ -153,9 +153,91 @@ func (p *StatusPane) updateKey(msg tea.KeyMsg) (models.Panel, tea.Cmd) {
 		if p.cursor > 0 {
 			p.cursor--
 		}
+	case "enter":
+		file, staged := p.getSelectedFile()
+		if file == nil {
+			return p, nil
+		}
+		return p, openDiffCmd(file.Path, staged)
+	case " ":
+		return p.handleStageToggle()
 	}
 
 	return p, nil
+}
+
+func openDiffCmd(path string, staged bool) tea.Cmd {
+	return func() tea.Msg {
+		return OpenDiffMsg{FilePath: path, Staged: staged}
+	}
+}
+
+func (p *StatusPane) handleStageToggle() (models.Panel, tea.Cmd) {
+	if p.status == nil || p.adapter == nil {
+		return p, nil
+	}
+
+	file, staged := p.getSelectedFile()
+	if file == nil {
+		return p, nil
+	}
+
+	if staged {
+		if err := p.adapter.UnstageFile(p.repoPath, file.Path); err != nil {
+			return p, nil
+		}
+	} else {
+		if err := p.adapter.StageFile(p.repoPath, file.Path); err != nil {
+			return p, nil
+		}
+	}
+
+	return p, p.refreshCmd()
+}
+
+func (p *StatusPane) getSelectedFile() (*gitmodel.File, bool) {
+	staged, unstaged, untracked, conflicted := p.sectionedRows()
+
+	idx := p.cursor
+
+	if idx < len(staged) {
+		if idx < len(p.status.StagedFiles) {
+			return &p.status.StagedFiles[idx], true
+		}
+	}
+	idx -= len(staged)
+
+	if idx < len(unstaged) {
+		if idx < len(p.status.UnstagedFiles) {
+			return &p.status.UnstagedFiles[idx], false
+		}
+	}
+	idx -= len(unstaged)
+
+	if idx < len(untracked) {
+		if idx < len(p.status.UntrackedFiles) {
+			return &p.status.UntrackedFiles[idx], false
+		}
+	}
+	idx -= len(untracked)
+
+	if idx < len(conflicted) {
+		if idx < len(p.status.ConflictedFiles) {
+			return &p.status.ConflictedFiles[idx], false
+		}
+	}
+
+	return nil, false
+}
+
+func (p *StatusPane) refreshCmd() tea.Cmd {
+	return func() tea.Msg {
+		if p.adapter == nil {
+			return adapters.StatusEvent{RepoPath: p.repoPath, Error: errors.New("git adapter is not configured")}
+		}
+		status, err := p.adapter.GetStatus(p.repoPath)
+		return adapters.StatusEvent{RepoPath: p.repoPath, Status: status, Error: err}
+	}
 }
 
 func (p *StatusPane) applyStatus(event adapters.StatusEvent) {

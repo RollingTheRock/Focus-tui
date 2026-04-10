@@ -148,11 +148,141 @@ func TestStatusPaneShowsErrorWhenLoadFails(t *testing.T) {
 	}
 }
 
+func TestStatusPaneStageFile(t *testing.T) {
+	status := &gitmodel.Status{
+		Branch:        "main",
+		UnstagedFiles: []gitmodel.File{{Path: "modified.go", WorktreeStatus: gitmodel.Modified}},
+	}
+	adapter := &fakeGitAdapter{
+		status:  status,
+		watchCh: make(chan adapters.StatusEvent, 2),
+	}
+	pane := NewStatusPane("git-1", models.PaneMeta{ID: "git-1", Type: models.PaneTypeGitStatus, CWD: "/repo"}, models.CommonModel{}, adapter)
+	pane.SetSize(80, 20)
+
+	msg := runCmd(t, pane.loadStatusCmd())
+	updated, _ := pane.Update(msg)
+	pane = updated.(*StatusPane)
+
+	updated, cmd := pane.Update(tea.KeyMsg{Type: tea.KeySpace})
+	pane = updated.(*StatusPane)
+
+	if cmd == nil {
+		t.Fatalf("expected refresh command after staging")
+	}
+
+	if !adapter.stageCalled {
+		t.Fatalf("expected StageFile to be called")
+	}
+
+	if adapter.stagedPath != "modified.go" {
+		t.Fatalf("expected to stage modified.go, got %s", adapter.stagedPath)
+	}
+}
+
+func TestStatusPaneUnstageFile(t *testing.T) {
+	status := &gitmodel.Status{
+		Branch:      "main",
+		StagedFiles: []gitmodel.File{{Path: "staged.go", StagedStatus: gitmodel.Added}},
+	}
+	adapter := &fakeGitAdapter{
+		status:  status,
+		watchCh: make(chan adapters.StatusEvent, 2),
+	}
+	pane := NewStatusPane("git-1", models.PaneMeta{ID: "git-1", Type: models.PaneTypeGitStatus, CWD: "/repo"}, models.CommonModel{}, adapter)
+	pane.SetSize(80, 20)
+
+	msg := runCmd(t, pane.loadStatusCmd())
+	updated, _ := pane.Update(msg)
+	pane = updated.(*StatusPane)
+
+	updated, cmd := pane.Update(tea.KeyMsg{Type: tea.KeySpace})
+	pane = updated.(*StatusPane)
+
+	if cmd == nil {
+		t.Fatalf("expected refresh command after unstaging")
+	}
+
+	if !adapter.unstageCalled {
+		t.Fatalf("expected UnstageFile to be called")
+	}
+
+	if adapter.unstagedPath != "staged.go" {
+		t.Fatalf("expected to unstage staged.go, got %s", adapter.unstagedPath)
+	}
+}
+
+func TestStatusPaneStageUntrackedFile(t *testing.T) {
+	status := &gitmodel.Status{
+		Branch:         "main",
+		UntrackedFiles: []gitmodel.File{{Path: "new.txt", Status: gitmodel.Untracked}},
+	}
+	adapter := &fakeGitAdapter{
+		status:  status,
+		watchCh: make(chan adapters.StatusEvent, 2),
+	}
+	pane := NewStatusPane("git-1", models.PaneMeta{ID: "git-1", Type: models.PaneTypeGitStatus, CWD: "/repo"}, models.CommonModel{}, adapter)
+	pane.SetSize(80, 20)
+
+	msg := runCmd(t, pane.loadStatusCmd())
+	updated, _ := pane.Update(msg)
+	pane = updated.(*StatusPane)
+
+	updated, cmd := pane.Update(tea.KeyMsg{Type: tea.KeySpace})
+	pane = updated.(*StatusPane)
+
+	if cmd == nil {
+		t.Fatalf("expected refresh command after staging")
+	}
+
+	if !adapter.stageCalled {
+		t.Fatalf("expected StageFile to be called for untracked file")
+	}
+
+	if adapter.stagedPath != "new.txt" {
+		t.Fatalf("expected to stage new.txt, got %s", adapter.stagedPath)
+	}
+}
+
+func TestStatusPaneStageError(t *testing.T) {
+	status := &gitmodel.Status{
+		Branch:        "main",
+		UnstagedFiles: []gitmodel.File{{Path: "modified.go", WorktreeStatus: gitmodel.Modified}},
+	}
+	adapter := &fakeGitAdapter{
+		status:   status,
+		stageErr: errors.New("permission denied"),
+		watchCh:  make(chan adapters.StatusEvent, 2),
+	}
+	pane := NewStatusPane("git-1", models.PaneMeta{ID: "git-1", Type: models.PaneTypeGitStatus, CWD: "/repo"}, models.CommonModel{}, adapter)
+	pane.SetSize(80, 20)
+
+	msg := runCmd(t, pane.loadStatusCmd())
+	updated, _ := pane.Update(msg)
+	pane = updated.(*StatusPane)
+
+	updated, cmd := pane.Update(tea.KeyMsg{Type: tea.KeySpace})
+	pane = updated.(*StatusPane)
+
+	if cmd != nil {
+		t.Fatalf("expected no command when staging fails")
+	}
+}
+
 type fakeGitAdapter struct {
 	status       *gitmodel.Status
 	getStatusErr error
 	watchErr     error
 	watchCh      chan adapters.StatusEvent
+	diff         string
+	diffErr      error
+
+	stageCalled   bool
+	stagedPath    string
+	stageErr      error
+	unstageCalled bool
+	unstagedPath  string
+	unstageErr    error
 }
 
 func (f *fakeGitAdapter) Name() string { return "fake-git" }
@@ -168,7 +298,7 @@ func (f *fakeGitAdapter) GetStatus(repoPath string) (*gitmodel.Status, error) {
 func (f *fakeGitAdapter) GetBranches(repoPath string) ([]gitmodel.Branch, error) { return nil, nil }
 
 func (f *fakeGitAdapter) GetDiff(repoPath string, path string, staged bool) (string, error) {
-	return "", nil
+	return f.diff, f.diffErr
 }
 
 func (f *fakeGitAdapter) WatchStatus(repoPath string) (<-chan adapters.StatusEvent, error) {
@@ -176,6 +306,18 @@ func (f *fakeGitAdapter) WatchStatus(repoPath string) (<-chan adapters.StatusEve
 		return nil, f.watchErr
 	}
 	return f.watchCh, nil
+}
+
+func (f *fakeGitAdapter) StageFile(repoPath string, path string) error {
+	f.stageCalled = true
+	f.stagedPath = path
+	return f.stageErr
+}
+
+func (f *fakeGitAdapter) UnstageFile(repoPath string, path string) error {
+	f.unstageCalled = true
+	f.unstagedPath = path
+	return f.unstageErr
 }
 
 func runBatchMsg(t *testing.T, cmd tea.Cmd) tea.BatchMsg {

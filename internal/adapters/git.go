@@ -8,6 +8,9 @@ type GitAdapter interface {
 	GetBranches(repoPath string) ([]git.Branch, error)
 	GetDiff(repoPath string, path string, staged bool) (string, error)
 	WatchStatus(repoPath string) (<-chan StatusEvent, error)
+
+	StageFile(repoPath string, path string) error
+	UnstageFile(repoPath string, path string) error
 }
 
 type StatusEvent struct {
