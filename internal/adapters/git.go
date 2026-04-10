@@ -7,6 +7,7 @@ type GitAdapter interface {
 	GetStatus(repoPath string) (*git.Status, error)
 	GetBranches(repoPath string) ([]git.Branch, error)
 	GetDiff(repoPath string, path string, staged bool) (string, error)
+	Commit(repoPath, message string) error
 	WatchStatus(repoPath string) (<-chan StatusEvent, error)
 
 	StageFile(repoPath string, path string) error

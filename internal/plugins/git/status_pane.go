@@ -88,6 +88,12 @@ func (p *StatusPane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 		}
 		return p, tea.Batch(cmds...)
 
+	case CommitCompletedMsg:
+		if msg.RepoPath != "" && msg.RepoPath != p.repoPath {
+			return p, nil
+		}
+		return p, p.refreshCmd()
+
 	case tea.KeyMsg:
 		return p.updateKey(msg)
 
@@ -151,6 +157,13 @@ func (p *StatusPane) SetSize(width, height int) {
 }
 
 func (p *StatusPane) updateKey(msg tea.KeyMsg) (models.Panel, tea.Cmd) {
+	if msg.String() == "c" {
+		if p.status == nil || len(p.status.StagedFiles) == 0 {
+			return p, nil
+		}
+		return p, openCommitCmd(p.repoPath, p.status.StagedFiles)
+	}
+
 	count := len(p.rows())
 	if count == 0 {
 		return p, nil
@@ -187,6 +200,13 @@ func (p *StatusPane) updateKey(msg tea.KeyMsg) (models.Panel, tea.Cmd) {
 func openDiffCmd(path string, staged bool) tea.Cmd {
 	return func() tea.Msg {
 		return OpenDiffMsg{FilePath: path, Staged: staged}
+	}
+}
+
+func openCommitCmd(repoPath string, stagedFiles []gitmodel.File) tea.Cmd {
+	files := append([]gitmodel.File(nil), stagedFiles...)
+	return func() tea.Msg {
+		return OpenCommitMsg{RepoPath: repoPath, StagedFiles: files}
 	}
 }
 

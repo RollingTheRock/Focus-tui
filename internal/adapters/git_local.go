@@ -268,6 +268,26 @@ func (g *GitLocalAdapter) GetDiff(repoPath string, path string, staged bool) (st
 	return string(output), nil
 }
 
+// Commit creates a git commit with the provided message.
+func (g *GitLocalAdapter) Commit(repoPath, message string) error {
+	message = strings.TrimSpace(message)
+	if message == "" {
+		return fmt.Errorf("commit message cannot be empty")
+	}
+
+	cmd := exec.Command("git", "-C", repoPath, "commit", "-m", message)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		detail := strings.TrimSpace(string(output))
+		if detail == "" {
+			return fmt.Errorf("git commit failed: %w", err)
+		}
+		return fmt.Errorf("git commit failed: %s", detail)
+	}
+
+	return nil
+}
+
 // StageFile adds a file to the staging area.
 func (g *GitLocalAdapter) StageFile(repoPath string, path string) error {
 	cmd := exec.Command("git", "-C", repoPath, "add", "--", path)

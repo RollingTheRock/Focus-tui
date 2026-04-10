@@ -22,6 +22,12 @@ var (
 	addedLineStyle   = lipgloss.NewStyle().Foreground(appstyles.Success)
 	removedLineStyle = lipgloss.NewStyle().Foreground(appstyles.Overdue)
 
+	commitHeaderStyle      = lipgloss.NewStyle().Bold(true).Foreground(appstyles.Accent)
+	commitFileStyle        = lipgloss.NewStyle().Foreground(appstyles.Text)
+	commitInputStyle       = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(appstyles.Highlight).Padding(0, 1)
+	commitHintStyle        = lipgloss.NewStyle().Foreground(appstyles.Subtle)
+	commitHintWarningStyle = lipgloss.NewStyle().Foreground(appstyles.Warning)
+
 	selectedRowStyle = lipgloss.NewStyle().Background(appstyles.Highlight)
 	loadingStyle     = lipgloss.NewStyle().Foreground(appstyles.Subtle)
 
