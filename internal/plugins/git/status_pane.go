@@ -163,9 +163,12 @@ func (p *StatusPane) updateKey(msg tea.KeyMsg) (models.Panel, tea.Cmd) {
 		}
 		return p, openCommitCmd(p.repoPath, p.status.StagedFiles)
 	}
+	if msg.String() == "P" {
+		return p, p.handlePush()
+	}
 
 	count := len(p.rows())
-	if count == 0 {
+	if count == 0 && msg.String() != "a" {
 		return p, nil
 	}
 
@@ -186,6 +189,8 @@ func (p *StatusPane) updateKey(msg tea.KeyMsg) (models.Panel, tea.Cmd) {
 		return p, openDiffCmd(file.Path, staged)
 	case " ":
 		return p.handleStageToggle()
+	case "a":
+		return p, p.handleStageAllToggle()
 	case "ctrl+d":
 		if p.getSelectedPath() == "" {
 			return p, nil
@@ -231,6 +236,50 @@ func (p *StatusPane) handleStageToggle() (models.Panel, tea.Cmd) {
 	}
 
 	return p, p.refreshCmd()
+}
+
+func (p *StatusPane) handleStageAllToggle() tea.Cmd {
+	if p.status == nil || p.adapter == nil {
+		return nil
+	}
+
+	shouldStageAll := len(p.status.UnstagedFiles) > 0 || len(p.status.UntrackedFiles) > 0 || len(p.status.ConflictedFiles) > 0
+	if shouldStageAll {
+		if err := p.adapter.StageAll(p.repoPath); err != nil {
+			p.err = err
+			return nil
+		}
+	} else if len(p.status.StagedFiles) > 0 {
+		if err := p.adapter.UnstageAll(p.repoPath); err != nil {
+			p.err = err
+			return nil
+		}
+	} else {
+		return nil
+	}
+
+	p.err = nil
+	return p.refreshCmd()
+}
+
+func (p *StatusPane) handlePush() tea.Cmd {
+	if p.adapter == nil || p.status == nil {
+		return nil
+	}
+	if p.status.Upstream == "" {
+		p.err = errors.New("current branch has no upstream to push to")
+		return nil
+	}
+	if p.status.Ahead == 0 {
+		return nil
+	}
+	if err := p.adapter.Push(p.repoPath); err != nil {
+		p.err = err
+		return nil
+	}
+
+	p.err = nil
+	return p.refreshCmd()
 }
 
 func (p *StatusPane) getSelectedFile() (*gitmodel.File, bool) {

@@ -174,6 +174,8 @@ func (f *fakeCommitAdapter) Commit(repoPath, message string) error {
 	return f.commitErr
 }
 
+func (f *fakeCommitAdapter) Push(repoPath string) error { return nil }
+
 func (f *fakeCommitAdapter) WatchStatus(repoPath string) (<-chan adapters.StatusEvent, error) {
 	if f.watchCh == nil {
 		f.watchCh = make(chan adapters.StatusEvent)
@@ -183,6 +185,10 @@ func (f *fakeCommitAdapter) WatchStatus(repoPath string) (<-chan adapters.Status
 
 func (f *fakeCommitAdapter) StageFile(repoPath string, path string) error { return nil }
 
+func (f *fakeCommitAdapter) StageAll(repoPath string) error { return nil }
+
 func (f *fakeCommitAdapter) UnstageFile(repoPath string, path string) error { return nil }
+
+func (f *fakeCommitAdapter) UnstageAll(repoPath string) error { return nil }
 
 func (f *fakeCommitAdapter) DiscardChanges(repoPath string, path string) error { return nil }

@@ -422,16 +422,22 @@ type fakeGitAdapter struct {
 	watchCh      chan adapters.StatusEvent
 	diff         string
 	diffErr      error
+	pushErr      error
 
-	stageCalled   bool
-	stagedPath    string
-	stageErr      error
-	unstageCalled bool
-	unstagedPath  string
-	unstageErr    error
-	discardCalled bool
-	discardedPath string
-	discardErr    error
+	stageCalled      bool
+	stagedPath       string
+	stageErr         error
+	stageAllCalled   bool
+	stageAllErr      error
+	unstageCalled    bool
+	unstagedPath     string
+	unstageErr       error
+	unstageAllCalled bool
+	unstageAllErr    error
+	pushCalled       bool
+	discardCalled    bool
+	discardedPath    string
+	discardErr       error
 }
 
 func (f *fakeGitAdapter) Name() string { return "fake-git" }
@@ -450,6 +456,11 @@ func (f *fakeGitAdapter) GetDiff(repoPath string, path string, staged bool) (str
 	return f.diff, f.diffErr
 }
 
+func (f *fakeGitAdapter) Push(repoPath string) error {
+	f.pushCalled = true
+	return f.pushErr
+}
+
 func (f *fakeGitAdapter) WatchStatus(repoPath string) (<-chan adapters.StatusEvent, error) {
 	if f.watchErr != nil {
 		return nil, f.watchErr
@@ -463,16 +474,125 @@ func (f *fakeGitAdapter) StageFile(repoPath string, path string) error {
 	return f.stageErr
 }
 
+func (f *fakeGitAdapter) StageAll(repoPath string) error {
+	f.stageAllCalled = true
+	return f.stageAllErr
+}
+
 func (f *fakeGitAdapter) UnstageFile(repoPath string, path string) error {
 	f.unstageCalled = true
 	f.unstagedPath = path
 	return f.unstageErr
 }
 
+func (f *fakeGitAdapter) UnstageAll(repoPath string) error {
+	f.unstageAllCalled = true
+	return f.unstageAllErr
+}
+
 func (f *fakeGitAdapter) DiscardChanges(repoPath string, path string) error {
 	f.discardCalled = true
 	f.discardedPath = path
 	return f.discardErr
+}
+
+func TestStatusPaneStageAll(t *testing.T) {
+	status := &gitmodel.Status{
+		Branch:        "main",
+		UnstagedFiles: []gitmodel.File{{Path: "modified.go", WorktreeStatus: gitmodel.Modified}},
+	}
+	adapter := &fakeGitAdapter{status: status, watchCh: make(chan adapters.StatusEvent, 2)}
+	pane := NewStatusPane("git-1", models.PaneMeta{ID: "git-1", Type: models.PaneTypeGitStatus, CWD: "/repo"}, models.CommonModel{}, adapter)
+
+	msg := runCmd(t, pane.loadStatusCmd())
+	updated, _ := pane.Update(msg)
+	pane = updated.(*StatusPane)
+
+	updated, cmd := pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+	pane = updated.(*StatusPane)
+
+	if cmd == nil {
+		t.Fatalf("expected refresh command after stage all")
+	}
+	if !adapter.stageAllCalled {
+		t.Fatalf("expected StageAll to be called")
+	}
+	if adapter.unstageAllCalled {
+		t.Fatalf("expected UnstageAll not to be called")
+	}
+}
+
+func TestStatusPaneUnstageAll(t *testing.T) {
+	status := &gitmodel.Status{
+		Branch:      "main",
+		StagedFiles: []gitmodel.File{{Path: "staged.go", StagedStatus: gitmodel.Added}},
+	}
+	adapter := &fakeGitAdapter{status: status, watchCh: make(chan adapters.StatusEvent, 2)}
+	pane := NewStatusPane("git-1", models.PaneMeta{ID: "git-1", Type: models.PaneTypeGitStatus, CWD: "/repo"}, models.CommonModel{}, adapter)
+
+	msg := runCmd(t, pane.loadStatusCmd())
+	updated, _ := pane.Update(msg)
+	pane = updated.(*StatusPane)
+
+	updated, cmd := pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+	pane = updated.(*StatusPane)
+
+	if cmd == nil {
+		t.Fatalf("expected refresh command after unstage all")
+	}
+	if !adapter.unstageAllCalled {
+		t.Fatalf("expected UnstageAll to be called")
+	}
+	if adapter.stageAllCalled {
+		t.Fatalf("expected StageAll not to be called")
+	}
+}
+
+func TestStatusPanePush(t *testing.T) {
+	status := &gitmodel.Status{
+		Branch:   "main",
+		Upstream: "origin/main",
+		Ahead:    2,
+	}
+	adapter := &fakeGitAdapter{status: status, watchCh: make(chan adapters.StatusEvent, 2)}
+	pane := NewStatusPane("git-1", models.PaneMeta{ID: "git-1", Type: models.PaneTypeGitStatus, CWD: "/repo"}, models.CommonModel{}, adapter)
+
+	msg := runCmd(t, pane.loadStatusCmd())
+	updated, _ := pane.Update(msg)
+	pane = updated.(*StatusPane)
+
+	updated, cmd := pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'P'}})
+	pane = updated.(*StatusPane)
+
+	if cmd == nil {
+		t.Fatalf("expected refresh command after push")
+	}
+	if !adapter.pushCalled {
+		t.Fatalf("expected Push to be called")
+	}
+}
+
+func TestStatusPanePushRequiresUpstream(t *testing.T) {
+	status := &gitmodel.Status{Branch: "main", Ahead: 1}
+	adapter := &fakeGitAdapter{status: status, watchCh: make(chan adapters.StatusEvent, 2)}
+	pane := NewStatusPane("git-1", models.PaneMeta{ID: "git-1", Type: models.PaneTypeGitStatus, CWD: "/repo"}, models.CommonModel{}, adapter)
+
+	msg := runCmd(t, pane.loadStatusCmd())
+	updated, _ := pane.Update(msg)
+	pane = updated.(*StatusPane)
+
+	updated, cmd := pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'P'}})
+	pane = updated.(*StatusPane)
+
+	if cmd != nil {
+		t.Fatalf("expected no command when upstream is missing")
+	}
+	if adapter.pushCalled {
+		t.Fatalf("expected Push not to be called without upstream")
+	}
+	if pane.err == nil || !strings.Contains(pane.err.Error(), "no upstream") {
+		t.Fatalf("expected missing upstream error, got %v", pane.err)
+	}
 }
 
 func runBatchMsg(t *testing.T, cmd tea.Cmd) tea.BatchMsg {
