@@ -18,30 +18,40 @@ import (
 
 // Model is the Header sub-model.
 type Model struct {
-	cfg     config.Config
-	theme   styles.Theme
-	width   int
-	weather string // e.g. "26C . Shanghai"
-	timeStr string
-	quote   string
+	cfg       config.Config
+	store     models.Store
+	theme     styles.Theme
+	width     int
+	weather   string // e.g. "26C . Shanghai"
+	timeStr   string
+	quote     string
+	todoDone  int
+	todoTotal int
+	pomoCount int
 }
 
 // New creates a new Header model.
-func New(cfg config.Config, theme styles.Theme) models.Panel {
+func New(cfg config.Config, theme styles.Theme, st models.Store) models.Panel {
 	return &Model{
-		cfg:     cfg,
-		theme:   theme,
-		weather: "loading weather...",
-		timeStr: time.Now().Format(cfg.TimeFormat),
-		quote:   quotes.Get(cfg.Quote.Source, cfg.Quote.CustomFile),
+		cfg:       cfg,
+		store:     st,
+		theme:     theme,
+		weather:   "loading weather...",
+		timeStr:   time.Now().Format(cfg.TimeFormat),
+		quote:     quotes.Get(cfg.Quote.Source, cfg.Quote.CustomFile),
+		todoDone:  0,
+		todoTotal: 0,
+		pomoCount: 0,
 	}
 }
 
-// Init starts the tick and weather fetch commands.
+// Init starts the tick, weather fetch, and stats refresh commands.
 func (m *Model) Init() tea.Cmd {
 	return tea.Batch(
 		tickCmd(),
 		fetchWeatherCmd(m.cfg.Weather.City),
+		refreshStatsNowCmd(m.store),
+		refreshStatsCmd(m.store),
 	)
 }
 
@@ -60,6 +70,12 @@ func (m *Model) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 		} else {
 			m.weather = fmt.Sprintf("%s %dC . %s", msg.info.Icon, msg.info.Temp, msg.info.City)
 		}
+
+	case statsMsg:
+		m.todoDone = msg.todoDone
+		m.todoTotal = msg.todoTotal
+		m.pomoCount = msg.pomoCount
+		return m, refreshStatsCmd(m.store)
 	}
 	return m, nil
 }
@@ -109,6 +125,12 @@ func (m *Model) ViewBanner(w int, pomoTimer, pomoPhase, linkedTodo string) strin
 		if linkedTodo != "" {
 			infoLines[4] = linkedTodo
 		}
+	}
+	statsLine := fmt.Sprintf("🍅x%d  ✓%d/%d", m.pomoCount, m.todoDone, m.todoTotal)
+	if infoLines[4] == "" {
+		infoLines[4] = statsLine
+	} else if infoLines[5] == "" {
+		infoLines[5] = statsLine
 	}
 	if m.quote != "" {
 		// Put quote on the first empty slot from the bottom.
@@ -160,20 +182,26 @@ func (m *Model) ViewBanner(w int, pomoTimer, pomoPhase, linkedTodo string) strin
 }
 
 // ViewCompact renders the header in the given width. If showQuote is false, only
-// the weather+time line is returned.
+// the weather+time+stats line is returned.
 func (m *Model) ViewCompact(w int, showQuote bool) string {
 	if w <= 0 {
 		w = 78
 	}
 
+	statsBlock := fmt.Sprintf("🍅x%d ✓%d/%d", m.pomoCount, m.todoDone, m.todoTotal)
 	weatherBlock := m.theme.NormalStyle.Render(" " + m.weather)
 	timeBlock := m.theme.NormalStyle.Render(m.timeStr + " ")
+	statsStyle := lipgloss.NewStyle().Foreground(styles.Accent).Bold(true)
+	statsRendered := statsStyle.Render(statsBlock)
 
-	timeStyle := lipgloss.NewStyle().Width(w - lipgloss.Width(weatherBlock)).Align(lipgloss.Right)
+	leftWidth := lipgloss.Width(weatherBlock) + lipgloss.Width(timeBlock) + lipgloss.Width(statsRendered) + 2
+	timeStyle := lipgloss.NewStyle().Width(w - leftWidth).Align(lipgloss.Right)
+
 	timeLine := lipgloss.JoinHorizontal(
 		lipgloss.Top,
 		weatherBlock,
-		timeStyle.Render(timeBlock),
+		timeBlock,
+		timeStyle.Render(statsRendered),
 	)
 
 	if !showQuote || m.quote == "" {
@@ -229,5 +257,41 @@ func fetchWeatherCmd(city string) tea.Cmd {
 	return func() tea.Msg {
 		info, err := weather.Get(city)
 		return weatherMsg{info: info, err: err}
+	}
+}
+
+type statsMsg struct {
+	todoDone  int
+	todoTotal int
+	pomoCount int
+}
+
+func refreshStatsCmd(st models.Store) tea.Cmd {
+	return tea.Every(30*time.Second, func(t time.Time) tea.Msg {
+		if st == nil {
+			return statsMsg{}
+		}
+		done, total, _ := st.TodayDoneCount()
+		pomo, _ := st.TodaySessionCount()
+		return statsMsg{
+			todoDone:  done,
+			todoTotal: total,
+			pomoCount: pomo,
+		}
+	})
+}
+
+func refreshStatsNowCmd(st models.Store) tea.Cmd {
+	return func() tea.Msg {
+		if st == nil {
+			return statsMsg{}
+		}
+		done, total, _ := st.TodayDoneCount()
+		pomo, _ := st.TodaySessionCount()
+		return statsMsg{
+			todoDone:  done,
+			todoTotal: total,
+			pomoCount: pomo,
+		}
 	}
 }
