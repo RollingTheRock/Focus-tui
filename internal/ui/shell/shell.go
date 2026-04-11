@@ -10,9 +10,9 @@ import (
 
 	"focus/internal/models"
 
+	"focus/internal/x/vt"
+	"focus/internal/x/xpty"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/x/vt"
-	"github.com/charmbracelet/x/xpty"
 )
 
 const shellRefreshInterval = 33 * time.Millisecond
