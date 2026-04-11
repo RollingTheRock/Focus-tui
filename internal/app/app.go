@@ -106,9 +106,9 @@ func New(cfg config.Config, store models.Store) tea.Model {
 		paneMeta: make(map[models.PaneID]models.PaneMeta),
 		bodyTree: layout.Split(
 			layout.SplitHorizontal,
-			70,
+			30,
+			layout.Split(layout.SplitVertical, 50, layout.Leaf(paneGitStatus), layout.Leaf(paneFileTree)),
 			layout.Leaf(paneShell),
-			layout.Split(layout.SplitVertical, 55, layout.Leaf(paneTodo), layout.Leaf(panePomodoro)),
 		),
 		focused:        paneShell,
 		nextShell:      2,
@@ -128,7 +128,7 @@ func New(cfg config.Config, store models.Store) tea.Model {
 	_ = m.pluginRegistry.Register(gitPlugin)
 	_ = m.pluginRegistry.Register(fileTreePlugin)
 
-	m.registerPane(paneHeader, header.New(cfg, cm.Theme), models.PaneMeta{ID: paneHeader, Name: "Header", Type: models.PaneTypeHeader, Status: models.PaneStatusPassive, Closable: false})
+	m.registerPane(paneHeader, header.New(cfg, cm.Theme, store), models.PaneMeta{ID: paneHeader, Name: "Header", Type: models.PaneTypeHeader, Status: models.PaneStatusPassive, Closable: false})
 	m.registerPane(paneShell, shell.New(cm, paneShell), models.PaneMeta{ID: paneShell, Name: "Shell", Type: models.PaneTypeShell, CWD: cwd, Status: models.PaneStatusStarting, Closable: true})
 	m.registerPane(paneTodo, todo.New(cm), models.PaneMeta{ID: paneTodo, Name: "Todo", Type: models.PaneTypeTodo, Status: models.PaneStatusIdle, Closable: false})
 	m.registerPane(panePomodoro, pomodoro.New(cm), models.PaneMeta{ID: panePomodoro, Name: "Pomodoro", Type: models.PaneTypePomodoro, Status: models.PaneStatusIdle, Closable: false})
@@ -144,27 +144,17 @@ func New(cfg config.Config, store models.Store) tea.Model {
 			m.registerPane(paneGitStatus, panel, gitPaneMeta)
 			m.bodyTree = layout.Split(
 				layout.SplitHorizontal,
-				40,
+				30,
+				layout.Split(layout.SplitVertical, 50, layout.Leaf(paneGitStatus), layout.Leaf(paneFileTree)),
 				layout.Leaf(paneShell),
-				layout.Split(
-					layout.SplitHorizontal,
-					50,
-					layout.Split(layout.SplitVertical, 50, layout.Leaf(paneGitStatus), layout.Leaf(paneTodo)),
-					layout.Split(layout.SplitVertical, 50, layout.Leaf(paneFileTree), layout.Leaf(panePomodoro)),
-				),
 			)
 		}
 	} else {
 		m.bodyTree = layout.Split(
 			layout.SplitHorizontal,
-			40,
+			30,
+			layout.Leaf(paneFileTree),
 			layout.Leaf(paneShell),
-			layout.Split(
-				layout.SplitHorizontal,
-				50,
-				layout.Split(layout.SplitVertical, 50, layout.Leaf(paneTodo), layout.Leaf(panePomodoro)),
-				layout.Leaf(paneFileTree),
-			),
 		)
 	}
 	m.refreshPaneStatuses()
