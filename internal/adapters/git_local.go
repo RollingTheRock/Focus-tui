@@ -288,6 +288,21 @@ func (g *GitLocalAdapter) Commit(repoPath, message string) error {
 	return nil
 }
 
+// Push sends the current branch to its configured upstream.
+func (g *GitLocalAdapter) Push(repoPath string) error {
+	cmd := exec.Command("git", "-C", repoPath, "push")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		detail := strings.TrimSpace(string(output))
+		if detail == "" {
+			return fmt.Errorf("git push failed: %w", err)
+		}
+		return fmt.Errorf("git push failed: %s", detail)
+	}
+
+	return nil
+}
+
 // StageFile adds a file to the staging area.
 func (g *GitLocalAdapter) StageFile(repoPath string, path string) error {
 	cmd := exec.Command("git", "-C", repoPath, "add", "--", path)
@@ -297,11 +312,29 @@ func (g *GitLocalAdapter) StageFile(repoPath string, path string) error {
 	return nil
 }
 
+// StageAll adds all tracked and untracked changes to the staging area.
+func (g *GitLocalAdapter) StageAll(repoPath string) error {
+	cmd := exec.Command("git", "-C", repoPath, "add", "--all")
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("git add --all failed: %w", err)
+	}
+	return nil
+}
+
 // UnstageFile removes a file from the staging area.
 func (g *GitLocalAdapter) UnstageFile(repoPath string, path string) error {
 	cmd := exec.Command("git", "-C", repoPath, "reset", "HEAD", "--", path)
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("git reset failed: %w", err)
+	}
+	return nil
+}
+
+// UnstageAll removes all staged changes from the index.
+func (g *GitLocalAdapter) UnstageAll(repoPath string) error {
+	cmd := exec.Command("git", "-C", repoPath, "reset", "HEAD", "--", ".")
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("git reset HEAD -- . failed: %w", err)
 	}
 	return nil
 }

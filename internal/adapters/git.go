@@ -8,10 +8,13 @@ type GitAdapter interface {
 	GetBranches(repoPath string) ([]git.Branch, error)
 	GetDiff(repoPath string, path string, staged bool) (string, error)
 	Commit(repoPath, message string) error
+	Push(repoPath string) error
 	WatchStatus(repoPath string) (<-chan StatusEvent, error)
 
 	StageFile(repoPath string, path string) error
+	StageAll(repoPath string) error
 	UnstageFile(repoPath string, path string) error
+	UnstageAll(repoPath string) error
 	DiscardChanges(repoPath string, path string) error
 }
 
