@@ -19,6 +19,7 @@ const (
 	PaneTypeFileTree  PaneType = "file-tree"
 	PaneTypeDiffView  PaneType = "diff-view"
 	PaneTypeLogView   PaneType = "log-view"
+	PaneTypeEditor    PaneType = "editor"
 )
 
 // PaneStatus is lightweight display metadata for a pane.
