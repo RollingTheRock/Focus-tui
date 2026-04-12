@@ -65,6 +65,17 @@
 - `v`：vertical split 打开
 - 文件树不承担编辑逻辑本身，而是触发 editor/buffer 打开流程
 
+### Neovim
+
+用于参考编辑器内核的状态分层，而不是直接照搬复杂度：
+
+- Buffer 与 Window 分离：文件内容与显示视图分离
+- `modified` / `changedtick`：dirty 状态必须是一等公民
+- 打开 / 编辑 / 保存 / 关闭是明确生命周期
+- split 属于布局系统，不属于编辑器控件本身
+
+本项目只借鉴其架构思路，不引入 swapfile、undo tree、脚本系统、syntax engine 等重型能力。
+
 ---
 
 ## 开发顺序
@@ -135,6 +146,61 @@
 - [ ] 支持文件加载、编辑、保存、dirty 状态
 - [ ] 支持 `ctrl+s` 保存、`esc` 关闭/确认放弃
 
+### B2.1. Editor 设计约束（本轮确认）
+
+- [ ] **Editor 是正常 pane，不是 overlay**
+- [ ] **File Tree 只负责发 `OpenEditorMsg`，不承担编辑逻辑**
+- [ ] **MVP 先做单文件/单 pane 编辑，不做完整 buffer 管理器**
+- [ ] **先支持 UTF-8 文本文件，不处理二进制与超大文件**
+- [ ] **保留后续演进空间：Buffer/Window 分离、Split、搜索、只读预览**
+
+### B2.2. Editor 状态模型（MVP）
+
+首批 editor pane 采用轻量状态模型：
+
+- `filePath string`
+- `originalContent string`
+- `dirty bool`
+- `changeTick int64`
+- `confirmClose bool`
+
+说明：
+
+- `dirty` 用于 pane title、保存按钮和关闭确认
+- `changeTick` 用于后续做增量刷新和更细粒度状态同步
+- 这一版暂不实现多 window 共享同一 buffer，但设计上不阻塞后续升级
+
+### B2.3. 打开与分屏策略（MVP）
+
+- `enter / o`：从 File Tree 打开 editor
+- `v`：右侧 split 打开 editor
+- 默认优先在主工作区（shell/editor 区）分裂，不在左侧导航列内打开
+
+说明：File Tree 继续作为导航列存在，editor 在主工作区中打开，符合 terminal IDE 的工作流预期。
+
+### B2.4. 首批文件设计
+
+- `internal/plugins/editor/plugin.go`
+- `internal/plugins/editor/editor_pane.go`
+- `internal/plugins/editor/messages.go`
+- `internal/plugins/editor/editor_pane_test.go`
+
+涉及修改：
+
+- `internal/models/pane.go`
+- `internal/plugins/filebrowser/tree_pane.go`
+- `internal/plugins/filebrowser/tree_pane_test.go`
+- `internal/app/app.go`
+
+### B2.5. MVP 验收标准
+
+1. File Tree 文件节点按 `enter/o` 可以打开 editor pane
+2. `v` 可以以 split 方式打开 editor pane
+3. editor 能加载文件内容并编辑
+4. `ctrl+s` 可以保存到磁盘
+5. 未保存时 `esc` 不会直接关闭，而是要求确认
+6. `go test ./...` 全绿
+
 ### B3. 打开方式
 
 - [ ] `enter/o`：当前方式打开
@@ -175,18 +241,18 @@
 
 ### 第 2 周
 
-完成 **File Tree → Editor overlay MVP**：
+完成 **File Tree → Editor pane MVP**：
 
 - 文件树打开文件
-- editor overlay
+- editor pane 骨架
 - 保存 / dirty 状态
 
 ### 第 3 周
 
-完成 **Editor pane 化**：
+完成 **Editor 交互增强**：
 
-- split 打开
-- 常规 pane 生命周期
+- split 打开完善
+- 常规 pane 生命周期打磨
 - 焦点与关闭回退
 
 ### 第 4 周
