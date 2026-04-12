@@ -609,6 +609,52 @@ func TestStatusPanePushRequiresUpstream(t *testing.T) {
 	}
 }
 
+func TestStatusPanePushRequiresPullBeforePushing(t *testing.T) {
+	status := &gitmodel.Status{Branch: "main", Upstream: "origin/main", Ahead: 1, Behind: 1}
+	adapter := &fakeGitAdapter{status: status, watchCh: make(chan adapters.StatusEvent, 2)}
+	pane := NewStatusPane("git-1", models.PaneMeta{ID: "git-1", Type: models.PaneTypeGitStatus, CWD: "/repo"}, models.CommonModel{}, adapter)
+
+	msg := runCmd(t, pane.loadStatusCmd())
+	updated, _ := pane.Update(msg)
+	pane = updated.(*StatusPane)
+
+	updated, cmd := pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'P'}})
+	pane = updated.(*StatusPane)
+
+	if cmd != nil {
+		t.Fatalf("expected no command when branch is diverged")
+	}
+	if adapter.pushCalled {
+		t.Fatalf("expected Push not to be called for diverged branch")
+	}
+	if pane.err == nil || !strings.Contains(pane.err.Error(), "diverged") {
+		t.Fatalf("expected diverged branch error, got %v", pane.err)
+	}
+}
+
+func TestStatusPanePushShowsNoticeWhenNothingToPush(t *testing.T) {
+	status := &gitmodel.Status{Branch: "main", Upstream: "origin/main"}
+	adapter := &fakeGitAdapter{status: status, watchCh: make(chan adapters.StatusEvent, 2)}
+	pane := NewStatusPane("git-1", models.PaneMeta{ID: "git-1", Type: models.PaneTypeGitStatus, CWD: "/repo"}, models.CommonModel{}, adapter)
+
+	msg := runCmd(t, pane.loadStatusCmd())
+	updated, _ := pane.Update(msg)
+	pane = updated.(*StatusPane)
+
+	updated, cmd := pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'P'}})
+	pane = updated.(*StatusPane)
+
+	if cmd != nil {
+		t.Fatalf("expected no refresh when there is nothing to push")
+	}
+	if adapter.pushCalled {
+		t.Fatalf("expected Push not to be called when ahead is zero")
+	}
+	if pane.notice != "no local commits to push" {
+		t.Fatalf("expected no-push notice, got %q", pane.notice)
+	}
+}
+
 func TestStatusPaneFetch(t *testing.T) {
 	adapter := &fakeGitAdapter{status: &gitmodel.Status{Branch: "main"}, watchCh: make(chan adapters.StatusEvent, 2)}
 	pane := NewStatusPane("git-1", models.PaneMeta{ID: "git-1", Type: models.PaneTypeGitStatus, CWD: "/repo"}, models.CommonModel{}, adapter)
@@ -667,6 +713,71 @@ func TestStatusPanePullRequiresUpstream(t *testing.T) {
 	}
 	if pane.err == nil || !strings.Contains(pane.err.Error(), "no upstream") {
 		t.Fatalf("expected missing upstream error, got %v", pane.err)
+	}
+}
+
+func TestStatusPanePullRejectsDivergedBranch(t *testing.T) {
+	status := &gitmodel.Status{Branch: "main", Upstream: "origin/main", Ahead: 2, Behind: 1}
+	adapter := &fakeGitAdapter{status: status, watchCh: make(chan adapters.StatusEvent, 2)}
+	pane := NewStatusPane("git-1", models.PaneMeta{ID: "git-1", Type: models.PaneTypeGitStatus, CWD: "/repo"}, models.CommonModel{}, adapter)
+
+	msg := runCmd(t, pane.loadStatusCmd())
+	updated, _ := pane.Update(msg)
+	pane = updated.(*StatusPane)
+
+	updated, cmd := pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'p'}})
+	pane = updated.(*StatusPane)
+
+	if cmd != nil {
+		t.Fatalf("expected no command when pull is blocked by divergence")
+	}
+	if adapter.pullCalled {
+		t.Fatalf("expected Pull not to be called for diverged branch")
+	}
+	if pane.err == nil || !strings.Contains(pane.err.Error(), "diverged") {
+		t.Fatalf("expected diverged pull error, got %v", pane.err)
+	}
+}
+
+func TestStatusPanePullShowsUpToDateNotice(t *testing.T) {
+	status := &gitmodel.Status{Branch: "main", Upstream: "origin/main"}
+	adapter := &fakeGitAdapter{status: status, watchCh: make(chan adapters.StatusEvent, 2)}
+	pane := NewStatusPane("git-1", models.PaneMeta{ID: "git-1", Type: models.PaneTypeGitStatus, CWD: "/repo"}, models.CommonModel{}, adapter)
+
+	msg := runCmd(t, pane.loadStatusCmd())
+	updated, _ := pane.Update(msg)
+	pane = updated.(*StatusPane)
+
+	updated, cmd := pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'p'}})
+	pane = updated.(*StatusPane)
+
+	if cmd != nil {
+		t.Fatalf("expected no refresh when branch is already up to date")
+	}
+	if adapter.pullCalled {
+		t.Fatalf("expected Pull not to be called when behind is zero")
+	}
+	if pane.notice != "branch is already up to date with upstream" {
+		t.Fatalf("expected up-to-date notice, got %q", pane.notice)
+	}
+}
+
+func TestStatusPaneFetchShowsNoticeOnSuccess(t *testing.T) {
+	adapter := &fakeGitAdapter{status: &gitmodel.Status{Branch: "main"}, watchCh: make(chan adapters.StatusEvent, 2)}
+	pane := NewStatusPane("git-1", models.PaneMeta{ID: "git-1", Type: models.PaneTypeGitStatus, CWD: "/repo"}, models.CommonModel{}, adapter)
+
+	msg := runCmd(t, pane.loadStatusCmd())
+	updated, _ := pane.Update(msg)
+	pane = updated.(*StatusPane)
+
+	updated, cmd := pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'f'}})
+	pane = updated.(*StatusPane)
+
+	if cmd == nil {
+		t.Fatalf("expected refresh command after fetch")
+	}
+	if pane.notice != "fetched latest remote state" {
+		t.Fatalf("expected fetch notice, got %q", pane.notice)
 	}
 }
 

@@ -27,6 +27,7 @@ type StatusPane struct {
 	width  int
 	height int
 	err    error
+	notice string
 
 	confirmDiscard bool
 }
@@ -138,6 +139,12 @@ func (p *StatusPane) View() string {
 
 	if p.confirmDiscard {
 		lines = append(lines, "", errorStyle.Render("Discard selected changes for "+p.getSelectedPath()+"? [y/n]"))
+	}
+	if p.notice != "" {
+		lines = append(lines, "", upstreamStyle.Render(p.notice))
+	}
+	if p.err != nil {
+		lines = append(lines, "", errorStyle.Render(p.err.Error()))
 	}
 
 	if p.height > 0 && len(lines) > p.height {
@@ -273,18 +280,27 @@ func (p *StatusPane) handlePush() tea.Cmd {
 		return nil
 	}
 	if p.status.Upstream == "" {
-		p.err = errors.New("current branch has no upstream to push to")
+		p.setError(errors.New("current branch has no upstream to push to"))
+		return nil
+	}
+	if p.status.Ahead > 0 && p.status.Behind > 0 {
+		p.setError(errors.New("branch has diverged from upstream; resolve divergence before pushing"))
+		return nil
+	}
+	if p.status.Behind > 0 {
+		p.setError(errors.New("branch is behind upstream; pull before pushing"))
 		return nil
 	}
 	if p.status.Ahead == 0 {
+		p.setNotice("no local commits to push")
 		return nil
 	}
 	if err := p.adapter.Push(p.repoPath); err != nil {
-		p.err = err
+		p.setError(err)
 		return nil
 	}
 
-	p.err = nil
+	p.setNotice("pushed local commits to upstream")
 	return p.refreshCmd()
 }
 
@@ -293,11 +309,11 @@ func (p *StatusPane) handleFetch() tea.Cmd {
 		return nil
 	}
 	if err := p.adapter.Fetch(p.repoPath); err != nil {
-		p.err = err
+		p.setError(err)
 		return nil
 	}
 
-	p.err = nil
+	p.setNotice("fetched latest remote state")
 	return p.refreshCmd()
 }
 
@@ -306,15 +322,27 @@ func (p *StatusPane) handlePull() tea.Cmd {
 		return nil
 	}
 	if p.status.Upstream == "" {
-		p.err = errors.New("current branch has no upstream to pull from")
+		p.setError(errors.New("current branch has no upstream to pull from"))
+		return nil
+	}
+	if p.status.Ahead > 0 && p.status.Behind > 0 {
+		p.setError(errors.New("branch has diverged from upstream; resolve divergence before pulling"))
+		return nil
+	}
+	if p.status.Behind == 0 {
+		if p.status.Ahead > 0 {
+			p.setNotice("no remote commits to pull; branch is already ahead of upstream")
+		} else {
+			p.setNotice("branch is already up to date with upstream")
+		}
 		return nil
 	}
 	if err := p.adapter.Pull(p.repoPath); err != nil {
-		p.err = err
+		p.setError(err)
 		return nil
 	}
 
-	p.err = nil
+	p.setNotice("pulled latest commits from upstream")
 	return p.refreshCmd()
 }
 
@@ -399,13 +427,23 @@ func (p *StatusPane) refreshCmd() tea.Cmd {
 func (p *StatusPane) applyStatus(event adapters.StatusEvent) {
 	p.loading = false
 	if event.Error != nil {
-		p.err = event.Error
+		p.setError(event.Error)
 		return
 	}
 
 	p.err = nil
 	p.status = event.Status
 	p.clampCursor()
+}
+
+func (p *StatusPane) setError(err error) {
+	p.err = err
+	p.notice = ""
+}
+
+func (p *StatusPane) setNotice(message string) {
+	p.notice = message
+	p.err = nil
 }
 
 func (p *StatusPane) loadStatusCmd() tea.Cmd {
