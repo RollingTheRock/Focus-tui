@@ -1,10 +1,12 @@
 package app
 
 import (
+	"path/filepath"
 	"testing"
 
 	"focus/internal/config"
 	"focus/internal/models"
+	editorplugin "focus/internal/plugins/editor"
 	"focus/internal/store"
 	"focus/internal/ui/layout"
 	"focus/internal/ui/shell"
@@ -26,6 +28,19 @@ func (p *fakePanel) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 func (p *fakePanel) View() string { return "" }
 
 func (p *fakePanel) SetSize(width, height int) {}
+
+type fakeEditorMetaPanel struct {
+	fakePanel
+	filePath string
+	dirty    bool
+	name     string
+}
+
+func (p *fakeEditorMetaPanel) FilePath() string { return p.filePath }
+
+func (p *fakeEditorMetaPanel) Dirty() bool { return p.dirty }
+
+func (p *fakeEditorMetaPanel) DisplayName() string { return p.name }
 
 func TestShortenPath(t *testing.T) {
 	tests := []struct {
@@ -66,6 +81,16 @@ func TestFormatPaneTitleUsesFixedBadgeForNativePane(t *testing.T) {
 
 	got := formatPaneTitle(meta, false, false, 20)
 	want := "TODO [fixed]"
+	if got != want {
+		t.Fatalf("expected %q, got %q", want, got)
+	}
+}
+
+func TestFormatPaneTitleShowsModifiedBadgeForEditor(t *testing.T) {
+	meta := models.PaneMeta{Name: "*main.go", Type: models.PaneTypeEditor, Closable: true}
+
+	got := formatPaneTitle(meta, false, false, 28)
+	want := "*MAIN.GO [modified]"
 	if got != want {
 		t.Fatalf("expected %q, got %q", want, got)
 	}
@@ -200,5 +225,49 @@ func TestZoomToggle(t *testing.T) {
 	restoredOrder := layout.LeafOrder(m.bodyTree)
 	if len(restoredOrder) != len(initialOrder) {
 		t.Fatalf("expected %d panes after restore, got %d", len(initialOrder), len(restoredOrder))
+	}
+}
+
+func TestOpenEditorPaneReusesExistingEditorForSameFile(t *testing.T) {
+	cfg := config.DefaultConfig()
+	st, _ := store.New(":memory:")
+	m := New(cfg, st).(model)
+
+	path := filepath.Join(t.TempDir(), "main.go")
+	cmd := m.openEditorPane(editorplugin.OpenEditorMsg{FilePath: path, Behavior: editorplugin.OpenBehaviorDefault})
+	if cmd == nil {
+		t.Fatalf("expected init command for first editor open")
+	}
+	firstFocused := m.focused
+	if meta, ok := m.paneMeta[firstFocused]; !ok || meta.Type != models.PaneTypeEditor {
+		t.Fatalf("expected focused pane to be editor, got %v", meta.Type)
+	}
+	leafCount := len(layout.LeafOrder(m.bodyTree))
+
+	cmd = m.openEditorPane(editorplugin.OpenEditorMsg{FilePath: path, Behavior: editorplugin.OpenBehaviorDefault})
+	if cmd != nil {
+		t.Fatalf("expected no init command when reusing existing editor")
+	}
+	if len(layout.LeafOrder(m.bodyTree)) != leafCount {
+		t.Fatalf("expected leaf count to remain %d when reusing editor", leafCount)
+	}
+	if m.focused != firstFocused {
+		t.Fatalf("expected focus to stay on reused editor %s, got %s", firstFocused, m.focused)
+	}
+}
+
+func TestSyncPaneMetaMarksDirtyEditorName(t *testing.T) {
+	m := model{
+		panes: map[models.PaneID]models.Panel{
+			"editor-1": &fakeEditorMetaPanel{filePath: "/tmp/main.go", dirty: true, name: "main.go"},
+		},
+		paneMeta: map[models.PaneID]models.PaneMeta{
+			"editor-1": {ID: "editor-1", Name: "main.go", Type: models.PaneTypeEditor, Closable: true},
+		},
+	}
+
+	m.syncPaneMeta("editor-1")
+	if got := m.paneMeta["editor-1"].Name; got != "*main.go" {
+		t.Fatalf("expected dirty editor title '*main.go', got %q", got)
 	}
 }

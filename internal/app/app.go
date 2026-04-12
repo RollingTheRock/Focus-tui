@@ -12,6 +12,7 @@ import (
 	"focus/internal/config"
 	"focus/internal/models"
 	"focus/internal/plugins"
+	editorplugin "focus/internal/plugins/editor"
 	filebrowser "focus/internal/plugins/filebrowser"
 	gitplugin "focus/internal/plugins/git"
 	"focus/internal/styles"
@@ -68,13 +69,14 @@ type model struct {
 	overlay        OverlayKind
 	avatarRendered string
 
-	panes     map[models.PaneID]models.Panel
-	paneMeta  map[models.PaneID]models.PaneMeta
-	paneOrder []models.PaneID
-	bodyTree  *layout.TreeNode
-	frames    map[models.PaneID]models.PaneFrame
-	focused   models.PaneID
-	nextShell int
+	panes      map[models.PaneID]models.Panel
+	paneMeta   map[models.PaneID]models.PaneMeta
+	paneOrder  []models.PaneID
+	bodyTree   *layout.TreeNode
+	frames     map[models.PaneID]models.PaneFrame
+	focused    models.PaneID
+	nextShell  int
+	nextEditor int
 
 	viewGen uint64
 	vc      *viewCache
@@ -86,6 +88,12 @@ type model struct {
 
 	pluginRegistry *plugins.Registry
 	adapterManager *adapters.Manager
+}
+
+type editorMetaProvider interface {
+	FilePath() string
+	Dirty() bool
+	DisplayName() string
 }
 
 // New creates and returns the initial application model.
@@ -112,6 +120,7 @@ func New(cfg config.Config, store models.Store) tea.Model {
 		),
 		focused:        paneShell,
 		nextShell:      2,
+		nextEditor:     1,
 		vc:             &viewCache{},
 		pluginRegistry: plugins.NewRegistry(),
 		adapterManager: adapters.NewManager(),
@@ -125,8 +134,10 @@ func New(cfg config.Config, store models.Store) tea.Model {
 
 	gitPlugin := gitplugin.New(m.adapterManager.Git())
 	fileTreePlugin := filebrowser.New()
+	editorPlugin := editorplugin.New()
 	_ = m.pluginRegistry.Register(gitPlugin)
 	_ = m.pluginRegistry.Register(fileTreePlugin)
+	_ = m.pluginRegistry.Register(editorPlugin)
 
 	m.registerPane(paneHeader, header.New(cfg, cm.Theme, store), models.PaneMeta{ID: paneHeader, Name: "Header", Type: models.PaneTypeHeader, Status: models.PaneStatusPassive, Closable: false})
 	m.registerPane(paneShell, shell.New(cm, paneShell), models.PaneMeta{ID: paneShell, Name: "Shell", Type: models.PaneTypeShell, CWD: cwd, Status: models.PaneStatusStarting, Closable: true})
@@ -174,6 +185,7 @@ func (m *model) pane(id models.PaneID) models.Panel {
 
 func (m *model) setPane(id models.PaneID, panel models.Panel) {
 	m.panes[id] = panel
+	m.syncPaneMeta(id)
 }
 
 // Init implements tea.Model.
@@ -236,6 +248,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmd := m.openCommitPane(msg)
 		m.invalidateView()
 		return m, cmd
+
+	case editorplugin.OpenEditorMsg:
+		cmd := m.openEditorPane(msg)
+		m.invalidateView()
+		return m, cmd
+
+	case editorplugin.CloseEditorMsg:
+		m.closePane(msg.ID)
+		m.invalidateView()
+		return m, nil
 
 	case gitplugin.CloseDiffMsg:
 		m.closePane(msg.ID)
@@ -479,6 +501,13 @@ func (m *model) setFocus(id models.PaneID) {
 
 func (m *model) refreshPaneStatuses() {
 	for id, meta := range m.paneMeta {
+		if editorPane, ok := m.pane(id).(editorMetaProvider); ok {
+			meta.Name = editorPane.DisplayName()
+			if editorPane.Dirty() {
+				meta.Name = "*" + meta.Name
+			}
+			meta.CWD = filepath.Dir(editorPane.FilePath())
+		}
 		switch meta.Type {
 		case models.PaneTypeHeader, models.PaneTypeFooter:
 			meta.Status = models.PaneStatusPassive
@@ -499,9 +528,32 @@ func (m *model) refreshPaneStatuses() {
 	}
 }
 
+func (m *model) syncPaneMeta(id models.PaneID) {
+	meta, ok := m.paneMeta[id]
+	if !ok {
+		return
+	}
+	if editorPane, ok := m.pane(id).(editorMetaProvider); ok {
+		meta.Name = editorPane.DisplayName()
+		if editorPane.Dirty() {
+			meta.Name = "*" + meta.Name
+		}
+		if filePath := editorPane.FilePath(); filePath != "" {
+			meta.CWD = filepath.Dir(filePath)
+		}
+		m.paneMeta[id] = meta
+	}
+}
+
 func (m *model) nextShellPaneID() models.PaneID {
 	id := models.PaneID(fmt.Sprintf("shell-%d", m.nextShell))
 	m.nextShell++
+	return id
+}
+
+func (m *model) nextEditorPaneID() models.PaneID {
+	id := models.PaneID(fmt.Sprintf("editor-%d", m.nextEditor))
+	m.nextEditor++
 	return id
 }
 
@@ -531,6 +583,64 @@ func (m *model) currentCWD() string {
 	}
 	cwd, _ := os.Getwd()
 	return cwd
+}
+
+func (m *model) openEditorPane(msg editorplugin.OpenEditorMsg) tea.Cmd {
+	filePath := filepath.Clean(msg.FilePath)
+	if existing := m.findEditorPaneByPath(filePath); existing != "" {
+		m.setFocus(existing)
+		return nil
+	}
+	id := m.nextEditorPaneID()
+	meta := models.PaneMeta{
+		ID:       id,
+		Name:     filepath.Base(filePath),
+		Type:     models.PaneTypeEditor,
+		CWD:      filepath.Dir(filePath),
+		Status:   models.PaneStatusReady,
+		Closable: true,
+	}
+	panel := editorplugin.NewEditorPane(id, meta, *m.common, filePath)
+	m.registerPane(id, panel, meta)
+
+	target := m.editorHostPaneTarget()
+	direction := layout.SplitHorizontal
+	if msg.Behavior == editorplugin.OpenBehaviorVSplit {
+		direction = layout.SplitHorizontal
+	}
+	m.bodyTree = layout.SplitLeaf(m.bodyTree, target, id, direction, true)
+	m.setFocus(id)
+	m.updateSizes(m.common.Width, m.common.Height)
+	return panel.Init()
+}
+
+func (m model) findEditorPaneByPath(filePath string) models.PaneID {
+	for _, id := range layout.LeafOrder(m.bodyTree) {
+		panel := m.pane(id)
+		editorPane, ok := panel.(editorMetaProvider)
+		if !ok {
+			continue
+		}
+		if editorPane.FilePath() == filePath {
+			return id
+		}
+	}
+	return ""
+}
+
+func (m model) editorHostPaneTarget() models.PaneID {
+	if meta, ok := m.paneMeta[m.focused]; ok && (meta.Type == models.PaneTypeEditor || meta.Type == models.PaneTypeShell) {
+		return m.focused
+	}
+	if _, ok := m.paneMeta[paneShell]; ok {
+		return paneShell
+	}
+	for _, id := range layout.LeafOrder(m.bodyTree) {
+		if meta, ok := m.paneMeta[id]; ok && meta.Type == models.PaneTypeEditor {
+			return id
+		}
+	}
+	return m.focused
 }
 
 func (m model) splitFocused(direction layout.SplitDirection) (tea.Model, tea.Cmd) {
@@ -1295,6 +1405,10 @@ func paneStatusBadge(meta models.PaneMeta) string {
 	case models.PaneTypeTodo, models.PaneTypePomodoro:
 		if !meta.Closable {
 			return "fixed"
+		}
+	case models.PaneTypeEditor:
+		if strings.HasPrefix(meta.Name, "*") {
+			return "modified"
 		}
 	}
 	return ""
