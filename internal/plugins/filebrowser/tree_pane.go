@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"focus/internal/models"
+	editorplugin "focus/internal/plugins/editor"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -140,9 +141,27 @@ func (p *TreePane) updateKey(msg tea.KeyMsg) (models.Panel, tea.Cmd) {
 		if p.cursor > 0 {
 			p.cursor--
 		}
+	case "o":
+		node := p.selectedNode()
+		if node == nil || node.IsDir {
+			return p, nil
+		}
+		return p, openEditorCmd(node.Path, editorplugin.OpenBehaviorDefault)
+	case "v":
+		node := p.selectedNode()
+		if node == nil || node.IsDir {
+			return p, nil
+		}
+		return p, openEditorCmd(node.Path, editorplugin.OpenBehaviorVSplit)
 	case "enter", " ", "right", "left":
 		node := p.selectedNode()
-		if node == nil || !node.IsDir {
+		if node == nil {
+			return p, nil
+		}
+		if !node.IsDir {
+			if msg.String() == "enter" {
+				return p, openEditorCmd(node.Path, editorplugin.OpenBehaviorDefault)
+			}
 			return p, nil
 		}
 
@@ -164,6 +183,12 @@ func (p *TreePane) updateKey(msg tea.KeyMsg) (models.Panel, tea.Cmd) {
 
 	p.clampCursor()
 	return p, nil
+}
+
+func openEditorCmd(path string, behavior editorplugin.OpenBehavior) tea.Cmd {
+	return func() tea.Msg {
+		return editorplugin.OpenEditorMsg{FilePath: path, Behavior: behavior}
+	}
 }
 
 func (p *TreePane) selectedNode() *FileNode {

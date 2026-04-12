@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"focus/internal/models"
+	editorplugin "focus/internal/plugins/editor"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -144,6 +145,43 @@ func TestTreePaneRefreshPreservesCollapseStateAndFindsNewFiles(t *testing.T) {
 	view := pane.View()
 	if !strings.Contains(view, "two.go") {
 		t.Fatalf("expected refreshed view to contain new file, got:\n%s", view)
+	}
+}
+
+func TestTreePaneEnterOnFileEmitsOpenEditorMsg(t *testing.T) {
+	root := &FileNode{Name: "root", Path: "/root", IsDir: true}
+	file := &FileNode{Name: "main.go", Path: "/root/main.go", Parent: root, Depth: 1}
+	root.Children = []*FileNode{file}
+	pane := &TreePane{root: root, flatList: flattenVisibleNodes(root), cursor: 1}
+
+	updated, cmd := pane.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	pane = updated.(*TreePane)
+	msg, ok := runCmd(t, cmd).(editorplugin.OpenEditorMsg)
+	if !ok {
+		t.Fatalf("expected OpenEditorMsg, got %T", runCmd(t, cmd))
+	}
+	if msg.FilePath != "/root/main.go" {
+		t.Fatalf("unexpected file path %q", msg.FilePath)
+	}
+	if msg.Behavior != editorplugin.OpenBehaviorDefault {
+		t.Fatalf("unexpected behavior %q", msg.Behavior)
+	}
+	_ = pane
+}
+
+func TestTreePaneVOnFileEmitsSplitEditorMsg(t *testing.T) {
+	root := &FileNode{Name: "root", Path: "/root", IsDir: true}
+	file := &FileNode{Name: "main.go", Path: "/root/main.go", Parent: root, Depth: 1}
+	root.Children = []*FileNode{file}
+	pane := &TreePane{root: root, flatList: flattenVisibleNodes(root), cursor: 1}
+
+	_, cmd := pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'v'}})
+	msg, ok := runCmd(t, cmd).(editorplugin.OpenEditorMsg)
+	if !ok {
+		t.Fatalf("expected OpenEditorMsg, got %T", runCmd(t, cmd))
+	}
+	if msg.Behavior != editorplugin.OpenBehaviorVSplit {
+		t.Fatalf("unexpected behavior %q", msg.Behavior)
 	}
 }
 
