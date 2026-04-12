@@ -27,7 +27,7 @@ func TestCommitPaneInitRendersStagedFiles(t *testing.T) {
 	}
 
 	view := pane.View()
-	for _, want := range []string{"Commit", "main.go", "README.md", "Subject 0/50 chars"} {
+	for _, want := range []string{"Commit", "main.go", "README.md", "Subject 0/50 chars", "Ctrl+S commit", "Ctrl+J fallback"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("expected view to contain %q, got:\n%s", want, view)
 		}
@@ -77,14 +77,14 @@ func TestStatusPaneCKeyOpensCommitPane(t *testing.T) {
 	}
 }
 
-func TestCommitPaneCommitExecutionSendsCompletionMessage(t *testing.T) {
+func TestCommitPaneCommitExecutionSendsCompletionMessageWithCtrlS(t *testing.T) {
 	adapter := &fakeCommitAdapter{}
 	pane := NewCommitPane("commit-1", models.PaneMeta{ID: "commit-1", CWD: "/repo"}, models.CommonModel{}, adapter, []gitmodel.File{{Path: "main.go", StagedStatus: gitmodel.Modified}})
 	pane.SetSize(80, 20)
 	pane.Init()
 	pane.input.SetValue("feat: add commit pane\n\ninclude commit workflow")
 
-	updated, cmd := pane.Update(tea.KeyMsg{Type: tea.KeyCtrlJ})
+	updated, cmd := pane.Update(tea.KeyMsg{Type: tea.KeyCtrlS})
 	pane = updated.(*CommitPane)
 	if cmd == nil {
 		t.Fatalf("expected commit command")
@@ -118,6 +118,29 @@ func TestCommitPaneCommitExecutionSendsCompletionMessage(t *testing.T) {
 	}
 	if completedMsg.RepoPath != "/repo" {
 		t.Fatalf("expected repo path /repo, got %q", completedMsg.RepoPath)
+	}
+}
+
+func TestCommitPaneCommitExecutionStillSupportsCtrlJ(t *testing.T) {
+	adapter := &fakeCommitAdapter{}
+	pane := NewCommitPane("commit-1", models.PaneMeta{ID: "commit-1", CWD: "/repo"}, models.CommonModel{}, adapter, []gitmodel.File{{Path: "main.go", StagedStatus: gitmodel.Modified}})
+	pane.SetSize(80, 20)
+	pane.Init()
+	pane.input.SetValue("feat: keep ctrl+j support")
+
+	updated, cmd := pane.Update(tea.KeyMsg{Type: tea.KeyCtrlJ})
+	pane = updated.(*CommitPane)
+	if cmd == nil {
+		t.Fatalf("expected commit command for ctrl+j fallback")
+	}
+
+	updated, _ = pane.Update(runCmd(t, cmd))
+	pane = updated.(*CommitPane)
+	if !adapter.commitCalled {
+		t.Fatalf("expected adapter commit to be called for ctrl+j fallback")
+	}
+	if adapter.commitMessage != "feat: keep ctrl+j support" {
+		t.Fatalf("unexpected commit message %q", adapter.commitMessage)
 	}
 }
 

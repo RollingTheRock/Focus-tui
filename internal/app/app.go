@@ -916,7 +916,7 @@ func (m model) renderHelpLine(w int) string {
 		case models.PaneTypeDiffView:
 			return renderCompactHelpLine(helpStyle, "[j/k]scroll  [esc]close", w)
 		case paneTypeGitCommit:
-			return renderCompactHelpLine(helpStyle, "[ctrl+j]commit  [esc]cancel", w)
+			return renderCompactHelpLine(helpStyle, "[ctrl+s]commit  [ctrl+j]fallback  [esc]cancel", w)
 		}
 	}
 	if m.mode == ModeInput {

@@ -108,6 +108,8 @@ func (p *CommitPane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 		switch msg.Type {
 		case tea.KeyEsc:
 			return p, closeCommitCmd(p.id)
+		case tea.KeyCtrlS:
+			return p.submit()
 		case tea.KeyCtrlJ:
 			return p.submit()
 		}
@@ -179,7 +181,7 @@ func (p *CommitPane) renderStagedFiles() []string {
 
 func (p *CommitPane) renderHint() string {
 	subjectLength := len([]rune(p.subject()))
-	hint := fmt.Sprintf("Subject %d/50 chars · Ctrl+Enter commit · Esc cancel", subjectLength)
+	hint := fmt.Sprintf("Subject %d/50 chars · Ctrl+S commit · Ctrl+J fallback · Esc cancel", subjectLength)
 	if subjectLength > 50 {
 		return commitHintWarningStyle.Render(hint)
 	}
