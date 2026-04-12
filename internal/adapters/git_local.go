@@ -187,8 +187,8 @@ func (g *GitLocalAdapter) parsePorcelainV2(output []byte, status *git.Status) er
 
 // categorizeFile adds a file to the appropriate status list.
 func (g *GitLocalAdapter) categorizeFile(file git.File, status *git.Status) {
-	hasStaged := file.StagedStatus != git.Unmodified && file.StagedStatus != ' '
-	hasUnstaged := file.WorktreeStatus != git.Unmodified && file.WorktreeStatus != ' '
+	hasStaged := !isPorcelainUnmodified(file.StagedStatus)
+	hasUnstaged := !isPorcelainUnmodified(file.WorktreeStatus)
 
 	if hasStaged {
 		status.StagedFiles = append(status.StagedFiles, file)
@@ -196,6 +196,10 @@ func (g *GitLocalAdapter) categorizeFile(file git.File, status *git.Status) {
 	if hasUnstaged {
 		status.UnstagedFiles = append(status.UnstagedFiles, file)
 	}
+}
+
+func isPorcelainUnmodified(status git.FileStatus) bool {
+	return status == git.Unmodified || status == ' ' || status == '.'
 }
 
 // GetBranches retrieves all branches for a repository.
@@ -283,6 +287,36 @@ func (g *GitLocalAdapter) Commit(repoPath, message string) error {
 			return fmt.Errorf("git commit failed: %w", err)
 		}
 		return fmt.Errorf("git commit failed: %s", detail)
+	}
+
+	return nil
+}
+
+// Fetch updates remote tracking refs without changing the working tree.
+func (g *GitLocalAdapter) Fetch(repoPath string) error {
+	cmd := exec.Command("git", "-C", repoPath, "fetch")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		detail := strings.TrimSpace(string(output))
+		if detail == "" {
+			return fmt.Errorf("git fetch failed: %w", err)
+		}
+		return fmt.Errorf("git fetch failed: %s", detail)
+	}
+
+	return nil
+}
+
+// Pull updates the current branch from its configured upstream.
+func (g *GitLocalAdapter) Pull(repoPath string) error {
+	cmd := exec.Command("git", "-C", repoPath, "pull")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		detail := strings.TrimSpace(string(output))
+		if detail == "" {
+			return fmt.Errorf("git pull failed: %w", err)
+		}
+		return fmt.Errorf("git pull failed: %s", detail)
 	}
 
 	return nil
