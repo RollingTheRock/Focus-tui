@@ -1,5 +1,6 @@
 # Binary
 /focus
+/focus-tui
 .todos/
 .sidecar/
 .sidecar-agent
