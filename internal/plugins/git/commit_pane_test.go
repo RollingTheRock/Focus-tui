@@ -174,6 +174,10 @@ func (f *fakeCommitAdapter) Commit(repoPath, message string) error {
 	return f.commitErr
 }
 
+func (f *fakeCommitAdapter) Fetch(repoPath string) error { return nil }
+
+func (f *fakeCommitAdapter) Pull(repoPath string) error { return nil }
+
 func (f *fakeCommitAdapter) Push(repoPath string) error { return nil }
 
 func (f *fakeCommitAdapter) WatchStatus(repoPath string) (<-chan adapters.StatusEvent, error) {

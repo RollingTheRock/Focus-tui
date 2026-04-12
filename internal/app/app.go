@@ -934,8 +934,8 @@ func (m model) renderHelpLine(w int) string {
 	compact := "[tab]next  [enter]open  [q]uit"
 	switch focusedType {
 	case models.PaneTypeGitStatus:
-		left = "[j/k]move  [space]stage  [a]all  [enter]diff  [c]ommit  [P]push"
-		compact = "[space]stage  [a]all  [c]ommit  [P]push"
+		left = "[j/k]move  [space]stage  [a]all  [enter]diff  [f]etch  [p]ull  [c]ommit  [P]push"
+		compact = "[a]all  [f]etch  [p]ull  [P]push"
 	case models.PaneTypeTodo:
 		if todoModel.IsConfirmingDelete() {
 			left = "[j/k]move  [y/n]delete"

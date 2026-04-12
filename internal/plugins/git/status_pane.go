@@ -163,12 +163,18 @@ func (p *StatusPane) updateKey(msg tea.KeyMsg) (models.Panel, tea.Cmd) {
 		}
 		return p, openCommitCmd(p.repoPath, p.status.StagedFiles)
 	}
+	if msg.String() == "f" {
+		return p, p.handleFetch()
+	}
+	if msg.String() == "p" {
+		return p, p.handlePull()
+	}
 	if msg.String() == "P" {
 		return p, p.handlePush()
 	}
 
 	count := len(p.rows())
-	if count == 0 && msg.String() != "a" {
+	if count == 0 && msg.String() != "a" && msg.String() != "f" && msg.String() != "p" && msg.String() != "P" {
 		return p, nil
 	}
 
@@ -274,6 +280,36 @@ func (p *StatusPane) handlePush() tea.Cmd {
 		return nil
 	}
 	if err := p.adapter.Push(p.repoPath); err != nil {
+		p.err = err
+		return nil
+	}
+
+	p.err = nil
+	return p.refreshCmd()
+}
+
+func (p *StatusPane) handleFetch() tea.Cmd {
+	if p.adapter == nil {
+		return nil
+	}
+	if err := p.adapter.Fetch(p.repoPath); err != nil {
+		p.err = err
+		return nil
+	}
+
+	p.err = nil
+	return p.refreshCmd()
+}
+
+func (p *StatusPane) handlePull() tea.Cmd {
+	if p.adapter == nil || p.status == nil {
+		return nil
+	}
+	if p.status.Upstream == "" {
+		p.err = errors.New("current branch has no upstream to pull from")
+		return nil
+	}
+	if err := p.adapter.Pull(p.repoPath); err != nil {
 		p.err = err
 		return nil
 	}

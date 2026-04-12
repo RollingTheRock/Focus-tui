@@ -422,6 +422,8 @@ type fakeGitAdapter struct {
 	watchCh      chan adapters.StatusEvent
 	diff         string
 	diffErr      error
+	fetchErr     error
+	pullErr      error
 	pushErr      error
 
 	stageCalled      bool
@@ -434,6 +436,8 @@ type fakeGitAdapter struct {
 	unstageErr       error
 	unstageAllCalled bool
 	unstageAllErr    error
+	fetchCalled      bool
+	pullCalled       bool
 	pushCalled       bool
 	discardCalled    bool
 	discardedPath    string
@@ -454,6 +458,16 @@ func (f *fakeGitAdapter) GetBranches(repoPath string) ([]gitmodel.Branch, error)
 
 func (f *fakeGitAdapter) GetDiff(repoPath string, path string, staged bool) (string, error) {
 	return f.diff, f.diffErr
+}
+
+func (f *fakeGitAdapter) Fetch(repoPath string) error {
+	f.fetchCalled = true
+	return f.fetchErr
+}
+
+func (f *fakeGitAdapter) Pull(repoPath string) error {
+	f.pullCalled = true
+	return f.pullErr
 }
 
 func (f *fakeGitAdapter) Push(repoPath string) error {
@@ -589,6 +603,67 @@ func TestStatusPanePushRequiresUpstream(t *testing.T) {
 	}
 	if adapter.pushCalled {
 		t.Fatalf("expected Push not to be called without upstream")
+	}
+	if pane.err == nil || !strings.Contains(pane.err.Error(), "no upstream") {
+		t.Fatalf("expected missing upstream error, got %v", pane.err)
+	}
+}
+
+func TestStatusPaneFetch(t *testing.T) {
+	adapter := &fakeGitAdapter{status: &gitmodel.Status{Branch: "main"}, watchCh: make(chan adapters.StatusEvent, 2)}
+	pane := NewStatusPane("git-1", models.PaneMeta{ID: "git-1", Type: models.PaneTypeGitStatus, CWD: "/repo"}, models.CommonModel{}, adapter)
+
+	msg := runCmd(t, pane.loadStatusCmd())
+	updated, _ := pane.Update(msg)
+	pane = updated.(*StatusPane)
+
+	updated, cmd := pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'f'}})
+	pane = updated.(*StatusPane)
+
+	if cmd == nil {
+		t.Fatalf("expected refresh command after fetch")
+	}
+	if !adapter.fetchCalled {
+		t.Fatalf("expected Fetch to be called")
+	}
+}
+
+func TestStatusPanePull(t *testing.T) {
+	status := &gitmodel.Status{Branch: "main", Upstream: "origin/main", Behind: 1}
+	adapter := &fakeGitAdapter{status: status, watchCh: make(chan adapters.StatusEvent, 2)}
+	pane := NewStatusPane("git-1", models.PaneMeta{ID: "git-1", Type: models.PaneTypeGitStatus, CWD: "/repo"}, models.CommonModel{}, adapter)
+
+	msg := runCmd(t, pane.loadStatusCmd())
+	updated, _ := pane.Update(msg)
+	pane = updated.(*StatusPane)
+
+	updated, cmd := pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'p'}})
+	pane = updated.(*StatusPane)
+
+	if cmd == nil {
+		t.Fatalf("expected refresh command after pull")
+	}
+	if !adapter.pullCalled {
+		t.Fatalf("expected Pull to be called")
+	}
+}
+
+func TestStatusPanePullRequiresUpstream(t *testing.T) {
+	adapter := &fakeGitAdapter{status: &gitmodel.Status{Branch: "main"}, watchCh: make(chan adapters.StatusEvent, 2)}
+	pane := NewStatusPane("git-1", models.PaneMeta{ID: "git-1", Type: models.PaneTypeGitStatus, CWD: "/repo"}, models.CommonModel{}, adapter)
+
+	msg := runCmd(t, pane.loadStatusCmd())
+	updated, _ := pane.Update(msg)
+	pane = updated.(*StatusPane)
+
+	updated, cmd := pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'p'}})
+	pane = updated.(*StatusPane)
+
+	if cmd != nil {
+		t.Fatalf("expected no command when pull upstream is missing")
+	}
+	if adapter.pullCalled {
+		t.Fatalf("expected Pull not to be called without upstream")
 	}
 	if pane.err == nil || !strings.Contains(pane.err.Error(), "no upstream") {
 		t.Fatalf("expected missing upstream error, got %v", pane.err)
