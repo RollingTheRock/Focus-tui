@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"focus/internal/models"
 
@@ -91,6 +92,81 @@ func TestEditorPaneViewShowsShortcutHint(t *testing.T) {
 		if !strings.Contains(view, want) {
 			t.Fatalf("expected view to contain %q, got:\n%s", want, view)
 		}
+	}
+}
+
+func TestEditorPaneReloadsCleanBufferAfterExternalChange(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "main.go")
+	if err := os.WriteFile(path, []byte("package main\n"), 0o644); err != nil {
+		t.Fatalf("write seed file: %v", err)
+	}
+
+	pane := NewEditorPane("editor-1", models.PaneMeta{ID: "editor-1", Name: "main.go", Type: models.PaneTypeEditor}, models.CommonModel{}, path)
+	updated, _ := pane.Update(runCmd(t, pane.loadFileCmd(fileOpenedNotice(path))))
+	pane = updated.(*EditorPane)
+
+	newModTime := time.Now().Add(2 * time.Second)
+	if err := os.WriteFile(path, []byte("package main\n\nfunc main() {}\n"), 0o644); err != nil {
+		t.Fatalf("rewrite file: %v", err)
+	}
+	if err := os.Chtimes(path, newModTime, newModTime); err != nil {
+		t.Fatalf("chtimes: %v", err)
+	}
+
+	updated, cmd := pane.Update(runCmd(t, pane.checkExternalFileCmd()))
+	pane = updated.(*EditorPane)
+	if cmd == nil {
+		t.Fatalf("expected reload command after clean external change")
+	}
+
+	updated, _ = pane.Update(runCmd(t, cmd))
+	pane = updated.(*EditorPane)
+	if got := pane.input.Value(); got != "package main\n\nfunc main() {}\n" {
+		t.Fatalf("expected reloaded content, got %q", got)
+	}
+	if pane.dirty {
+		t.Fatalf("expected pane to stay clean after reload")
+	}
+	if !strings.Contains(pane.notice, "reloaded") {
+		t.Fatalf("expected reload notice, got %q", pane.notice)
+	}
+}
+
+func TestEditorPaneWarnsWhenDirtyBufferHasExternalChange(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "main.go")
+	if err := os.WriteFile(path, []byte("package main\n"), 0o644); err != nil {
+		t.Fatalf("write seed file: %v", err)
+	}
+
+	pane := NewEditorPane("editor-1", models.PaneMeta{ID: "editor-1", Name: "main.go", Type: models.PaneTypeEditor}, models.CommonModel{}, path)
+	updated, _ := pane.Update(runCmd(t, pane.loadFileCmd(fileOpenedNotice(path))))
+	pane = updated.(*EditorPane)
+	pane.input.SetValue("package main\n\nfunc local() {}\n")
+	pane.dirty = true
+
+	newModTime := time.Now().Add(2 * time.Second)
+	if err := os.WriteFile(path, []byte("package main\n\nfunc remote() {}\n"), 0o644); err != nil {
+		t.Fatalf("rewrite file: %v", err)
+	}
+	if err := os.Chtimes(path, newModTime, newModTime); err != nil {
+		t.Fatalf("chtimes: %v", err)
+	}
+
+	updated, cmd := pane.Update(runCmd(t, pane.checkExternalFileCmd()))
+	pane = updated.(*EditorPane)
+	if cmd != nil {
+		t.Fatalf("expected no reload command when buffer is dirty")
+	}
+	if !pane.externalChange {
+		t.Fatalf("expected externalChange warning to be set")
+	}
+	if !strings.Contains(pane.notice, "save will overwrite") {
+		t.Fatalf("expected overwrite warning, got %q", pane.notice)
+	}
+	if got := pane.input.Value(); got != "package main\n\nfunc local() {}\n" {
+		t.Fatalf("expected local buffer to stay intact, got %q", got)
 	}
 }
 

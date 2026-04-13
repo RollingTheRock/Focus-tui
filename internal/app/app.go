@@ -69,14 +69,15 @@ type model struct {
 	overlay        OverlayKind
 	avatarRendered string
 
-	panes      map[models.PaneID]models.Panel
-	paneMeta   map[models.PaneID]models.PaneMeta
-	paneOrder  []models.PaneID
-	bodyTree   *layout.TreeNode
-	frames     map[models.PaneID]models.PaneFrame
-	focused    models.PaneID
-	nextShell  int
-	nextEditor int
+	panes             map[models.PaneID]models.Panel
+	paneMeta          map[models.PaneID]models.PaneMeta
+	paneOrder         []models.PaneID
+	bodyTree          *layout.TreeNode
+	frames            map[models.PaneID]models.PaneFrame
+	focused           models.PaneID
+	nextShell         int
+	nextEditor        int
+	editorReturnFocus map[models.PaneID]models.PaneID
 
 	viewGen uint64
 	vc      *viewCache
@@ -118,12 +119,13 @@ func New(cfg config.Config, store models.Store) tea.Model {
 			layout.Split(layout.SplitVertical, 50, layout.Leaf(paneGitStatus), layout.Leaf(paneFileTree)),
 			layout.Leaf(paneShell),
 		),
-		focused:        paneShell,
-		nextShell:      2,
-		nextEditor:     1,
-		vc:             &viewCache{},
-		pluginRegistry: plugins.NewRegistry(),
-		adapterManager: adapters.NewManager(),
+		focused:           paneShell,
+		nextShell:         2,
+		nextEditor:        1,
+		editorReturnFocus: make(map[models.PaneID]models.PaneID),
+		vc:                &viewCache{},
+		pluginRegistry:    plugins.NewRegistry(),
+		adapterManager:    adapters.NewManager(),
 	}
 
 	gitAdapter := adapters.NewGitLocalAdapter()
@@ -256,6 +258,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case editorplugin.CloseEditorMsg:
 		m.closePane(msg.ID)
+		m.invalidateView()
+		return m, nil
+
+	case editorplugin.SaveCompletedMsg:
+		m.syncPaneMeta(msg.ID)
 		m.invalidateView()
 		return m, nil
 
@@ -586,6 +593,7 @@ func (m *model) currentCWD() string {
 }
 
 func (m *model) openEditorPane(msg editorplugin.OpenEditorMsg) tea.Cmd {
+	opener := m.focused
 	filePath := filepath.Clean(msg.FilePath)
 	if existing := m.findEditorPaneByPath(filePath); existing != "" {
 		m.setFocus(existing)
@@ -602,12 +610,15 @@ func (m *model) openEditorPane(msg editorplugin.OpenEditorMsg) tea.Cmd {
 	}
 	panel := editorplugin.NewEditorPane(id, meta, *m.common, filePath)
 	m.registerPane(id, panel, meta)
-
-	target := m.editorHostPaneTarget()
-	direction := layout.SplitHorizontal
-	if msg.Behavior == editorplugin.OpenBehaviorVSplit {
-		direction = layout.SplitHorizontal
+	if opener != "" && opener != id {
+		if m.editorReturnFocus == nil {
+			m.editorReturnFocus = make(map[models.PaneID]models.PaneID)
+		}
+		m.editorReturnFocus[id] = opener
 	}
+
+	target := m.editorHostPaneTarget(opener, msg.Behavior)
+	direction := m.editorSplitDirection(target, msg.Behavior)
 	m.bodyTree = layout.SplitLeaf(m.bodyTree, target, id, direction, true)
 	m.setFocus(id)
 	m.updateSizes(m.common.Width, m.common.Height)
@@ -628,19 +639,41 @@ func (m model) findEditorPaneByPath(filePath string) models.PaneID {
 	return ""
 }
 
-func (m model) editorHostPaneTarget() models.PaneID {
-	if meta, ok := m.paneMeta[m.focused]; ok && (meta.Type == models.PaneTypeEditor || meta.Type == models.PaneTypeShell) {
-		return m.focused
+func (m model) editorHostPaneTarget(opener models.PaneID, behavior editorplugin.OpenBehavior) models.PaneID {
+	if meta, ok := m.paneMeta[opener]; ok && (meta.Type == models.PaneTypeEditor || meta.Type == models.PaneTypeShell) {
+		return opener
+	}
+	if editor := m.lastEditorPane(); editor != "" {
+		return editor
 	}
 	if _, ok := m.paneMeta[paneShell]; ok {
 		return paneShell
 	}
-	for _, id := range layout.LeafOrder(m.bodyTree) {
+	if behavior == editorplugin.OpenBehaviorVSplit {
+		return opener
+	}
+	return opener
+}
+
+func (m model) lastEditorPane() models.PaneID {
+	order := layout.LeafOrder(m.bodyTree)
+	for idx := len(order) - 1; idx >= 0; idx-- {
+		id := order[idx]
 		if meta, ok := m.paneMeta[id]; ok && meta.Type == models.PaneTypeEditor {
 			return id
 		}
 	}
-	return m.focused
+	return ""
+}
+
+func (m model) editorSplitDirection(target models.PaneID, behavior editorplugin.OpenBehavior) layout.SplitDirection {
+	if behavior == editorplugin.OpenBehaviorVSplit {
+		return layout.SplitHorizontal
+	}
+	if meta, ok := m.paneMeta[target]; ok && meta.Type == models.PaneTypeEditor {
+		return layout.SplitVertical
+	}
+	return layout.SplitHorizontal
 }
 
 func (m model) splitFocused(direction layout.SplitDirection) (tea.Model, tea.Cmd) {
@@ -685,31 +718,7 @@ func (m model) closeFocusedPane() (tea.Model, tea.Cmd) {
 	if !ok || !meta.Closable {
 		return m, nil
 	}
-	order := layout.LeafOrder(m.bodyTree)
-	if len(order) <= 1 {
-		return m, nil
-	}
-	if m.zoomedPane == m.focused {
-		m.restoreZoom()
-	}
-	closing := m.focused
-	fallback := layout.CloseFocusFallback(closing, m.frames)
-	if sh, ok := m.pane(closing).(*shell.Model); ok {
-		_ = sh.Close()
-	}
-	m.bodyTree = layout.RemoveLeaf(m.bodyTree, closing)
-	delete(m.panes, closing)
-	delete(m.paneMeta, closing)
-	m.removePaneOrder(closing)
-	if fallback != closing {
-		m.setFocus(fallback)
-	} else {
-		remaining := layout.LeafOrder(m.bodyTree)
-		if len(remaining) > 0 {
-			m.setFocus(remaining[0])
-		}
-	}
-	m.updateSizes(m.common.Width, m.common.Height)
+	m.closePane(m.focused)
 	m.invalidateView()
 	return m, nil
 }
@@ -1215,6 +1224,9 @@ func (m *model) closePane(id models.PaneID) {
 	if !ok || !meta.Closable {
 		return
 	}
+	if m.zoomedPane == id {
+		m.restoreZoom()
+	}
 
 	if sh, ok := m.pane(id).(*shell.Model); ok {
 		_ = sh.Close()
@@ -1222,6 +1234,7 @@ func (m *model) closePane(id models.PaneID) {
 
 	wasFocused := m.focused == id
 	wasOverlay := m.isOverlayPane(id)
+	preferred := m.editorReturnFocus[id]
 	var fallback models.PaneID
 	leafOrder := layout.LeafOrder(m.bodyTree)
 	leafCount := len(leafOrder)
@@ -1245,6 +1258,14 @@ func (m *model) closePane(id models.PaneID) {
 	delete(m.panes, id)
 	delete(m.paneMeta, id)
 	m.removePaneOrder(id)
+	if m.editorReturnFocus != nil {
+		delete(m.editorReturnFocus, id)
+		for paneID, target := range m.editorReturnFocus {
+			if target == id {
+				delete(m.editorReturnFocus, paneID)
+			}
+		}
+	}
 
 	if wasOverlay {
 		restore := m.overlayBaseFocus
@@ -1259,9 +1280,16 @@ func (m *model) closePane(id models.PaneID) {
 			m.setFocus(paneGitStatus)
 		}
 	} else if wasFocused {
-		if fallback != "" && fallback != id {
+		restoredPreferred := false
+		if preferred != "" {
+			if _, ok := m.paneMeta[preferred]; ok && preferred != id {
+				m.setFocus(preferred)
+				restoredPreferred = true
+			}
+		}
+		if !restoredPreferred && fallback != "" && fallback != id {
 			m.setFocus(fallback)
-		} else {
+		} else if !restoredPreferred {
 			remaining := layout.LeafOrder(m.bodyTree)
 			if len(remaining) > 0 {
 				m.setFocus(remaining[0])

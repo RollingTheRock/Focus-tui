@@ -256,6 +256,66 @@ func TestOpenEditorPaneReusesExistingEditorForSameFile(t *testing.T) {
 	}
 }
 
+func TestEditorHostPaneTargetPrefersLastEditorFromFileTree(t *testing.T) {
+	cfg := config.DefaultConfig()
+	st, _ := store.New(":memory:")
+	m := New(cfg, st).(model)
+
+	path := filepath.Join(t.TempDir(), "main.go")
+	m.openEditorPane(editorplugin.OpenEditorMsg{FilePath: path, Behavior: editorplugin.OpenBehaviorDefault})
+	firstEditor := m.focused
+	m.setFocus(paneFileTree)
+
+	target := m.editorHostPaneTarget(m.focused, editorplugin.OpenBehaviorDefault)
+	if target != firstEditor {
+		t.Fatalf("expected default tree open to target existing editor %s, got %s", firstEditor, target)
+	}
+
+	vsplitTarget := m.editorHostPaneTarget(m.focused, editorplugin.OpenBehaviorVSplit)
+	if vsplitTarget != firstEditor {
+		t.Fatalf("expected vsplit tree open to target existing editor %s, got %s", firstEditor, vsplitTarget)
+	}
+}
+
+func TestEditorSplitDirectionDistinguishesDefaultAndVSplit(t *testing.T) {
+	m := model{
+		paneMeta: map[models.PaneID]models.PaneMeta{
+			"editor-1": {ID: "editor-1", Type: models.PaneTypeEditor},
+			paneShell:  {ID: paneShell, Type: models.PaneTypeShell},
+		},
+	}
+
+	if got := m.editorSplitDirection("editor-1", editorplugin.OpenBehaviorDefault); got != layout.SplitVertical {
+		t.Fatalf("expected default open against editor to split vertically, got %s", got)
+	}
+	if got := m.editorSplitDirection("editor-1", editorplugin.OpenBehaviorVSplit); got != layout.SplitHorizontal {
+		t.Fatalf("expected vsplit open against editor to split horizontally, got %s", got)
+	}
+	if got := m.editorSplitDirection(paneShell, editorplugin.OpenBehaviorDefault); got != layout.SplitHorizontal {
+		t.Fatalf("expected default open against shell to split horizontally, got %s", got)
+	}
+}
+
+func TestClosePaneRestoresFocusToEditorOpener(t *testing.T) {
+	cfg := config.DefaultConfig()
+	st, _ := store.New(":memory:")
+	m := New(cfg, st).(model)
+
+	path := filepath.Join(t.TempDir(), "main.go")
+	m.setFocus(paneFileTree)
+	m.openEditorPane(editorplugin.OpenEditorMsg{FilePath: path, Behavior: editorplugin.OpenBehaviorDefault})
+	editorID := m.focused
+
+	m.closePane(editorID)
+
+	if m.focused != paneFileTree {
+		t.Fatalf("expected focus to return to file tree, got %s", m.focused)
+	}
+	if _, ok := m.paneMeta[editorID]; ok {
+		t.Fatalf("expected editor pane %s to be removed", editorID)
+	}
+}
+
 func TestSyncPaneMetaMarksDirtyEditorName(t *testing.T) {
 	m := model{
 		panes: map[models.PaneID]models.Panel{

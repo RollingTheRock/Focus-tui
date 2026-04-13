@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"focus/internal/models"
 	appstyles "focus/internal/styles"
@@ -16,6 +17,8 @@ import (
 )
 
 var _ models.Panel = (*EditorPane)(nil)
+
+const fileWatchInterval = time.Second
 
 type EditorPane struct {
 	id     models.PaneID
@@ -29,6 +32,8 @@ type EditorPane struct {
 	dirty           bool
 	changeTick      int64
 	confirmClose    bool
+	lastDiskModTime time.Time
+	externalChange  bool
 
 	width   int
 	height  int
@@ -54,11 +59,21 @@ func (p *EditorPane) DisplayName() string {
 
 type editorLoadedMsg struct {
 	content string
+	modTime time.Time
+	notice  string
 	err     error
 }
 
 type saveFinishedMsg struct {
-	err error
+	modTime time.Time
+	err     error
+}
+
+type fileWatchTickMsg struct{}
+
+type externalFileStateMsg struct {
+	modTime time.Time
+	err     error
 }
 
 func NewEditorPane(id models.PaneID, meta models.PaneMeta, common models.CommonModel, filePath string) *EditorPane {
@@ -92,7 +107,7 @@ func NewEditorPane(id models.PaneID, meta models.PaneMeta, common models.CommonM
 func (p *EditorPane) Init() tea.Cmd {
 	cmds := []tea.Cmd{p.input.Focus(), textarea.Blink}
 	if p.filePath != "" {
-		cmds = append(cmds, p.loadFileCmd())
+		cmds = append(cmds, p.loadFileCmd(fileOpenedNotice(p.filePath)), p.watchFileCmd())
 	}
 	return tea.Batch(cmds...)
 }
@@ -112,12 +127,14 @@ func (p *EditorPane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 			return p, nil
 		}
 		p.originalContent = normalizeContent(msg.content)
+		p.lastDiskModTime = msg.modTime
 		p.input.SetValue(p.originalContent)
 		p.input.CursorEnd()
 		p.dirty = false
 		p.changeTick = 0
+		p.externalChange = false
 		p.err = nil
-		p.notice = fmt.Sprintf("opened %s", filepath.Base(p.filePath))
+		p.notice = msg.notice
 		return p, nil
 
 	case saveFinishedMsg:
@@ -128,10 +145,41 @@ func (p *EditorPane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 			return p, nil
 		}
 		p.originalContent = normalizeContent(p.input.Value())
+		p.lastDiskModTime = msg.modTime
 		p.dirty = false
+		p.externalChange = false
 		p.err = nil
 		p.notice = fmt.Sprintf("saved %s", filepath.Base(p.filePath))
 		return p, saveCompletedCmd(p.id, p.filePath, p.dirty)
+
+	case fileWatchTickMsg:
+		if p.filePath == "" {
+			return p, nil
+		}
+		return p, tea.Batch(p.checkExternalFileCmd(), p.watchFileCmd())
+
+	case externalFileStateMsg:
+		if p.filePath == "" || p.loading || p.saving {
+			return p, nil
+		}
+		if msg.err != nil {
+			p.err = msg.err
+			p.notice = ""
+			return p, nil
+		}
+		if !p.lastDiskModTime.IsZero() && !msg.modTime.After(p.lastDiskModTime) {
+			return p, nil
+		}
+		if p.dirty {
+			p.externalChange = true
+			p.err = nil
+			p.notice = "file changed on disk; save will overwrite newer content"
+			return p, nil
+		}
+		p.loading = true
+		p.err = nil
+		p.notice = ""
+		return p, p.loadFileCmd(fileReloadedNotice(p.filePath))
 
 	case tea.KeyMsg:
 		switch msg.Type {
@@ -195,6 +243,9 @@ func (p *EditorPane) View() string {
 	if p.confirmClose {
 		lines = append(lines, lipgloss.NewStyle().Foreground(appstyles.Warning).Render("Discard unsaved changes? [y/n]"))
 	}
+	if p.externalChange {
+		lines = append(lines, lipgloss.NewStyle().Foreground(appstyles.Warning).Render("Disk changed outside editor; reload or save carefully"))
+	}
 	if p.notice != "" {
 		lines = append(lines, lipgloss.NewStyle().Foreground(appstyles.Success).Render(p.notice))
 	}
@@ -226,10 +277,14 @@ func (p *EditorPane) SetSize(width, height int) {
 	p.input.SetHeight(inputHeight)
 }
 
-func (p *EditorPane) loadFileCmd() tea.Cmd {
+func (p *EditorPane) loadFileCmd(notice string) tea.Cmd {
 	path := p.filePath
 	return func() tea.Msg {
 		content, err := os.ReadFile(path)
+		if err != nil {
+			return editorLoadedMsg{err: err}
+		}
+		info, err := os.Stat(path)
 		if err != nil {
 			return editorLoadedMsg{err: err}
 		}
@@ -239,7 +294,7 @@ func (p *EditorPane) loadFileCmd() tea.Cmd {
 		if !isLikelyText(content) {
 			return editorLoadedMsg{err: errors.New("binary file preview is not supported yet")}
 		}
-		return editorLoadedMsg{content: string(content)}
+		return editorLoadedMsg{content: string(content), modTime: info.ModTime(), notice: notice}
 	}
 }
 
@@ -267,7 +322,31 @@ func (p *EditorPane) submitSave() (models.Panel, tea.Cmd) {
 func (p *EditorPane) saveFileCmd(content string) tea.Cmd {
 	path := p.filePath
 	return func() tea.Msg {
-		return saveFinishedMsg{err: os.WriteFile(path, []byte(content), 0o644)}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			return saveFinishedMsg{err: err}
+		}
+		info, err := os.Stat(path)
+		if err != nil {
+			return saveFinishedMsg{err: err}
+		}
+		return saveFinishedMsg{modTime: info.ModTime()}
+	}
+}
+
+func (p *EditorPane) watchFileCmd() tea.Cmd {
+	return tea.Tick(fileWatchInterval, func(time.Time) tea.Msg {
+		return fileWatchTickMsg{}
+	})
+}
+
+func (p *EditorPane) checkExternalFileCmd() tea.Cmd {
+	path := p.filePath
+	return func() tea.Msg {
+		info, err := os.Stat(path)
+		if err != nil {
+			return externalFileStateMsg{err: err}
+		}
+		return externalFileStateMsg{modTime: info.ModTime()}
 	}
 }
 
@@ -294,6 +373,14 @@ func saveCompletedCmd(id models.PaneID, filePath string, dirty bool) tea.Cmd {
 
 func normalizeContent(content string) string {
 	return strings.ReplaceAll(content, "\r\n", "\n")
+}
+
+func fileOpenedNotice(path string) string {
+	return fmt.Sprintf("opened %s", filepath.Base(path))
+}
+
+func fileReloadedNotice(path string) string {
+	return fmt.Sprintf("reloaded %s after external change", filepath.Base(path))
 }
 
 func isLikelyText(content []byte) bool {
