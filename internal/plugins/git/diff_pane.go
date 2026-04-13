@@ -204,6 +204,13 @@ func (p *DiffPane) renderedDiffLines() []string {
 
 	rendered := make([]string, 0, len(lines))
 	for _, line := range lines {
+		if strings.HasPrefix(line, "diff --git ") {
+			if len(rendered) > 0 {
+				rendered = append(rendered, "")
+			}
+			rendered = append(rendered, p.renderFileHeaderLine(line))
+			continue
+		}
 		rendered = append(rendered, p.renderDiffLine(line))
 	}
 	return rendered
@@ -228,13 +235,21 @@ func (p *DiffPane) renderDiffLine(line string) string {
 		return addedLineStyle.Render(line)
 	case strings.HasPrefix(line, "-") && !strings.HasPrefix(line, "---"):
 		return removedLineStyle.Render(line)
-	case strings.HasPrefix(line, "diff --git "):
-		return diffHeaderStyle.Bold(true).Render(line)
+	case strings.HasPrefix(line, "@@ "):
+		return hunkHeaderStyle.Render(line)
 	case isDiffHeaderLine(line):
 		return diffHeaderStyle.Render(line)
 	default:
 		return line
 	}
+}
+
+func (p *DiffPane) renderFileHeaderLine(line string) string {
+	label := line
+	if filePath, ok := parseDiffFilePath(line); ok {
+		label = fmt.Sprintf("File · %s", filePath)
+	}
+	return diffFileStyle.Render(label)
 }
 
 func (p *DiffPane) contentHeight() int {
@@ -284,4 +299,20 @@ func isDiffHeaderLine(line string) bool {
 	}
 
 	return false
+}
+
+func parseDiffFilePath(line string) (string, bool) {
+	const prefix = "diff --git "
+	if !strings.HasPrefix(line, prefix) {
+		return "", false
+	}
+	parts := strings.Fields(strings.TrimPrefix(line, prefix))
+	if len(parts) < 2 {
+		return "", false
+	}
+	right := strings.TrimPrefix(parts[1], "b/")
+	if right == "" {
+		return strings.TrimPrefix(parts[0], "a/"), true
+	}
+	return right, true
 }

@@ -53,7 +53,7 @@ func TestDiffPaneInitLoadsAndRendersDiff(t *testing.T) {
 	}
 
 	view := pane.View()
-	for _, want := range []string{"main.go", "staged", "diff --git a/main.go b/main.go", "-old line", "+new line", "context line"} {
+	for _, want := range []string{"main.go", "staged", "File · main.go", "-old line", "+new line", "context line"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("expected view to contain %q, got:\n%s", want, view)
 		}
@@ -167,9 +167,51 @@ func TestDiffPaneReviewModeLoadsFullWorktreeDiff(t *testing.T) {
 	pane = updated.(*DiffPane)
 
 	view := pane.View()
-	for _, want := range []string{"Review · unstaged", "diff --git a/a.go b/a.go", "diff --git a/b.go b/b.go", "+after"} {
+	for _, want := range []string{"Review · unstaged", "File · a.go", "File · b.go", "+after"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("expected review view to contain %q, got:\n%s", want, view)
 		}
+	}
+}
+
+func TestParseDiffFilePathUsesRightHandPath(t *testing.T) {
+	path, ok := parseDiffFilePath("diff --git a/internal/old.go b/internal/new.go")
+	if !ok {
+		t.Fatalf("expected diff file path to parse")
+	}
+	if path != "internal/new.go" {
+		t.Fatalf("expected right-hand path internal/new.go, got %q", path)
+	}
+}
+
+func TestDiffPaneRendersFileSectionsAndHunks(t *testing.T) {
+	adapter := &fakeGitAdapter{
+		diff: strings.Join([]string{
+			"diff --git a/main.go b/main.go",
+			"index 1111111..2222222 100644",
+			"@@ -1 +1 @@",
+			"-old",
+			"+new",
+			"diff --git a/pkg/util.go b/pkg/util.go",
+			"@@ -2 +2 @@",
+			"-before",
+			"+after",
+		}, "\n"),
+	}
+	pane := NewDiffPane("diff-1", models.PaneMeta{ID: "diff-1", Type: models.PaneTypeDiffView, CWD: "/repo"}, models.CommonModel{}, adapter, "", false)
+	pane.SetSize(100, 14)
+
+	updated, _ := pane.Update(runCmd(t, pane.Init()))
+	pane = updated.(*DiffPane)
+
+	rendered := pane.renderedDiffLines()
+	joined := strings.Join(rendered, "\n")
+	for _, want := range []string{"File · main.go", "File · pkg/util.go", "@@ -1 +1 @@", "@@ -2 +2 @@"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("expected rendered review lines to contain %q, got:\n%s", want, joined)
+		}
+	}
+	if len(rendered) < 6 || rendered[5] != "" {
+		t.Fatalf("expected blank separator line before second file section, got %#v", rendered)
 	}
 }
