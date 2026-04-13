@@ -32,7 +32,7 @@ const (
 	paneHeader    models.PaneID = "header"
 	paneShell     models.PaneID = "shell-main"
 	paneGitStatus models.PaneID = "git-status-main"
-	paneGitDiff   models.PaneID = "git-diff-overlay"
+	paneGitDiff   models.PaneID = "git-diff-pane"
 	paneGitCommit models.PaneID = "git-commit-overlay"
 	paneTodo      models.PaneID = "todo-main"
 	paneFileTree  models.PaneID = "file-tree-main"
@@ -69,15 +69,15 @@ type model struct {
 	overlay        OverlayKind
 	avatarRendered string
 
-	panes             map[models.PaneID]models.Panel
-	paneMeta          map[models.PaneID]models.PaneMeta
-	paneOrder         []models.PaneID
-	bodyTree          *layout.TreeNode
-	frames            map[models.PaneID]models.PaneFrame
-	focused           models.PaneID
-	nextShell         int
-	nextEditor        int
-	editorReturnFocus map[models.PaneID]models.PaneID
+	panes       map[models.PaneID]models.Panel
+	paneMeta    map[models.PaneID]models.PaneMeta
+	paneOrder   []models.PaneID
+	bodyTree    *layout.TreeNode
+	frames      map[models.PaneID]models.PaneFrame
+	focused     models.PaneID
+	nextShell   int
+	nextEditor  int
+	returnFocus map[models.PaneID]models.PaneID
 
 	viewGen uint64
 	vc      *viewCache
@@ -119,13 +119,13 @@ func New(cfg config.Config, store models.Store) tea.Model {
 			layout.Split(layout.SplitVertical, 50, layout.Leaf(paneGitStatus), layout.Leaf(paneFileTree)),
 			layout.Leaf(paneShell),
 		),
-		focused:           paneShell,
-		nextShell:         2,
-		nextEditor:        1,
-		editorReturnFocus: make(map[models.PaneID]models.PaneID),
-		vc:                &viewCache{},
-		pluginRegistry:    plugins.NewRegistry(),
-		adapterManager:    adapters.NewManager(),
+		focused:        paneShell,
+		nextShell:      2,
+		nextEditor:     1,
+		returnFocus:    make(map[models.PaneID]models.PaneID),
+		vc:             &viewCache{},
+		pluginRegistry: plugins.NewRegistry(),
+		adapterManager: adapters.NewManager(),
 	}
 
 	gitAdapter := adapters.NewGitLocalAdapter()
@@ -611,10 +611,10 @@ func (m *model) openEditorPane(msg editorplugin.OpenEditorMsg) tea.Cmd {
 	panel := editorplugin.NewEditorPane(id, meta, *m.common, filePath)
 	m.registerPane(id, panel, meta)
 	if opener != "" && opener != id {
-		if m.editorReturnFocus == nil {
-			m.editorReturnFocus = make(map[models.PaneID]models.PaneID)
+		if m.returnFocus == nil {
+			m.returnFocus = make(map[models.PaneID]models.PaneID)
 		}
-		m.editorReturnFocus[id] = opener
+		m.returnFocus[id] = opener
 	}
 
 	target := m.editorHostPaneTarget(opener, msg.Behavior)
@@ -785,14 +785,11 @@ func (m model) activeOverlayPane() models.PaneID {
 	if _, ok := m.paneMeta[paneGitCommit]; ok {
 		return paneGitCommit
 	}
-	if _, ok := m.paneMeta[paneGitDiff]; ok {
-		return paneGitDiff
-	}
 	return ""
 }
 
 func (m model) isOverlayPane(id models.PaneID) bool {
-	return id == paneGitDiff || id == paneGitCommit
+	return id == paneGitCommit
 }
 
 func (m *model) paneAt(x, y int) models.PaneID {
@@ -1032,8 +1029,6 @@ func (m model) renderHelpLine(w int) string {
 	}
 	if overlayID := m.activeOverlayPane(); overlayID != "" {
 		switch m.paneMeta[overlayID].Type {
-		case models.PaneTypeDiffView:
-			return renderCompactHelpLine(helpStyle, "[j/k]scroll  [esc]close", w)
 		case paneTypeGitCommit:
 			return renderCompactHelpLine(helpStyle, "[ctrl+s]commit  [ctrl+j]fallback  [esc]cancel", w)
 		}
@@ -1053,8 +1048,8 @@ func (m model) renderHelpLine(w int) string {
 	compact := "[tab]next  [enter]open  [q]uit"
 	switch focusedType {
 	case models.PaneTypeGitStatus:
-		left = "[j/k]move  [space]stage  [a]all  [enter]diff  [f]etch  [p]ull  [c]ommit  [P]push"
-		compact = "[a]all  [f]etch  [p]ull  [P]push"
+		left = "[j/k]move  [enter]review  [d]iff file  [space]stage  [a]all  [f]etch  [p]ull  [c]ommit  [P]push"
+		compact = "[enter]review  [d]iff  [a]all"
 	case models.PaneTypeTodo:
 		if todoModel.IsConfirmingDelete() {
 			left = "[j/k]move  [y/n]delete"
@@ -1089,6 +1084,9 @@ func (m model) renderHelpLine(w int) string {
 	case models.PaneTypeEditor:
 		left = "[ctrl+s]save  [ctrl+f /]search  [:]line  [n/N]result  [esc]close"
 		compact = "[ctrl+s]save  [/]search  [:]line"
+	case models.PaneTypeDiffView:
+		left = "[j/k]scroll  [q/esc]close review"
+		compact = "[j/k]scroll  [esc]close"
 	}
 	if w < simplifiedHelpMaxWidth {
 		return renderCompactHelpLine(helpStyle, compact, w)
@@ -1168,13 +1166,10 @@ func (m *model) closeShellPanes() {
 }
 
 func (m *model) openDiffPane(msg gitplugin.OpenDiffMsg) tea.Cmd {
+	opener := m.focused
+	target := m.reviewHostPaneTarget(opener)
 	m.closePane(paneGitCommit)
 	m.closePane(paneGitDiff)
-
-	baseFocus := m.focused
-	if baseFocus == "" {
-		baseFocus = paneGitStatus
-	}
 
 	meta := models.PaneMeta{
 		ID:       paneGitDiff,
@@ -1186,10 +1181,39 @@ func (m *model) openDiffPane(msg gitplugin.OpenDiffMsg) tea.Cmd {
 	}
 	panel := gitplugin.NewDiffPane(meta.ID, meta, *m.common, m.adapterManager.Git(), msg.FilePath, msg.Staged)
 	m.registerPane(meta.ID, panel, meta)
-	m.overlayBaseFocus = baseFocus
+	if opener != "" && opener != paneGitDiff {
+		if m.returnFocus == nil {
+			m.returnFocus = make(map[models.PaneID]models.PaneID)
+		}
+		m.returnFocus[paneGitDiff] = opener
+	}
+	m.bodyTree = layout.SplitLeaf(m.bodyTree, target, paneGitDiff, m.reviewSplitDirection(target), true)
 	m.setFocus(meta.ID)
 	m.updateSizes(m.common.Width, m.common.Height)
 	return panel.Init()
+}
+
+func (m model) reviewHostPaneTarget(opener models.PaneID) models.PaneID {
+	if meta, ok := m.paneMeta[opener]; ok && (meta.Type == models.PaneTypeEditor || meta.Type == models.PaneTypeShell) {
+		return opener
+	}
+	if editor := m.lastEditorPane(); editor != "" {
+		return editor
+	}
+	if _, ok := m.paneMeta[paneShell]; ok {
+		return paneShell
+	}
+	if opener != "" {
+		return opener
+	}
+	return paneGitStatus
+}
+
+func (m model) reviewSplitDirection(target models.PaneID) layout.SplitDirection {
+	if meta, ok := m.paneMeta[target]; ok && meta.Type == models.PaneTypeEditor {
+		return layout.SplitVertical
+	}
+	return layout.SplitHorizontal
 }
 
 func (m *model) openCommitPane(msg gitplugin.OpenCommitMsg) tea.Cmd {
@@ -1237,7 +1261,7 @@ func (m *model) closePane(id models.PaneID) {
 
 	wasFocused := m.focused == id
 	wasOverlay := m.isOverlayPane(id)
-	preferred := m.editorReturnFocus[id]
+	preferred := m.returnFocus[id]
 	var fallback models.PaneID
 	leafOrder := layout.LeafOrder(m.bodyTree)
 	leafCount := len(leafOrder)
@@ -1261,11 +1285,11 @@ func (m *model) closePane(id models.PaneID) {
 	delete(m.panes, id)
 	delete(m.paneMeta, id)
 	m.removePaneOrder(id)
-	if m.editorReturnFocus != nil {
-		delete(m.editorReturnFocus, id)
-		for paneID, target := range m.editorReturnFocus {
+	if m.returnFocus != nil {
+		delete(m.returnFocus, id)
+		for paneID, target := range m.returnFocus {
 			if target == id {
-				delete(m.editorReturnFocus, paneID)
+				delete(m.returnFocus, paneID)
 			}
 		}
 	}

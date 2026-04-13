@@ -8,6 +8,7 @@ import (
 	"focus/internal/config"
 	"focus/internal/models"
 	editorplugin "focus/internal/plugins/editor"
+	gitplugin "focus/internal/plugins/git"
 	"focus/internal/store"
 	"focus/internal/ui/layout"
 	"focus/internal/ui/shell"
@@ -122,6 +123,37 @@ func TestRenderHelpLineForEditorIncludesSearchShortcuts(t *testing.T) {
 	for _, want := range []string{"[ctrl+s]save", "[ctrl+f /]search", "[:]line", "[n/N]result"} {
 		if !strings.Contains(help, want) {
 			t.Fatalf("expected help line to contain %q, got %q", want, help)
+		}
+	}
+}
+
+func TestRenderHelpLineForGitStatusIncludesReviewShortcuts(t *testing.T) {
+	cfg := config.DefaultConfig()
+	st, _ := store.New(":memory:")
+	m := New(cfg, st).(model)
+	m.focused = paneGitStatus
+
+	help := m.renderHelpLine(140)
+	for _, want := range []string{"[enter]review", "[d]iff file", "[space]stage"} {
+		if !strings.Contains(help, want) {
+			t.Fatalf("expected help line to contain %q, got %q", want, help)
+		}
+	}
+}
+
+func TestRenderHelpLineForDiffPaneIncludesReviewCloseShortcut(t *testing.T) {
+	cfg := config.DefaultConfig()
+	st, _ := store.New(":memory:")
+	m := New(cfg, st).(model)
+	m.panes[paneGitDiff] = &fakePanel{}
+	m.paneMeta[paneGitDiff] = models.PaneMeta{ID: paneGitDiff, Name: "Diff", Type: models.PaneTypeDiffView, Closable: true}
+	m.bodyTree = layout.SplitLeaf(m.bodyTree, paneShell, paneGitDiff, layout.SplitHorizontal, true)
+	m.focused = paneGitDiff
+
+	help := m.renderHelpLine(120)
+	for _, want := range []string{"[j/k]scroll", "[q/esc]close review"} {
+		if !strings.Contains(help, want) {
+			t.Fatalf("expected diff help line to contain %q, got %q", want, help)
 		}
 	}
 }
@@ -333,6 +365,33 @@ func TestClosePaneRestoresFocusToEditorOpener(t *testing.T) {
 	}
 	if _, ok := m.paneMeta[editorID]; ok {
 		t.Fatalf("expected editor pane %s to be removed", editorID)
+	}
+}
+
+func TestOpenDiffPaneAddsBodyPaneAndRestoresOpenerFocus(t *testing.T) {
+	cfg := config.DefaultConfig()
+	st, _ := store.New(":memory:")
+	m := New(cfg, st).(model)
+	m.setFocus(paneGitStatus)
+	initialLeaves := len(layout.LeafOrder(m.bodyTree))
+
+	cmd := m.openDiffPane(gitplugin.OpenDiffMsg{FilePath: "", Staged: false})
+	if cmd == nil {
+		t.Fatalf("expected init command for diff pane")
+	}
+	if m.focused != paneGitDiff {
+		t.Fatalf("expected diff pane to be focused, got %s", m.focused)
+	}
+	if got := len(layout.LeafOrder(m.bodyTree)); got != initialLeaves+1 {
+		t.Fatalf("expected leaf count %d after opening diff pane, got %d", initialLeaves+1, got)
+	}
+	if meta, ok := m.paneMeta[paneGitDiff]; !ok || meta.Type != models.PaneTypeDiffView {
+		t.Fatalf("expected diff pane metadata to be registered")
+	}
+
+	m.closePane(paneGitDiff)
+	if m.focused != paneGitStatus {
+		t.Fatalf("expected focus to return to git status, got %s", m.focused)
 	}
 }
 
