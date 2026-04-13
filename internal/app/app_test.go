@@ -151,7 +151,7 @@ func TestRenderHelpLineForDiffPaneIncludesReviewCloseShortcut(t *testing.T) {
 	m.focused = paneGitDiff
 
 	help := m.renderHelpLine(120)
-	for _, want := range []string{"[enter]open file", "[j/k]scroll", "[q/esc]close review"} {
+	for _, want := range []string{"[enter]open file", "[[]/[]]files", "[wheel]scroll", "[q/esc]close review"} {
 		if !strings.Contains(help, want) {
 			t.Fatalf("expected diff help line to contain %q, got %q", want, help)
 		}
@@ -392,6 +392,35 @@ func TestOpenDiffPaneAddsBodyPaneAndRestoresOpenerFocus(t *testing.T) {
 	m.closePane(paneGitDiff)
 	if m.focused != paneGitStatus {
 		t.Fatalf("expected focus to return to git status, got %s", m.focused)
+	}
+}
+
+func TestHandleMouseRoutesWheelToDiffPaneWithoutStealingFocus(t *testing.T) {
+	cfg := config.DefaultConfig()
+	st, _ := store.New(":memory:")
+	m := New(cfg, st).(model)
+	m.panes[paneGitDiff] = &fakePanel{}
+	m.paneMeta[paneGitDiff] = models.PaneMeta{ID: paneGitDiff, Name: "Diff", Type: models.PaneTypeDiffView, Closable: true}
+	m.bodyTree = layout.SplitLeaf(m.bodyTree, paneShell, paneGitDiff, layout.SplitHorizontal, true)
+	m.focused = paneGitStatus
+	m.common.Width = 120
+	m.common.Height = 40
+	m.updateSizes(120, 40)
+	frame := m.frames[paneGitDiff]
+	dims := layout.ComputeBanner(m.common.Width, m.common.Height)
+
+	updated, _ := m.handleMouse(tea.MouseMsg{X: frame.X + 1, Y: dims.HeaderH + frame.Y + 1, Button: tea.MouseButtonWheelDown})
+	m = updated.(model)
+
+	diffPanel := m.pane(paneGitDiff).(*fakePanel)
+	if len(diffPanel.updates) == 0 {
+		t.Fatalf("expected diff pane to receive mouse wheel message")
+	}
+	if _, ok := diffPanel.updates[0].(tea.MouseMsg); !ok {
+		t.Fatalf("expected forwarded message to be tea.MouseMsg, got %T", diffPanel.updates[0])
+	}
+	if m.focused != paneGitStatus {
+		t.Fatalf("expected wheel scroll not to steal focus, got %s", m.focused)
 	}
 }
 

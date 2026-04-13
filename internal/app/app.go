@@ -357,10 +357,16 @@ func (m model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	bodyY := msg.Y - dims.HeaderH
 	bodyX := msg.X
 	clicked := m.paneAt(bodyX, bodyY)
-	if clicked != "" {
+	if clicked != "" && msg.Button != tea.MouseButtonWheelUp && msg.Button != tea.MouseButtonWheelDown && msg.Button != tea.MouseButtonWheelLeft && msg.Button != tea.MouseButtonWheelRight {
 		m.setFocus(clicked)
 	}
-	if m.mode != ModeShell || clicked == "" || m.paneMeta[clicked].Type != models.PaneTypeShell {
+	if clicked == "" {
+		return m, nil
+	}
+	if m.paneMeta[clicked].Type != models.PaneTypeShell {
+		return m.routeToPane(clicked, msg)
+	}
+	if m.mode != ModeShell {
 		return m, nil
 	}
 	frame, ok := m.frames[clicked]
@@ -1085,8 +1091,8 @@ func (m model) renderHelpLine(w int) string {
 		left = "[ctrl+s]save  [ctrl+f /]search  [:]line  [n/N]result  [esc]close"
 		compact = "[ctrl+s]save  [/]search  [:]line"
 	case models.PaneTypeDiffView:
-		left = "[enter]open file  [j/k]scroll  [q/esc]close review"
-		compact = "[enter]open  [j/k]scroll"
+		left = "[enter]open file  [[]/[]]files  [j/k]scroll  [wheel]scroll  [q/esc]close review"
+		compact = "[enter]open  [[]/[]]files  [wheel]scroll"
 	}
 	if w < simplifiedHelpMaxWidth {
 		return renderCompactHelpLine(helpStyle, compact, w)
