@@ -603,6 +603,12 @@ func (m *model) openEditorPane(msg editorplugin.OpenEditorMsg) tea.Cmd {
 	filePath := filepath.Clean(msg.FilePath)
 	if existing := m.findEditorPaneByPath(filePath); existing != "" {
 		m.setFocus(existing)
+		if msg.LineNumber > 0 {
+			newPanel, cmd := m.pane(existing).Update(editorplugin.OpenEditorMsg{FilePath: filePath, LineNumber: msg.LineNumber})
+			m.setPane(existing, newPanel)
+			m.syncPaneMeta(existing)
+			return cmd
+		}
 		return nil
 	}
 	id := m.nextEditorPaneID()
@@ -614,7 +620,7 @@ func (m *model) openEditorPane(msg editorplugin.OpenEditorMsg) tea.Cmd {
 		Status:   models.PaneStatusReady,
 		Closable: true,
 	}
-	panel := editorplugin.NewEditorPane(id, meta, *m.common, filePath)
+	panel := editorplugin.NewEditorPane(id, meta, *m.common, filePath, msg.LineNumber)
 	m.registerPane(id, panel, meta)
 	if opener != "" && opener != id {
 		if m.returnFocus == nil {
@@ -1091,8 +1097,8 @@ func (m model) renderHelpLine(w int) string {
 		left = "[ctrl+s]save  [ctrl+f /]search  [:]line  [n/N]result  [esc]close"
 		compact = "[ctrl+s]save  [/]search  [:]line"
 	case models.PaneTypeDiffView:
-		left = "[enter]open file  [[]/[]]files  [j/k]scroll  [wheel]scroll  [q/esc]close review"
-		compact = "[enter]open  [[]/[]]files  [wheel]scroll"
+		left = "[enter]open file  [s]toggle staged  [[]/[]]files  [j/k]scroll  [wheel]scroll  [q/esc]close review"
+		compact = "[enter]open  [s]toggle  [wheel]scroll"
 	}
 	if w < simplifiedHelpMaxWidth {
 		return renderCompactHelpLine(helpStyle, compact, w)

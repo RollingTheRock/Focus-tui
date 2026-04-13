@@ -151,7 +151,7 @@ func TestRenderHelpLineForDiffPaneIncludesReviewCloseShortcut(t *testing.T) {
 	m.focused = paneGitDiff
 
 	help := m.renderHelpLine(120)
-	for _, want := range []string{"[enter]open file", "[[]/[]]files", "[wheel]scroll", "[q/esc]close review"} {
+	for _, want := range []string{"[enter]open file", "[s]toggle staged", "[[]/[]]files", "[wheel]scroll", "[q/esc]close review"} {
 		if !strings.Contains(help, want) {
 			t.Fatalf("expected diff help line to contain %q, got %q", want, help)
 		}

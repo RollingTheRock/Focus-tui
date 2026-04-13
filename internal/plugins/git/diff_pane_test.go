@@ -116,11 +116,11 @@ func TestDiffPaneEnterOpensCurrentReviewFileInEditor(t *testing.T) {
 	adapter := &fakeGitAdapter{
 		diff: strings.Join([]string{
 			"diff --git a/a.go b/a.go",
-			"@@ -1 +1 @@",
+			"@@ -10 +10 @@",
 			"-old",
 			"+new",
 			"diff --git a/b.go b/b.go",
-			"@@ -2 +2 @@",
+			"@@ -22 +22 @@",
 			"-before",
 			"+after",
 		}, "\n"),
@@ -140,6 +140,9 @@ func TestDiffPaneEnterOpensCurrentReviewFileInEditor(t *testing.T) {
 	}
 	if openMsg.FilePath != "b.go" {
 		t.Fatalf("expected b.go from current review section, got %q", openMsg.FilePath)
+	}
+	if openMsg.LineNumber != 22 {
+		t.Fatalf("expected hunk target line 22, got %d", openMsg.LineNumber)
 	}
 	if openMsg.Behavior != editorplugin.OpenBehaviorDefault {
 		t.Fatalf("expected default editor open behavior, got %q", openMsg.Behavior)
@@ -220,6 +223,23 @@ func TestDiffPaneEnterOpensSingleFileDiffTarget(t *testing.T) {
 	}
 	if openMsg.FilePath != "pkg/main.go" {
 		t.Fatalf("expected single-file diff path pkg/main.go, got %q", openMsg.FilePath)
+	}
+	if openMsg.LineNumber != 1 {
+		t.Fatalf("expected fallback line number 1, got %d", openMsg.LineNumber)
+	}
+}
+
+func TestDiffPaneToggleStagedReloadsDiff(t *testing.T) {
+	adapter := &fakeGitAdapter{diff: "diff --git a/a.go b/a.go\n@@ -1 +1 @@\n-old\n+new"}
+	pane := NewDiffPane("diff-1", models.PaneMeta{ID: "diff-1", Type: models.PaneTypeDiffView, CWD: "/repo"}, models.CommonModel{}, adapter, "", false)
+
+	updated, cmd := pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
+	pane = updated.(*DiffPane)
+	if !pane.staged {
+		t.Fatalf("expected staged flag to toggle on")
+	}
+	if cmd == nil {
+		t.Fatalf("expected reload command after staged toggle")
 	}
 }
 
@@ -325,5 +345,31 @@ func TestDiffPaneRendersFileSectionsAndHunks(t *testing.T) {
 	}
 	if len(rendered) < 6 || rendered[5] != "" {
 		t.Fatalf("expected blank separator line before second file section, got %#v", rendered)
+	}
+}
+
+func TestParseNewHunkLineUsesTargetSide(t *testing.T) {
+	lineNumber, ok := parseNewHunkLine("@@ -10,2 +42,7 @@")
+	if !ok {
+		t.Fatalf("expected hunk line parse to succeed")
+	}
+	if lineNumber != 42 {
+		t.Fatalf("expected target line 42, got %d", lineNumber)
+	}
+}
+
+func TestDiffPaneRendersSpecialDiffMetadata(t *testing.T) {
+	pane := NewDiffPane("diff-1", models.PaneMeta{ID: "diff-1", Type: models.PaneTypeDiffView, CWD: "/repo"}, models.CommonModel{}, &fakeGitAdapter{}, "", false)
+	for input, want := range map[string]string{
+		"rename from old.go":                      "↪ old.go",
+		"rename to new.go":                        "→ new.go",
+		"new file mode 100644":                    "+ new file",
+		"deleted file mode 100644":                "- deleted file",
+		"Binary files a/a.png and b/a.png differ": "Binary files",
+	} {
+		rendered := pane.renderDiffLine(input)
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("expected %q to render %q, got %q", input, want, rendered)
+		}
 	}
 }

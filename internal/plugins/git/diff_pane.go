@@ -3,6 +3,7 @@ package git
 import (
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"focus/internal/adapters"
@@ -50,6 +51,12 @@ type diffLoadedMsg struct {
 type diffFileSection struct {
 	path         string
 	renderedLine int
+}
+
+type diffHunk struct {
+	path         string
+	renderedLine int
+	lineNumber   int
 }
 
 func NewDiffPane(id models.PaneID, meta models.PaneMeta, common models.CommonModel, adapter adapters.GitAdapter, filePath string, staged bool) *DiffPane {
@@ -142,8 +149,15 @@ func (p *DiffPane) updateKey(msg tea.KeyMsg) (models.Panel, tea.Cmd) {
 		return p, closeDiffCmd(p.id)
 	case "enter":
 		if path := p.currentFilePath(); path != "" {
-			return p, openEditorCmd(path)
+			return p, openEditorCmd(path, p.currentTargetLine())
 		}
+	case "s":
+		p.staged = !p.staged
+		p.scroll = 0
+		p.loading = true
+		p.err = nil
+		p.diff = ""
+		return p, p.loadDiffCmd()
 	case "]":
 		p.jumpFileSection(1)
 	case "[":
@@ -259,6 +273,16 @@ func (p *DiffPane) diffLines() []string {
 
 func (p *DiffPane) renderDiffLine(line string) string {
 	switch {
+	case strings.HasPrefix(line, "rename from "):
+		return renamedIconStyle.Render("↪ " + strings.TrimPrefix(line, "rename from "))
+	case strings.HasPrefix(line, "rename to "):
+		return renamedIconStyle.Render("→ " + strings.TrimPrefix(line, "rename to "))
+	case strings.HasPrefix(line, "new file mode "):
+		return addedIconStyle.Render("+ new file") + " " + diffHeaderStyle.Render(strings.TrimPrefix(line, "new file mode "))
+	case strings.HasPrefix(line, "deleted file mode "):
+		return deletedIconStyle.Render("- deleted file") + " " + diffHeaderStyle.Render(strings.TrimPrefix(line, "deleted file mode "))
+	case strings.HasPrefix(line, "Binary files "):
+		return binaryMetaStyle.Render(line)
 	case strings.HasPrefix(line, "+") && !strings.HasPrefix(line, "+++"):
 		return addedLineStyle.Render(line)
 	case strings.HasPrefix(line, "-") && !strings.HasPrefix(line, "---"):
@@ -319,9 +343,9 @@ func closeDiffCmd(id models.PaneID) tea.Cmd {
 	}
 }
 
-func openEditorCmd(path string) tea.Cmd {
+func openEditorCmd(path string, lineNumber int) tea.Cmd {
 	return func() tea.Msg {
-		return editorplugin.OpenEditorMsg{FilePath: path, Behavior: editorplugin.OpenBehaviorDefault}
+		return editorplugin.OpenEditorMsg{FilePath: path, Behavior: editorplugin.OpenBehaviorDefault, LineNumber: lineNumber}
 	}
 }
 
@@ -374,6 +398,35 @@ func (p *DiffPane) fileSections() []diffFileSection {
 	return sections
 }
 
+func (p *DiffPane) hunks() []diffHunk {
+	lines := p.diffLines()
+	if len(lines) == 0 {
+		return nil
+	}
+	hunks := make([]diffHunk, 0)
+	renderedIndex := 0
+	currentPath := p.filePath
+	for _, line := range lines {
+		if strings.HasPrefix(line, "diff --git ") {
+			if renderedIndex > 0 {
+				renderedIndex++
+			}
+			if path, ok := parseDiffFilePath(line); ok {
+				currentPath = path
+			}
+			renderedIndex++
+			continue
+		}
+		if strings.HasPrefix(line, "@@ ") {
+			if lineNumber, ok := parseNewHunkLine(line); ok {
+				hunks = append(hunks, diffHunk{path: currentPath, renderedLine: renderedIndex, lineNumber: lineNumber})
+			}
+		}
+		renderedIndex++
+	}
+	return hunks
+}
+
 func (p *DiffPane) currentFileSectionIndex() int {
 	sections := p.fileSections()
 	if len(sections) == 0 {
@@ -416,4 +469,44 @@ func (p *DiffPane) currentFilePath() string {
 		return ""
 	}
 	return sections[current].path
+}
+
+func (p *DiffPane) currentTargetLine() int {
+	hunks := p.hunks()
+	currentPath := p.currentFilePath()
+	lineNumber := 1
+	firstMatch := 0
+	for _, hunk := range hunks {
+		if hunk.path != currentPath {
+			continue
+		}
+		if firstMatch == 0 {
+			firstMatch = hunk.lineNumber
+		}
+		if hunk.renderedLine > p.scroll {
+			break
+		}
+		lineNumber = hunk.lineNumber
+	}
+	if lineNumber == 1 && firstMatch > 0 {
+		return firstMatch
+	}
+	return lineNumber
+}
+
+func parseNewHunkLine(line string) (int, bool) {
+	start := strings.Index(line, "+")
+	if start < 0 {
+		return 0, false
+	}
+	segment := line[start+1:]
+	end := strings.IndexAny(segment, ", @")
+	if end < 0 {
+		end = len(segment)
+	}
+	lineNumber, err := strconv.Atoi(segment[:end])
+	if err != nil || lineNumber <= 0 {
+		return 0, false
+	}
+	return lineNumber, true
 }

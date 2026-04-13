@@ -21,6 +21,7 @@ var (
 	diffHeaderStyle  = lipgloss.NewStyle().Foreground(appstyles.Subtle)
 	diffFileStyle    = lipgloss.NewStyle().Bold(true).Foreground(appstyles.Text).Background(appstyles.Highlight).Padding(0, 1)
 	hunkHeaderStyle  = lipgloss.NewStyle().Foreground(appstyles.Accent).Background(appstyles.Highlight).Padding(0, 1)
+	binaryMetaStyle  = lipgloss.NewStyle().Foreground(appstyles.Warning).Bold(true)
 	addedLineStyle   = lipgloss.NewStyle().Foreground(appstyles.Success)
 	removedLineStyle = lipgloss.NewStyle().Foreground(appstyles.Overdue)
 
