@@ -24,19 +24,33 @@
 - [x] `enter` 查看 diff 已可用
 - [x] `c` 打开 commit overlay 已可用
 - [x] commit 成功后自动 refresh 已可用
-- [ ] `push` 完全缺失
-- [ ] `stage all / unstage all` 缺失
-- [ ] `fetch / pull / sync` 缺失
+- [x] `push` 已可用
+- [x] `stage all / unstage all` 已可用
+- [x] `fetch / pull / sync` 已可用
 - [ ] hunk 级操作缺失
+- [x] Git pane 已具备基础状态保护与同步反馈
 
 ### 编辑器现状
 
 - [x] File Tree pane 已可浏览目录
 - [x] 目录展开/折叠已可用
-- [ ] 文件节点 `enter` 打开文件能力缺失
-- [ ] 通用 Editor pane type 缺失
-- [ ] 文件 buffer / dirty 状态 / save 流程缺失
-- [ ] TUI 内编辑能力缺失
+- [x] 文件节点 `enter/o` 可打开文件
+- [x] 文件节点 `v` 可按 split 语义打开 editor
+- [x] 通用 Editor pane type 已接入
+- [x] 文件加载、编辑、保存已可用
+- [x] dirty 状态与关闭确认已可用
+- [x] 同一路径 editor pane 复用已可用
+- [ ] pane title / dirty / split / 焦点恢复仍需进一步打磨
+
+### 当前阶段总结
+
+截至当前阶段，`Focus-tui` 已完成：
+
+- Git workflow MVP：stage / stage-all / diff / commit / fetch / pull / push
+- Git pane 的 upstream / ahead / behind / diverged 基础保护
+- Editor MVP 第一阶段：从 File Tree 打开 editor、编辑、`ctrl+s` 保存、`esc` 未保存确认、dirty title 标记、同文件复用
+
+当前真正未完成的主线，已经从“有没有 editor”转为“editor 交互是否足够顺手”。
 
 ---
 
@@ -86,11 +100,11 @@
 
 ### A1. Push 能力
 
-- [ ] 在 `GitAdapter` 增加 `Push(repoPath string) error`
-- [ ] 在 `GitLocalAdapter` 实现 `git push`
-- [ ] Git Status pane 增加 `P` 快捷键
-- [ ] Push 完成后自动刷新 status
-- [ ] Push 失败时在 pane 中显示错误
+- [x] 在 `GitAdapter` 增加 `Push(repoPath string) error`
+- [x] 在 `GitLocalAdapter` 实现 `git push`
+- [x] Git Status pane 增加 `P` 快捷键
+- [x] Push 完成后自动刷新 status
+- [x] Push 失败时在 pane 中显示错误
 
 涉及文件：
 
@@ -100,10 +114,10 @@
 
 ### A2. Stage All / Unstage All
 
-- [ ] 在 `GitAdapter` 增加批量暂存接口
-- [ ] 在 `GitLocalAdapter` 实现 `git add --all` / `git reset HEAD -- .`
-- [ ] Git Status pane 增加 `a` 快捷键
-- [ ] 动作后自动刷新 status
+- [x] 在 `GitAdapter` 增加批量暂存接口
+- [x] 在 `GitLocalAdapter` 实现 `git add --all` / `git reset HEAD -- .`
+- [x] Git Status pane 增加 `a` 快捷键
+- [x] 动作后自动刷新 status
 
 涉及文件：
 
@@ -113,9 +127,10 @@
 
 ### A3. Commit 流程增强
 
-- [ ] 保留现有 commit overlay
-- [ ] 明确 help line 中的 commit / push / stage-all 快捷键
-- [ ] commit 完成后仍保持 status refresh 闭环
+- [x] 保留现有 commit overlay
+- [x] 明确 help line 中的 commit / push / stage-all 快捷键
+- [x] commit 完成后仍保持 status refresh 闭环
+- [x] commit 快捷键改为 `ctrl+s`，`ctrl+j` 保留 fallback
 
 涉及文件：
 
@@ -124,9 +139,16 @@
 
 ### A4. 验证
 
-- [ ] 补充 `status_pane_test.go` 中的 push / batch stage 测试
-- [ ] 跑通 Git pane 相关测试
-- [ ] `go test ./...`
+- [x] 补充 `status_pane_test.go` 中的 push / batch stage 测试
+- [x] 跑通 Git pane 相关测试
+- [x] `go test ./...`
+
+### A5. Sync Guard / Feedback（已完成）
+
+- [x] `push` 对 no-upstream / behind / diverged 做显式保护
+- [x] `pull` 对 no-upstream / diverged / already-up-to-date 做显式保护
+- [x] `fetch / pull / push` 成功后显示 notice
+- [x] 补充对应回归测试
 
 ---
 
@@ -136,23 +158,23 @@
 
 ### B1. 打开文件
 
-- [ ] File Tree 在文件节点上触发 `OpenEditorMsg`
-- [ ] app 层接收消息并创建 editor pane
+- [x] File Tree 在文件节点上触发 `OpenEditorMsg`
+- [x] app 层接收消息并创建 editor pane
 
 ### B2. Editor MVP
 
-- [ ] 新增 `PaneTypeEditor`
-- [ ] 用 `textarea.Model` 实现多行编辑
-- [ ] 支持文件加载、编辑、保存、dirty 状态
-- [ ] 支持 `ctrl+s` 保存、`esc` 关闭/确认放弃
+- [x] 新增 `PaneTypeEditor`
+- [x] 用 `textarea.Model` 实现多行编辑
+- [x] 支持文件加载、编辑、保存、dirty 状态
+- [x] 支持 `ctrl+s` 保存、`esc` 关闭/确认放弃
 
 ### B2.1. Editor 设计约束（本轮确认）
 
-- [ ] **Editor 是正常 pane，不是 overlay**
-- [ ] **File Tree 只负责发 `OpenEditorMsg`，不承担编辑逻辑**
-- [ ] **MVP 先做单文件/单 pane 编辑，不做完整 buffer 管理器**
-- [ ] **先支持 UTF-8 文本文件，不处理二进制与超大文件**
-- [ ] **保留后续演进空间：Buffer/Window 分离、Split、搜索、只读预览**
+- [x] **Editor 是正常 pane，不是 overlay**
+- [x] **File Tree 只负责发 `OpenEditorMsg`，不承担编辑逻辑**
+- [x] **MVP 先做单文件/单 pane 编辑，不做完整 buffer 管理器**
+- [x] **先支持 UTF-8 文本文件，不处理二进制与超大文件**
+- [x] **保留后续演进空间：Buffer/Window 分离、Split、搜索、只读预览**
 
 ### B2.2. Editor 状态模型（MVP）
 
@@ -194,17 +216,19 @@
 
 ### B2.5. MVP 验收标准
 
-1. File Tree 文件节点按 `enter/o` 可以打开 editor pane
-2. `v` 可以以 split 方式打开 editor pane
-3. editor 能加载文件内容并编辑
-4. `ctrl+s` 可以保存到磁盘
-5. 未保存时 `esc` 不会直接关闭，而是要求确认
-6. `go test ./...` 全绿
+1. [x] File Tree 文件节点按 `enter/o` 可以打开 editor pane
+2. [x] `v` 可以以 split 方式打开 editor pane
+3. [x] editor 能加载文件内容并编辑
+4. [x] `ctrl+s` 可以保存到磁盘
+5. [x] 未保存时 `esc` 不会直接关闭，而是要求确认
+6. [x] `go test ./...` 全绿
+7. [x] 再次打开同一文件时复用已有 editor pane
+8. [x] dirty 状态同步到 pane title
 
 ### B3. 打开方式
 
-- [ ] `enter/o`：当前方式打开
-- [ ] `v`：右侧 split 打开
+- [x] `enter/o`：当前方式打开
+- [x] `v`：右侧 split 打开
 
 涉及文件（预期）：
 
@@ -243,17 +267,17 @@
 
 完成 **File Tree → Editor pane MVP**：
 
-- 文件树打开文件
-- editor pane 骨架
-- 保存 / dirty 状态
+- [x] 文件树打开文件
+- [x] editor pane 骨架
+- [x] 保存 / dirty 状态
 
 ### 第 3 周
 
 完成 **Editor 交互增强**：
 
-- split 打开完善
-- 常规 pane 生命周期打磨
-- 焦点与关闭回退
+- [ ] split 打开完善
+- [~] 常规 pane 生命周期打磨（已完成同文件复用与 dirty title）
+- [ ] 焦点与关闭回退
 
 ### 第 4 周
 
@@ -267,18 +291,50 @@
 
 ## 当前立即执行项
 
-本次从 **Phase A / Git workflow MVP** 开始，首批落地范围：
+当前已从 Git workflow 进入 **Editor MVP 第 2 阶段**。下一步推荐执行项：
 
-- [ ] Push 快捷键 `P`
-- [ ] Stage all / Unstage all 快捷键 `a`
-- [ ] Git adapter 扩展与测试
-- [ ] Git pane help line 更新
+- [ ] 优化 editor 的 split/open 策略（区分默认打开、右侧打开、已有 editor 时的复用逻辑）
+- [ ] 打磨 editor 关闭后的焦点恢复
+- [ ] 增加外部文件变更检测（基础 mtime 检查）
+- [ ] 评估是否需要为 editor 加入只读模式 / preview 模式
 
-验收标准：
+---
 
-1. Git Status pane 中可使用 `space` 单文件暂存/取消暂存
-2. Git Status pane 中可使用 `a` 批量暂存/取消暂存
-3. Git Status pane 中可使用 `c` commit
-4. Git Status pane 中可使用 `P` push
-5. 所有动作后状态自动刷新
-6. 相关测试通过，且 `go test ./...` 全绿
+## Handoff（供新 Session 直接续接）
+
+### 当前代码状态
+
+- `master` 已包含 Git workflow MVP 与 Editor MVP 第一阶段全部提交
+- Editor 相关代码已落地到：
+  - `internal/plugins/editor/`
+  - `internal/plugins/filebrowser/tree_pane.go`
+  - `internal/app/app.go`
+  - `internal/models/pane.go`
+- 全量测试在最新提交时为绿色：`go test ./...`
+
+### Editor 已实现能力
+
+- File Tree 文件节点 `enter/o` 打开 editor
+- `v` 以 split 语义打开 editor
+- `textarea.Model` 多行编辑
+- `ctrl+s` 保存
+- `esc` 未保存确认
+- 同一路径 editor pane 复用
+- dirty 状态同步到 pane title（如 `*main.go [modified]`）
+
+### 下一步最自然的开发入口
+
+1. `internal/app/app.go`
+   - 继续完善 `openEditorPane()`
+   - 打磨 editor 关闭后的 focus fallback
+2. `internal/plugins/editor/editor_pane.go`
+   - 加入 mtime / 外部变更检测
+   - 视需要加入只读/preview 模式
+3. `internal/app/app_test.go`
+   - 为 editor close/focus 恢复补 app 级测试
+
+### 不建议在下一 Session 重做的事
+
+- 不需要再重新研究 Neovim / LunarVim 参考结论
+- 不需要再重新设计 editor 是 overlay 还是 pane —— 该决策已经确定：**editor 是正常 pane**
+- 不需要再重新验证 Git workflow 是否可用 —— 当前阶段应把主要精力放在 editor 交互打磨上
