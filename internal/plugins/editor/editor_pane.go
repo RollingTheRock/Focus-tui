@@ -54,6 +54,7 @@ type EditorPane struct {
 	searchQuery string
 	searchHits  []cursorTarget
 	searchIndex int
+	initialLine int
 
 	width   int
 	height  int
@@ -119,7 +120,7 @@ type externalFileStateMsg struct {
 	err     error
 }
 
-func NewEditorPane(id models.PaneID, meta models.PaneMeta, common models.CommonModel, filePath string) *EditorPane {
+func NewEditorPane(id models.PaneID, meta models.PaneMeta, common models.CommonModel, filePath string, initialLine int) *EditorPane {
 	input := textarea.New()
 	input.Placeholder = "Start typing..."
 	input.Prompt = ""
@@ -142,14 +143,15 @@ func NewEditorPane(id models.PaneID, meta models.PaneMeta, common models.CommonM
 	miniInput.Blur()
 
 	return &EditorPane{
-		id:        id,
-		meta:      meta,
-		common:    common,
-		input:     input,
-		miniInput: miniInput,
-		mode:      editorModeNormal,
-		filePath:  filePath,
-		loading:   filePath != "",
+		id:          id,
+		meta:        meta,
+		common:      common,
+		input:       input,
+		miniInput:   miniInput,
+		mode:        editorModeNormal,
+		filePath:    filePath,
+		initialLine: initialLine,
+		loading:     filePath != "",
 	}
 }
 
@@ -174,6 +176,12 @@ func (p *EditorPane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 	}
 
 	switch msg := msg.(type) {
+	case OpenEditorMsg:
+		if msg.LineNumber > 0 {
+			return p.executeJump(strconv.Itoa(msg.LineNumber))
+		}
+		return p, nil
+
 	case editorLoadedMsg:
 		p.loading = false
 		if msg.err != nil {
@@ -193,6 +201,10 @@ func (p *EditorPane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 		p.dirty = false
 		p.changeTick = 0
 		p.externalChange = false
+		if p.initialLine > 0 {
+			_, _ = p.executeJump(strconv.Itoa(p.initialLine))
+			p.initialLine = 0
+		}
 		p.err = nil
 		p.notice = msg.notice
 		return p, nil

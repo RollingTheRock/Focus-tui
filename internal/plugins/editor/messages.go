@@ -10,8 +10,9 @@ const (
 )
 
 type OpenEditorMsg struct {
-	FilePath string
-	Behavior OpenBehavior
+	FilePath   string
+	Behavior   OpenBehavior
+	LineNumber int
 }
 
 type CloseEditorMsg struct {

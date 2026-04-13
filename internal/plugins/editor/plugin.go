@@ -22,7 +22,7 @@ func (p *Plugin) PaneTypes() []models.PaneType { return []models.PaneType{models
 func (p *Plugin) CreatePane(paneType models.PaneType, id models.PaneID, meta models.PaneMeta, common models.CommonModel) (models.Panel, error) {
 	switch paneType {
 	case models.PaneTypeEditor:
-		return NewEditorPane(id, meta, common, ""), nil
+		return NewEditorPane(id, meta, common, "", 0), nil
 	default:
 		return nil, fmt.Errorf("editor plugin: unsupported pane type %q", paneType)
 	}

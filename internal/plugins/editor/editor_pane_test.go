@@ -30,7 +30,7 @@ func TestEditorPaneLoadsAndSavesFile(t *testing.T) {
 		t.Fatalf("write seed file: %v", err)
 	}
 
-	pane := NewEditorPane("editor-1", models.PaneMeta{ID: "editor-1", Name: "main.go", Type: models.PaneTypeEditor}, models.CommonModel{}, path)
+	pane := NewEditorPane("editor-1", models.PaneMeta{ID: "editor-1", Name: "main.go", Type: models.PaneTypeEditor}, models.CommonModel{}, path, 0)
 	pane.SetSize(80, 16)
 	updated, _ := pane.Update(editorLoadedMsg{content: "package main\n"})
 	pane = updated.(*EditorPane)
@@ -60,7 +60,7 @@ func TestEditorPaneLoadsAndSavesFile(t *testing.T) {
 }
 
 func TestEditorPaneEscRequiresConfirmationWhenDirty(t *testing.T) {
-	pane := NewEditorPane("editor-1", models.PaneMeta{ID: "editor-1", Name: "main.go", Type: models.PaneTypeEditor}, models.CommonModel{}, "/tmp/main.go")
+	pane := NewEditorPane("editor-1", models.PaneMeta{ID: "editor-1", Name: "main.go", Type: models.PaneTypeEditor}, models.CommonModel{}, "/tmp/main.go", 0)
 	pane.originalContent = "package main\n"
 	pane.input.SetValue("package main\n\nfunc main() {}\n")
 	pane.dirty = true
@@ -85,7 +85,7 @@ func TestEditorPaneEscRequiresConfirmationWhenDirty(t *testing.T) {
 }
 
 func TestEditorPaneViewShowsShortcutHint(t *testing.T) {
-	pane := NewEditorPane("editor-1", models.PaneMeta{ID: "editor-1", Name: "main.go", Type: models.PaneTypeEditor}, models.CommonModel{}, "")
+	pane := NewEditorPane("editor-1", models.PaneMeta{ID: "editor-1", Name: "main.go", Type: models.PaneTypeEditor}, models.CommonModel{}, "", 0)
 	pane.SetSize(80, 16)
 	view := pane.View()
 	for _, want := range []string{"main.go", "Ctrl+S save", "Esc close"} {
@@ -102,7 +102,7 @@ func TestEditorPaneReloadsCleanBufferAfterExternalChange(t *testing.T) {
 		t.Fatalf("write seed file: %v", err)
 	}
 
-	pane := NewEditorPane("editor-1", models.PaneMeta{ID: "editor-1", Name: "main.go", Type: models.PaneTypeEditor}, models.CommonModel{}, path)
+	pane := NewEditorPane("editor-1", models.PaneMeta{ID: "editor-1", Name: "main.go", Type: models.PaneTypeEditor}, models.CommonModel{}, path, 0)
 	updated, _ := pane.Update(runCmd(t, pane.loadFileCmd(fileOpenedNotice(path))))
 	pane = updated.(*EditorPane)
 
@@ -140,7 +140,7 @@ func TestEditorPaneWarnsWhenDirtyBufferHasExternalChange(t *testing.T) {
 		t.Fatalf("write seed file: %v", err)
 	}
 
-	pane := NewEditorPane("editor-1", models.PaneMeta{ID: "editor-1", Name: "main.go", Type: models.PaneTypeEditor}, models.CommonModel{}, path)
+	pane := NewEditorPane("editor-1", models.PaneMeta{ID: "editor-1", Name: "main.go", Type: models.PaneTypeEditor}, models.CommonModel{}, path, 0)
 	updated, _ := pane.Update(runCmd(t, pane.loadFileCmd(fileOpenedNotice(path))))
 	pane = updated.(*EditorPane)
 	pane.input.SetValue("package main\n\nfunc local() {}\n")
@@ -177,7 +177,7 @@ func TestEditorPaneUsesReadOnlyPreviewForLargeFiles(t *testing.T) {
 		t.Fatalf("write large file: %v", err)
 	}
 
-	pane := NewEditorPane("editor-1", models.PaneMeta{ID: "editor-1", Name: "large.txt", Type: models.PaneTypeEditor}, models.CommonModel{}, path)
+	pane := NewEditorPane("editor-1", models.PaneMeta{ID: "editor-1", Name: "large.txt", Type: models.PaneTypeEditor}, models.CommonModel{}, path, 0)
 	updated, _ := pane.Update(runCmd(t, pane.loadFileCmd(fileOpenedNotice(path))))
 	pane = updated.(*EditorPane)
 
@@ -210,7 +210,7 @@ func TestEditorPaneUsesBinaryPreviewForBinaryFiles(t *testing.T) {
 		t.Fatalf("write binary file: %v", err)
 	}
 
-	pane := NewEditorPane("editor-1", models.PaneMeta{ID: "editor-1", Name: "image.bin", Type: models.PaneTypeEditor}, models.CommonModel{}, path)
+	pane := NewEditorPane("editor-1", models.PaneMeta{ID: "editor-1", Name: "image.bin", Type: models.PaneTypeEditor}, models.CommonModel{}, path, 0)
 	updated, _ := pane.Update(runCmd(t, pane.loadFileCmd(fileOpenedNotice(path))))
 	pane = updated.(*EditorPane)
 
@@ -229,7 +229,7 @@ func TestEditorPaneUsesBinaryPreviewForBinaryFiles(t *testing.T) {
 }
 
 func TestEditorPanePreviewScrollsWithJK(t *testing.T) {
-	pane := NewEditorPane("editor-1", models.PaneMeta{ID: "editor-1", Name: "preview.txt", Type: models.PaneTypeEditor}, models.CommonModel{}, "")
+	pane := NewEditorPane("editor-1", models.PaneMeta{ID: "editor-1", Name: "preview.txt", Type: models.PaneTypeEditor}, models.CommonModel{}, "", 0)
 	pane.previewMode = true
 	pane.readOnly = true
 	pane.previewReason = "Large file preview"
@@ -254,7 +254,7 @@ func TestEditorPanePreviewScrollsWithJK(t *testing.T) {
 }
 
 func TestEditorPaneSearchFindsNextMatch(t *testing.T) {
-	pane := NewEditorPane("editor-1", models.PaneMeta{ID: "editor-1", Name: "main.go", Type: models.PaneTypeEditor}, models.CommonModel{}, "")
+	pane := NewEditorPane("editor-1", models.PaneMeta{ID: "editor-1", Name: "main.go", Type: models.PaneTypeEditor}, models.CommonModel{}, "", 0)
 	pane.SetSize(80, 16)
 	updated, _ := pane.Update(editorLoadedMsg{content: "alpha\nbeta\nalpha again\n"})
 	pane = updated.(*EditorPane)
@@ -290,7 +290,7 @@ func TestEditorPaneSearchFindsNextMatch(t *testing.T) {
 }
 
 func TestEditorPaneJumpToLineMovesCursor(t *testing.T) {
-	pane := NewEditorPane("editor-1", models.PaneMeta{ID: "editor-1", Name: "main.go", Type: models.PaneTypeEditor}, models.CommonModel{}, "")
+	pane := NewEditorPane("editor-1", models.PaneMeta{ID: "editor-1", Name: "main.go", Type: models.PaneTypeEditor}, models.CommonModel{}, "", 0)
 	pane.SetSize(80, 16)
 	updated, _ := pane.Update(editorLoadedMsg{content: "one\ntwo\nthree\nfour\n"})
 	pane = updated.(*EditorPane)
@@ -314,7 +314,7 @@ func TestEditorPaneJumpToLineMovesCursor(t *testing.T) {
 }
 
 func TestEditorPanePreviewSearchMovesScrollToMatch(t *testing.T) {
-	pane := NewEditorPane("editor-1", models.PaneMeta{ID: "editor-1", Name: "preview.txt", Type: models.PaneTypeEditor}, models.CommonModel{}, "")
+	pane := NewEditorPane("editor-1", models.PaneMeta{ID: "editor-1", Name: "preview.txt", Type: models.PaneTypeEditor}, models.CommonModel{}, "", 0)
 	pane.previewMode = true
 	pane.readOnly = true
 	pane.previewReason = "Large file preview"
@@ -347,7 +347,7 @@ func TestEditorPanePreviewSearchMovesScrollToMatch(t *testing.T) {
 }
 
 func TestPreviewLineMatchesTracksActiveSearchHit(t *testing.T) {
-	pane := NewEditorPane("editor-1", models.PaneMeta{ID: "editor-1", Name: "preview.txt", Type: models.PaneTypeEditor}, models.CommonModel{}, "")
+	pane := NewEditorPane("editor-1", models.PaneMeta{ID: "editor-1", Name: "preview.txt", Type: models.PaneTypeEditor}, models.CommonModel{}, "", 0)
 	pane.previewMode = true
 	pane.readOnly = true
 	pane.previewLines = []string{"zero needle middle needle end"}
