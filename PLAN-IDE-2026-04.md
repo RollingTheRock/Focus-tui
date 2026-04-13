@@ -29,6 +29,13 @@
 - [x] `fetch / pull / sync` 已可用
 - [ ] hunk 级操作缺失
 - [x] Git pane 已具备基础状态保护与同步反馈
+- [x] review diff 已是正常 body pane，不再是临时 overlay
+- [x] review diff 支持多文件 stacked view、file section、hunk header
+- [x] review diff 支持 review -> editor 打开
+- [x] review diff 支持 review 内文件跳转与鼠标滚轮滚动
+- [x] review diff 支持 staged / unstaged 视角切换
+- [x] review diff 支持按当前 hunk 打开到 editor 目标行
+- [x] rename / binary / new / delete diff 已有基础可读展示
 
 ### 编辑器现状
 
@@ -49,8 +56,9 @@
 - Git workflow MVP：stage / stage-all / diff / commit / fetch / pull / push
 - Git pane 的 upstream / ahead / behind / diverged 基础保护
 - Editor MVP 第一阶段：从 File Tree 打开 editor、编辑、`ctrl+s` 保存、`esc` 未保存确认、dirty title 标记、同文件复用
+- Git review workflow 第一阶段：review pane 正式并入工作区布局，支持 stacked diff、section/hunk 层次、文件跳转、鼠标滚轮、staged/unstaged 切换、review → editor 定位
 
-当前真正未完成的主线，已经从“有没有 editor”转为“editor 交互是否足够顺手”。
+当前真正未完成的主线，已经从“有没有 Git/editor 工作流”转为“review 与 editor 的联动是否足够顺手，以及更高阶的 Git 操作是否要继续深入”。
 
 ---
 
@@ -286,17 +294,20 @@
 - hunk staging
 - fetch / pull / branch actions
 - editor 搜索 / 跳行 / 外部编辑器 fallback
+- review pane staged/unstaged 切换与 review → editor 行定位（已完成）
+- review pane 文件级导航与鼠标滚轮（已完成）
 
 ---
 
 ## 当前立即执行项
 
-当前已从 Git workflow 进入 **Editor MVP 第 2 阶段**。下一步推荐执行项：
+当前 Git / worktree / review 工作流已经**基本可日常使用**。下一步推荐执行项：
 
-- [ ] 优化 editor 的 split/open 策略（区分默认打开、右侧打开、已有 editor 时的复用逻辑）
-- [ ] 打磨 editor 关闭后的焦点恢复
-- [ ] 增加外部文件变更检测（基础 mtime 检查）
-- [ ] 评估是否需要为 editor 加入只读模式 / preview 模式
+- [ ] hunk 级 stage / discard / partial review 操作
+- [ ] review pane refresh / auto-refresh 策略
+- [ ] review 当前文件 / 当前 hunk 的高亮与上下文强化
+- [ ] branch / checkout / branch-aware actions
+- [ ] 继续打磨 editor 与 review 的上下文回退
 
 ---
 
@@ -304,7 +315,7 @@
 
 ### 当前代码状态
 
-- `master` 已包含 Git workflow MVP 与 Editor MVP 第一阶段全部提交
+- `master` 已包含 Git workflow MVP、Editor MVP，以及 review workflow 第一阶段全部提交
 - Editor 相关代码已落地到：
   - `internal/plugins/editor/`
   - `internal/plugins/filebrowser/tree_pane.go`
@@ -318,6 +329,17 @@
 - `v` 以 split 语义打开 editor
 - `textarea.Model` 多行编辑
 - `ctrl+s` 保存
+
+### Review 已实现能力
+
+- Git Status 中 `enter` 打开 review pane，`d` 打开单文件 diff
+- review pane 进入正常工作区布局，不再是 diff overlay
+- 多文件 stacked diff、file section、hunk header
+- `enter` 从 review 打开 editor，并尽量定位到当前 hunk 行
+- `[` / `]` 在文件 section 之间跳转
+- 鼠标滚轮滚动 review pane
+- `s` 切换 staged / unstaged review
+- rename / binary / new / delete 的基础可读渲染
 - `esc` 未保存确认
 - 同一路径 editor pane 复用
 - dirty 状态同步到 pane title（如 `*main.go [modified]`）
