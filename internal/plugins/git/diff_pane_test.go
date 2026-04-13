@@ -6,6 +6,7 @@ import (
 
 	gitmodel "focus/internal/git"
 	"focus/internal/models"
+	editorplugin "focus/internal/plugins/editor"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -108,6 +109,54 @@ func TestDiffPaneKeyboardHandling(t *testing.T) {
 	}
 	if closeMsg.ID != "diff-1" {
 		t.Fatalf("expected pane id diff-1, got %q", closeMsg.ID)
+	}
+}
+
+func TestDiffPaneEnterOpensCurrentReviewFileInEditor(t *testing.T) {
+	adapter := &fakeGitAdapter{
+		diff: strings.Join([]string{
+			"diff --git a/a.go b/a.go",
+			"@@ -1 +1 @@",
+			"-old",
+			"+new",
+			"diff --git a/b.go b/b.go",
+			"@@ -2 +2 @@",
+			"-before",
+			"+after",
+		}, "\n"),
+	}
+	pane := NewDiffPane("diff-1", models.PaneMeta{ID: "diff-1", Type: models.PaneTypeDiffView, CWD: "/repo"}, models.CommonModel{}, adapter, "", false)
+	pane.SetSize(90, 12)
+
+	updated, _ := pane.Update(runCmd(t, pane.Init()))
+	pane = updated.(*DiffPane)
+	pane.scroll = 5
+
+	_, cmd := pane.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	msg := runCmd(t, cmd)
+	openMsg, ok := msg.(editorplugin.OpenEditorMsg)
+	if !ok {
+		t.Fatalf("expected OpenEditorMsg, got %T", msg)
+	}
+	if openMsg.FilePath != "b.go" {
+		t.Fatalf("expected b.go from current review section, got %q", openMsg.FilePath)
+	}
+	if openMsg.Behavior != editorplugin.OpenBehaviorDefault {
+		t.Fatalf("expected default editor open behavior, got %q", openMsg.Behavior)
+	}
+}
+
+func TestDiffPaneEnterOpensSingleFileDiffTarget(t *testing.T) {
+	pane := NewDiffPane("diff-1", models.PaneMeta{ID: "diff-1", Type: models.PaneTypeDiffView, CWD: "/repo"}, models.CommonModel{}, &fakeGitAdapter{}, "pkg/main.go", false)
+
+	_, cmd := pane.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	msg := runCmd(t, cmd)
+	openMsg, ok := msg.(editorplugin.OpenEditorMsg)
+	if !ok {
+		t.Fatalf("expected OpenEditorMsg, got %T", msg)
+	}
+	if openMsg.FilePath != "pkg/main.go" {
+		t.Fatalf("expected single-file diff path pkg/main.go, got %q", openMsg.FilePath)
 	}
 }
 

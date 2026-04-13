@@ -1085,8 +1085,8 @@ func (m model) renderHelpLine(w int) string {
 		left = "[ctrl+s]save  [ctrl+f /]search  [:]line  [n/N]result  [esc]close"
 		compact = "[ctrl+s]save  [/]search  [:]line"
 	case models.PaneTypeDiffView:
-		left = "[j/k]scroll  [q/esc]close review"
-		compact = "[j/k]scroll  [esc]close"
+		left = "[enter]open file  [j/k]scroll  [q/esc]close review"
+		compact = "[enter]open  [j/k]scroll"
 	}
 	if w < simplifiedHelpMaxWidth {
 		return renderCompactHelpLine(helpStyle, compact, w)

@@ -7,6 +7,7 @@ import (
 
 	"focus/internal/adapters"
 	"focus/internal/models"
+	editorplugin "focus/internal/plugins/editor"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -132,6 +133,10 @@ func (p *DiffPane) updateKey(msg tea.KeyMsg) (models.Panel, tea.Cmd) {
 	switch msg.String() {
 	case "q", "esc":
 		return p, closeDiffCmd(p.id)
+	case "enter":
+		if path := p.currentFilePath(); path != "" {
+			return p, openEditorCmd(path)
+		}
 	case "j", "down":
 		if p.scroll < p.maxScroll() {
 			p.scroll++
@@ -291,6 +296,12 @@ func closeDiffCmd(id models.PaneID) tea.Cmd {
 	}
 }
 
+func openEditorCmd(path string) tea.Cmd {
+	return func() tea.Msg {
+		return editorplugin.OpenEditorMsg{FilePath: path, Behavior: editorplugin.OpenBehaviorDefault}
+	}
+}
+
 func isDiffHeaderLine(line string) bool {
 	for _, prefix := range []string{"diff --git ", "index ", "@@ ", "--- ", "+++ ", "rename from ", "rename to ", "new file mode ", "deleted file mode ", "similarity index ", "Binary files "} {
 		if strings.HasPrefix(line, prefix) {
@@ -315,4 +326,36 @@ func parseDiffFilePath(line string) (string, bool) {
 		return strings.TrimPrefix(parts[0], "a/"), true
 	}
 	return right, true
+}
+
+func (p *DiffPane) currentFilePath() string {
+	if p.filePath != "" {
+		return p.filePath
+	}
+	lines := p.diffLines()
+	if len(lines) == 0 {
+		return ""
+	}
+	renderedIndex := 0
+	currentPath := ""
+	for _, line := range lines {
+		if strings.HasPrefix(line, "diff --git ") {
+			if renderedIndex > 0 {
+				renderedIndex++
+			}
+			if path, ok := parseDiffFilePath(line); ok {
+				currentPath = path
+			}
+			if p.scroll <= renderedIndex {
+				return currentPath
+			}
+			renderedIndex++
+			continue
+		}
+		if p.scroll <= renderedIndex && currentPath != "" {
+			return currentPath
+		}
+		renderedIndex++
+	}
+	return currentPath
 }
