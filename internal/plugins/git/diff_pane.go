@@ -47,6 +47,11 @@ type diffLoadedMsg struct {
 	err  error
 }
 
+type diffFileSection struct {
+	path         string
+	renderedLine int
+}
+
 func NewDiffPane(id models.PaneID, meta models.PaneMeta, common models.CommonModel, adapter adapters.GitAdapter, filePath string, staged bool) *DiffPane {
 	repoPath := meta.CWD
 	if repoPath == "" {
@@ -85,6 +90,8 @@ func (p *DiffPane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 
 	case tea.KeyMsg:
 		return p.updateKey(msg)
+	case tea.MouseMsg:
+		return p.updateMouse(msg)
 	}
 
 	return p, nil
@@ -137,6 +144,10 @@ func (p *DiffPane) updateKey(msg tea.KeyMsg) (models.Panel, tea.Cmd) {
 		if path := p.currentFilePath(); path != "" {
 			return p, openEditorCmd(path)
 		}
+	case "]":
+		p.jumpFileSection(1)
+	case "[":
+		p.jumpFileSection(-1)
 	case "j", "down":
 		if p.scroll < p.maxScroll() {
 			p.scroll++
@@ -147,6 +158,18 @@ func (p *DiffPane) updateKey(msg tea.KeyMsg) (models.Panel, tea.Cmd) {
 		}
 	}
 
+	return p, nil
+}
+
+func (p *DiffPane) updateMouse(msg tea.MouseMsg) (models.Panel, tea.Cmd) {
+	switch msg.Button {
+	case tea.MouseButtonWheelUp:
+		p.scroll -= 3
+		p.clampScroll()
+	case tea.MouseButtonWheelDown:
+		p.scroll += 3
+		p.clampScroll()
+	}
 	return p, nil
 }
 
@@ -328,34 +351,69 @@ func parseDiffFilePath(line string) (string, bool) {
 	return right, true
 }
 
-func (p *DiffPane) currentFilePath() string {
+func (p *DiffPane) fileSections() []diffFileSection {
 	if p.filePath != "" {
-		return p.filePath
+		return []diffFileSection{{path: p.filePath, renderedLine: 0}}
 	}
 	lines := p.diffLines()
-	if len(lines) == 0 {
-		return ""
-	}
+	sections := make([]diffFileSection, 0)
 	renderedIndex := 0
-	currentPath := ""
 	for _, line := range lines {
 		if strings.HasPrefix(line, "diff --git ") {
-			if renderedIndex > 0 {
+			if len(sections) > 0 {
 				renderedIndex++
 			}
 			if path, ok := parseDiffFilePath(line); ok {
-				currentPath = path
-			}
-			if p.scroll <= renderedIndex {
-				return currentPath
+				sections = append(sections, diffFileSection{path: path, renderedLine: renderedIndex})
 			}
 			renderedIndex++
 			continue
 		}
-		if p.scroll <= renderedIndex && currentPath != "" {
-			return currentPath
-		}
 		renderedIndex++
 	}
-	return currentPath
+	return sections
+}
+
+func (p *DiffPane) currentFileSectionIndex() int {
+	sections := p.fileSections()
+	if len(sections) == 0 {
+		return -1
+	}
+	current := 0
+	for idx, section := range sections {
+		if section.renderedLine > p.scroll {
+			break
+		}
+		current = idx
+	}
+	return current
+}
+
+func (p *DiffPane) jumpFileSection(delta int) {
+	sections := p.fileSections()
+	if len(sections) == 0 {
+		return
+	}
+	current := p.currentFileSectionIndex()
+	if current < 0 {
+		current = 0
+	}
+	target := current + delta
+	if target < 0 {
+		target = 0
+	}
+	if target >= len(sections) {
+		target = len(sections) - 1
+	}
+	p.scroll = sections[target].renderedLine
+	p.clampScroll()
+}
+
+func (p *DiffPane) currentFilePath() string {
+	sections := p.fileSections()
+	current := p.currentFileSectionIndex()
+	if current < 0 || current >= len(sections) {
+		return ""
+	}
+	return sections[current].path
 }

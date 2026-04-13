@@ -126,7 +126,7 @@ func TestDiffPaneEnterOpensCurrentReviewFileInEditor(t *testing.T) {
 		}, "\n"),
 	}
 	pane := NewDiffPane("diff-1", models.PaneMeta{ID: "diff-1", Type: models.PaneTypeDiffView, CWD: "/repo"}, models.CommonModel{}, adapter, "", false)
-	pane.SetSize(90, 12)
+	pane.SetSize(90, 4)
 
 	updated, _ := pane.Update(runCmd(t, pane.Init()))
 	pane = updated.(*DiffPane)
@@ -143,6 +143,69 @@ func TestDiffPaneEnterOpensCurrentReviewFileInEditor(t *testing.T) {
 	}
 	if openMsg.Behavior != editorplugin.OpenBehaviorDefault {
 		t.Fatalf("expected default editor open behavior, got %q", openMsg.Behavior)
+	}
+}
+
+func TestDiffPaneBracketNavigationMovesBetweenFileSections(t *testing.T) {
+	adapter := &fakeGitAdapter{
+		diff: strings.Join([]string{
+			"diff --git a/a.go b/a.go",
+			"@@ -1 +1 @@",
+			"-old",
+			"+new",
+			"diff --git a/b.go b/b.go",
+			"@@ -2 +2 @@",
+			"-before",
+			"+after",
+		}, "\n"),
+	}
+	pane := NewDiffPane("diff-1", models.PaneMeta{ID: "diff-1", Type: models.PaneTypeDiffView, CWD: "/repo"}, models.CommonModel{}, adapter, "", false)
+	pane.SetSize(90, 4)
+
+	updated, _ := pane.Update(runCmd(t, pane.Init()))
+	pane = updated.(*DiffPane)
+
+	updated, _ = pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{']'}})
+	pane = updated.(*DiffPane)
+	if pane.currentFilePath() != "b.go" {
+		t.Fatalf("expected to jump to b.go, got %q", pane.currentFilePath())
+	}
+
+	updated, _ = pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'['}})
+	pane = updated.(*DiffPane)
+	if pane.currentFilePath() != "a.go" {
+		t.Fatalf("expected to jump back to a.go, got %q", pane.currentFilePath())
+	}
+}
+
+func TestDiffPaneMouseWheelScrollsReview(t *testing.T) {
+	adapter := &fakeGitAdapter{
+		diff: strings.Join([]string{
+			"diff --git a/a.go b/a.go",
+			"@@ -1 +1 @@",
+			"-old",
+			"+new",
+			" context",
+			" context2",
+			" context3",
+		}, "\n"),
+	}
+	pane := NewDiffPane("diff-1", models.PaneMeta{ID: "diff-1", Type: models.PaneTypeDiffView, CWD: "/repo"}, models.CommonModel{}, adapter, "", false)
+	pane.SetSize(80, 4)
+
+	updated, _ := pane.Update(runCmd(t, pane.Init()))
+	pane = updated.(*DiffPane)
+
+	updated, _ = pane.Update(tea.MouseMsg{Button: tea.MouseButtonWheelDown})
+	pane = updated.(*DiffPane)
+	if pane.scroll == 0 {
+		t.Fatalf("expected wheel down to increase scroll")
+	}
+	prev := pane.scroll
+	updated, _ = pane.Update(tea.MouseMsg{Button: tea.MouseButtonWheelUp})
+	pane = updated.(*DiffPane)
+	if pane.scroll >= prev {
+		t.Fatalf("expected wheel up to reduce scroll, got %d from %d", pane.scroll, prev)
 	}
 }
 
