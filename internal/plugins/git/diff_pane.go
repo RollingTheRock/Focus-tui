@@ -64,7 +64,7 @@ func NewDiffPane(id models.PaneID, meta models.PaneMeta, common models.CommonMod
 }
 
 func (p *DiffPane) Init() tea.Cmd {
-	p.loading = p.filePath != ""
+	p.loading = p.adapter != nil
 	if !p.loading {
 		return nil
 	}
@@ -102,8 +102,6 @@ func (p *DiffPane) View() string {
 		lines = append(lines, renderLoadingLine(width), renderLoadingLine(width), renderLoadingLine(width))
 	case p.err != nil:
 		lines = append(lines, errorStyle.MaxWidth(width).Render("Unable to load diff: "+p.err.Error()))
-	case p.filePath == "":
-		lines = append(lines, emptyStyle.Render("No file selected."))
 	default:
 		content := p.visibleContent()
 		if len(content) == 0 {
@@ -167,6 +165,8 @@ func (p *DiffPane) renderHeader() string {
 	label := "Diff"
 	if p.filePath != "" {
 		label = fmt.Sprintf("%s · %s", p.filePath, mode)
+	} else {
+		label = fmt.Sprintf("Review · %s", mode)
 	}
 
 	return diffHeaderStyle.Render(label)
@@ -228,6 +228,8 @@ func (p *DiffPane) renderDiffLine(line string) string {
 		return addedLineStyle.Render(line)
 	case strings.HasPrefix(line, "-") && !strings.HasPrefix(line, "---"):
 		return removedLineStyle.Render(line)
+	case strings.HasPrefix(line, "diff --git "):
+		return diffHeaderStyle.Bold(true).Render(line)
 	case isDiffHeaderLine(line):
 		return diffHeaderStyle.Render(line)
 	default:

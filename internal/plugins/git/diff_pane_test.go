@@ -124,10 +124,52 @@ func TestStatusPaneEnterOpensDiff(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected OpenDiffMsg, got %T", msg)
 	}
-	if openMsg.FilePath != "staged.go" {
-		t.Fatalf("expected staged.go, got %q", openMsg.FilePath)
+	if openMsg.FilePath != "" {
+		t.Fatalf("expected review diff with empty file path, got %q", openMsg.FilePath)
 	}
-	if !openMsg.Staged {
-		t.Fatalf("expected staged diff to be opened")
+	if openMsg.Staged {
+		t.Fatalf("expected review diff to default to unstaged view")
+	}
+	if _, cmd := pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}}); cmd == nil {
+		t.Fatalf("expected single-file diff command on d")
+	} else {
+		msg = runCmd(t, cmd)
+		openMsg, ok = msg.(OpenDiffMsg)
+		if !ok {
+			t.Fatalf("expected OpenDiffMsg from d, got %T", msg)
+		}
+		if openMsg.FilePath != "staged.go" {
+			t.Fatalf("expected staged.go from single-file diff, got %q", openMsg.FilePath)
+		}
+		if !openMsg.Staged {
+			t.Fatalf("expected staged single-file diff to preserve staged flag")
+		}
+	}
+}
+
+func TestDiffPaneReviewModeLoadsFullWorktreeDiff(t *testing.T) {
+	adapter := &fakeGitAdapter{
+		diff: strings.Join([]string{
+			"diff --git a/a.go b/a.go",
+			"@@ -1 +1 @@",
+			"-old",
+			"+new",
+			"diff --git a/b.go b/b.go",
+			"@@ -2 +2 @@",
+			"-before",
+			"+after",
+		}, "\n"),
+	}
+	pane := NewDiffPane("diff-1", models.PaneMeta{ID: "diff-1", Type: models.PaneTypeDiffView, CWD: "/repo"}, models.CommonModel{}, adapter, "", false)
+	pane.SetSize(90, 12)
+
+	updated, _ := pane.Update(runCmd(t, pane.Init()))
+	pane = updated.(*DiffPane)
+
+	view := pane.View()
+	for _, want := range []string{"Review · unstaged", "diff --git a/a.go b/a.go", "diff --git a/b.go b/b.go", "+after"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("expected review view to contain %q, got:\n%s", want, view)
+		}
 	}
 }

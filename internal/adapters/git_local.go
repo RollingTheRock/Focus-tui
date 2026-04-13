@@ -261,7 +261,9 @@ func (g *GitLocalAdapter) GetDiff(repoPath string, path string, staged bool) (st
 	if staged {
 		args = append(args, "--cached")
 	}
-	args = append(args, "--", path)
+	if path != "" {
+		args = append(args, "--", path)
+	}
 
 	cmd := exec.Command("git", args...)
 	output, err := cmd.Output()

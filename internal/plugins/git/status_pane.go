@@ -195,6 +195,8 @@ func (p *StatusPane) updateKey(msg tea.KeyMsg) (models.Panel, tea.Cmd) {
 			p.cursor--
 		}
 	case "enter":
+		return p, openDiffCmd("", false)
+	case "d":
 		file, staged := p.getSelectedFile()
 		if file == nil {
 			return p, nil
