@@ -2,6 +2,7 @@ package app
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"focus/internal/config"
@@ -103,6 +104,25 @@ func TestFormatPaneTitleUsesActiveForShellMode(t *testing.T) {
 	want := "SHELL [running] [active]"
 	if got != want {
 		t.Fatalf("expected %q, got %q", want, got)
+	}
+}
+
+func TestRenderHelpLineForEditorIncludesSearchShortcuts(t *testing.T) {
+	cfg := config.DefaultConfig()
+	st, _ := store.New(":memory:")
+	m := New(cfg, st).(model)
+	m.focused = paneFileTree
+	editorID := models.PaneID("editor-1")
+	m.panes[editorID] = &fakeEditorMetaPanel{name: "main.go", filePath: "/tmp/main.go"}
+	m.paneMeta[editorID] = models.PaneMeta{ID: editorID, Name: "main.go", Type: models.PaneTypeEditor, Closable: true}
+	m.paneOrder = append(m.paneOrder, editorID)
+	m.focused = editorID
+
+	help := m.renderHelpLine(120)
+	for _, want := range []string{"[ctrl+s]save", "[ctrl+f /]search", "[:]line", "[n/N]result"} {
+		if !strings.Contains(help, want) {
+			t.Fatalf("expected help line to contain %q, got %q", want, help)
+		}
 	}
 }
 

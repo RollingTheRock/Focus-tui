@@ -1086,6 +1086,9 @@ func (m model) renderHelpLine(w int) string {
 			left = "[tab]next  [ctrl+h/j/k/l]focus  [enter]shell"
 			compact = "[tab]next  [enter]shell  [q]uit"
 		}
+	case models.PaneTypeEditor:
+		left = "[ctrl+s]save  [ctrl+f /]search  [:]line  [n/N]result  [esc]close"
+		compact = "[ctrl+s]save  [/]search  [:]line"
 	}
 	if w < simplifiedHelpMaxWidth {
 		return renderCompactHelpLine(helpStyle, compact, w)
