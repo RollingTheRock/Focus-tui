@@ -31,6 +31,7 @@ type Model struct {
 	common *models.CommonModel
 	width  int
 	height int
+	cwd    string
 
 	pty   xpty.Pty
 	vterm *vt.SafeEmulator
@@ -59,11 +60,17 @@ type Model struct {
 
 // New creates a new shell panel.
 func New(cm *models.CommonModel, id models.PaneID) *Model {
+	return NewWithCWD(cm, id, "")
+}
+
+// NewWithCWD creates a new shell panel scoped to the provided working directory.
+func NewWithCWD(cm *models.CommonModel, id models.PaneID, cwd string) *Model {
 	return &Model{
 		id:     id,
 		common: cm,
 		width:  80,
 		height: 24,
+		cwd:    cwd,
 	}
 }
 
@@ -92,6 +99,9 @@ func (m *Model) startShell() tea.Cmd {
 		}
 		cmd := exec.Command(sh)
 		cmd.Env = append(os.Environ(), "TERM=xterm-256color")
+		if m.cwd != "" {
+			cmd.Dir = m.cwd
+		}
 
 		if err := p.Start(cmd); err != nil {
 			p.Close()
