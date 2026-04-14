@@ -29,18 +29,20 @@ import (
 )
 
 const (
-	paneHeader    models.PaneID = "header"
-	paneShell     models.PaneID = "shell-main"
-	paneWorktree  models.PaneID = "worktree-main"
-	paneGitStatus models.PaneID = "git-status-main"
-	paneGitDiff   models.PaneID = "git-diff-pane"
-	paneGitCommit models.PaneID = "git-commit-overlay"
-	paneTodo      models.PaneID = "todo-main"
-	paneFileTree  models.PaneID = "file-tree-main"
-	panePomodoro  models.PaneID = "pomodoro-main"
-	paneFooter    models.PaneID = "footer"
+	paneHeader         models.PaneID = "header"
+	paneShell          models.PaneID = "shell-main"
+	paneWorktree       models.PaneID = "worktree-main"
+	paneGitStatus      models.PaneID = "git-status-main"
+	paneGitDiff        models.PaneID = "git-diff-pane"
+	paneGitCommit      models.PaneID = "git-commit-overlay"
+	paneWorktreeCreate models.PaneID = "worktree-create-overlay"
+	paneTodo           models.PaneID = "todo-main"
+	paneFileTree       models.PaneID = "file-tree-main"
+	panePomodoro       models.PaneID = "pomodoro-main"
+	paneFooter         models.PaneID = "footer"
 
-	paneTypeGitCommit models.PaneType = "git-commit"
+	paneTypeGitCommit      models.PaneType = "git-commit"
+	paneTypeWorktreeCreate models.PaneType = "worktree-create"
 
 	splitRatioStep = 5
 
@@ -269,6 +271,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.invalidateView()
 		return m, cmd
 
+	case gitplugin.OpenCreateWorktreeMsg:
+		cmd := m.openCreateWorktreePane(msg)
+		m.invalidateView()
+		return m, cmd
+
+	case gitplugin.OpenWorktreeShellMsg:
+		cmd := m.openWorktreeShell(msg)
+		m.invalidateView()
+		return m, cmd
+
 	case editorplugin.OpenEditorMsg:
 		cmd := m.openEditorPane(msg)
 		m.invalidateView()
@@ -294,6 +306,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.invalidateView()
 		return m, nil
 
+	case gitplugin.CloseCreateWorktreeMsg:
+		m.closePane(msg.ID)
+		m.invalidateView()
+		return m, nil
+
 	case gitplugin.CommitCompletedMsg:
 		m.closePane(msg.ID)
 		m.invalidateView()
@@ -301,6 +318,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.routeToPane(paneGitStatus, msg)
 		}
 		return m, nil
+
+	case gitplugin.WorktreeCreatedMsg:
+		m.closePane(msg.ID)
+		var cmds []tea.Cmd
+		if _, ok := m.paneMeta[paneWorktree]; ok {
+			updated, cmd := m.routeToPane(paneWorktree, gitplugin.RefreshWorktreesMsg{})
+			m = updated.(model)
+			if cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		}
+		if cmd := m.openWorktreeShell(gitplugin.OpenWorktreeShellMsg{Worktree: msg.Worktree}); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+		m.invalidateView()
+		return m, tea.Batch(cmds...)
 
 	case todo.ModeChangeMsg:
 		m.setFocus(paneTodo)
@@ -589,16 +622,20 @@ func (m *model) nextEditorPaneID() models.PaneID {
 }
 
 func (m *model) createShellPane() (models.PaneID, tea.Cmd) {
+	return m.createShellPaneFor(m.currentCWD(), m.currentRepoID(), m.currentWorktreeID(), m.currentBranchSnapshot())
+}
+
+func (m *model) createShellPaneFor(cwd, repoID, worktreeID, branchSnapshot string) (models.PaneID, tea.Cmd) {
 	id := m.nextShellPaneID()
-	panel := shell.New(m.common, id)
+	panel := shell.NewWithCWD(m.common, id, cwd)
 	meta := models.PaneMeta{
 		ID:             id,
 		Name:           fmt.Sprintf("Shell %d", m.nextShell-1),
 		Type:           models.PaneTypeShell,
-		CWD:            m.currentCWD(),
-		RepoID:         m.currentRepoID(),
-		WorktreeID:     m.currentWorktreeID(),
-		BranchSnapshot: m.currentBranchSnapshot(),
+		CWD:            cwd,
+		RepoID:         repoID,
+		WorktreeID:     worktreeID,
+		BranchSnapshot: branchSnapshot,
 		Status:         models.PaneStatusStarting,
 		Closable:       true,
 	}
@@ -609,6 +646,25 @@ func (m *model) createShellPane() (models.PaneID, tea.Cmd) {
 		panel.SetSize(contentW, contentH)
 	}
 	return id, panel.Init()
+}
+
+func (m *model) openWorktreeShell(msg gitplugin.OpenWorktreeShellMsg) tea.Cmd {
+	cwd := msg.Worktree.Path
+	if cwd == "" {
+		cwd = m.currentCWD()
+	}
+	repoID := m.currentRepoID()
+	if repoID == "" {
+		repoID = m.gitRepoPath()
+	}
+	worktreeID := cwd
+	branchSnapshot := msg.Worktree.Branch
+
+	id, cmd := m.createShellPaneFor(cwd, repoID, worktreeID, branchSnapshot)
+	m.bodyTree = layout.SplitLeaf(m.bodyTree, m.focused, id, layout.SplitHorizontal, true)
+	m.setFocus(id)
+	m.updateSizes(m.common.Width, m.common.Height)
+	return cmd
 }
 
 func (m *model) currentCWD() string {
@@ -850,6 +906,9 @@ func (m *model) removePaneOrder(id models.PaneID) {
 }
 
 func (m model) activeOverlayPane() models.PaneID {
+	if _, ok := m.paneMeta[paneWorktreeCreate]; ok {
+		return paneWorktreeCreate
+	}
 	if _, ok := m.paneMeta[paneGitCommit]; ok {
 		return paneGitCommit
 	}
@@ -857,7 +916,7 @@ func (m model) activeOverlayPane() models.PaneID {
 }
 
 func (m model) isOverlayPane(id models.PaneID) bool {
-	return id == paneGitCommit
+	return id == paneGitCommit || id == paneWorktreeCreate
 }
 
 func (m *model) paneAt(x, y int) models.PaneID {
@@ -1099,6 +1158,8 @@ func (m model) renderHelpLine(w int) string {
 		switch m.paneMeta[overlayID].Type {
 		case paneTypeGitCommit:
 			return renderCompactHelpLine(helpStyle, "[ctrl+s]commit  [ctrl+j]fallback  [esc]cancel", w)
+		case paneTypeWorktreeCreate:
+			return renderCompactHelpLine(helpStyle, "[tab]next  [enter]next/create  [ctrl+s]create  [esc]cancel", w)
 		}
 	}
 	if m.mode == ModeInput {
@@ -1116,8 +1177,8 @@ func (m model) renderHelpLine(w int) string {
 	compact := "[tab]next  [enter]open  [q]uit"
 	switch focusedType {
 	case models.PaneTypeWorktree:
-		left = "[j/k]move  [r]efresh  [enter]open worktree"
-		compact = "[j/k]move  [r]efresh"
+		left = "[j/k]move  [enter]open shell  [n]ew worktree  [r]efresh"
+		compact = "[enter]shell  [n]ew  [r]efresh"
 	case models.PaneTypeGitStatus:
 		left = "[j/k]move  [enter]review  [d]iff file  [space]stage  [a]all  [f]etch  [p]ull  [c]ommit  [P]push"
 		compact = "[enter]review  [d]iff  [a]all"
@@ -1316,6 +1377,38 @@ func (m *model) openCommitPane(msg gitplugin.OpenCommitMsg) tea.Cmd {
 		Closable:       true,
 	}
 	panel := gitplugin.NewCommitPane(meta.ID, meta, *m.common, m.adapterManager.Git(), msg.StagedFiles)
+	m.registerPane(meta.ID, panel, meta)
+	m.overlayBaseFocus = baseFocus
+	m.setFocus(meta.ID)
+	m.updateSizes(m.common.Width, m.common.Height)
+	return panel.Init()
+}
+
+func (m *model) openCreateWorktreePane(msg gitplugin.OpenCreateWorktreeMsg) tea.Cmd {
+	m.closePane(paneWorktreeCreate)
+
+	baseFocus := m.focused
+	if baseFocus == "" {
+		baseFocus = paneWorktree
+	}
+
+	repoPath := msg.RepoPath
+	if repoPath == "" {
+		repoPath = m.gitRepoPath()
+	}
+
+	meta := models.PaneMeta{
+		ID:             paneWorktreeCreate,
+		Name:           "Create Worktree",
+		Type:           paneTypeWorktreeCreate,
+		CWD:            repoPath,
+		RepoID:         m.currentRepoID(),
+		WorktreeID:     m.currentWorktreeID(),
+		BranchSnapshot: m.currentBranchSnapshot(),
+		Status:         models.PaneStatusReady,
+		Closable:       true,
+	}
+	panel := gitplugin.NewWorktreeCreatePane(meta.ID, meta, *m.common, m.adapterManager.Git(), msg)
 	m.registerPane(meta.ID, panel, meta)
 	m.overlayBaseFocus = baseFocus
 	m.setFocus(meta.ID)

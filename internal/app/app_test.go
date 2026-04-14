@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"focus/internal/config"
+	gitmodel "focus/internal/git"
 	"focus/internal/models"
 	editorplugin "focus/internal/plugins/editor"
 	gitplugin "focus/internal/plugins/git"
@@ -406,6 +407,97 @@ func TestOpenDiffPaneAddsBodyPaneAndRestoresOpenerFocus(t *testing.T) {
 	m.closePane(paneGitDiff)
 	if m.focused != paneGitStatus {
 		t.Fatalf("expected focus to return to git status, got %s", m.focused)
+	}
+}
+
+func TestOpenWorktreeShellAddsScopedShellPane(t *testing.T) {
+	cfg := config.DefaultConfig()
+	st, _ := store.New(":memory:")
+	m := New(cfg, st).(model)
+	m.setFocus(paneWorktree)
+	initialLeaves := len(layout.LeafOrder(m.bodyTree))
+
+	cmd := m.openWorktreeShell(gitplugin.OpenWorktreeShellMsg{Worktree: gitplugin_testWorktree("/repo/feature-a", "feature-a")})
+	if cmd == nil {
+		t.Fatalf("expected init command for worktree shell")
+	}
+	if got := len(layout.LeafOrder(m.bodyTree)); got != initialLeaves+1 {
+		t.Fatalf("expected leaf count %d after opening worktree shell, got %d", initialLeaves+1, got)
+	}
+	if m.focused == paneWorktree {
+		t.Fatalf("expected focus to move to new shell")
+	}
+	meta, ok := m.paneMeta[m.focused]
+	if !ok || meta.Type != models.PaneTypeShell {
+		t.Fatalf("expected focused pane to be shell, got %+v", meta)
+	}
+	if meta.CWD != "/repo/feature-a" {
+		t.Fatalf("expected shell cwd to be worktree path, got %q", meta.CWD)
+	}
+	if meta.WorktreeID != "/repo/feature-a" {
+		t.Fatalf("expected shell worktree id to match path, got %q", meta.WorktreeID)
+	}
+	if meta.BranchSnapshot != "feature-a" {
+		t.Fatalf("expected branch snapshot feature-a, got %q", meta.BranchSnapshot)
+	}
+	if sh, ok := m.pane(m.focused).(*shell.Model); !ok || sh == nil {
+		t.Fatalf("expected focused pane to hold shell model")
+	}
+}
+
+func gitplugin_testWorktree(path, branch string) gitmodel.Worktree {
+	return gitmodel.Worktree{Path: path, Branch: branch}
+}
+
+func TestOpenCreateWorktreePaneUsesOverlayLifecycle(t *testing.T) {
+	cfg := config.DefaultConfig()
+	st, _ := store.New(":memory:")
+	m := New(cfg, st).(model)
+	m.setFocus(paneWorktree)
+
+	cmd := m.openCreateWorktreePane(gitplugin.OpenCreateWorktreeMsg{RepoPath: "/repo/focus-tui", BaseRef: "main"})
+	if cmd == nil {
+		t.Fatalf("expected init command for create overlay")
+	}
+	if m.activeOverlayPane() != paneWorktreeCreate {
+		t.Fatalf("expected active overlay %s, got %s", paneWorktreeCreate, m.activeOverlayPane())
+	}
+	if m.focused != paneWorktreeCreate {
+		t.Fatalf("expected focus on create overlay, got %s", m.focused)
+	}
+
+	m.closePane(paneWorktreeCreate)
+	if m.focused != paneWorktree {
+		t.Fatalf("expected focus to restore to worktree pane, got %s", m.focused)
+	}
+}
+
+func TestWorktreeCreatedRefreshesAndOpensShell(t *testing.T) {
+	cfg := config.DefaultConfig()
+	st, _ := store.New(":memory:")
+	m := New(cfg, st).(model)
+	worktreePanel, ok := m.pane(paneWorktree).(*gitplugin.WorktreePane)
+	if !ok || worktreePanel == nil {
+		t.Fatalf("expected worktree pane to be registered")
+	}
+	initialLeaves := len(layout.LeafOrder(m.bodyTree))
+
+	updatedModel, cmd := m.Update(gitplugin.WorktreeCreatedMsg{ID: paneWorktreeCreate, Worktree: gitplugin_testWorktree("/repo/feature-a", "feature-a")})
+	m = updatedModel.(model)
+	if cmd == nil {
+		t.Fatalf("expected batched commands after worktree creation")
+	}
+	if got := len(layout.LeafOrder(m.bodyTree)); got != initialLeaves+1 {
+		t.Fatalf("expected leaf count %d after opening new worktree shell, got %d", initialLeaves+1, got)
+	}
+	if m.paneMeta[m.focused].Type != models.PaneTypeShell {
+		t.Fatalf("expected focus on shell after worktree creation, got %v", m.paneMeta[m.focused].Type)
+	}
+	if m.paneMeta[m.focused].CWD != "/repo/feature-a" {
+		t.Fatalf("expected created shell cwd /repo/feature-a, got %q", m.paneMeta[m.focused].CWD)
+	}
+	if worktreePanel == nil {
+		t.Fatalf("expected worktree pane to remain present")
 	}
 }
 
