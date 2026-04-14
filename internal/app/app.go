@@ -31,6 +31,7 @@ import (
 const (
 	paneHeader    models.PaneID = "header"
 	paneShell     models.PaneID = "shell-main"
+	paneWorktree  models.PaneID = "worktree-main"
 	paneGitStatus models.PaneID = "git-status-main"
 	paneGitDiff   models.PaneID = "git-diff-pane"
 	paneGitCommit models.PaneID = "git-commit-overlay"
@@ -116,7 +117,7 @@ func New(cfg config.Config, store models.Store) tea.Model {
 		bodyTree: layout.Split(
 			layout.SplitHorizontal,
 			30,
-			layout.Split(layout.SplitVertical, 50, layout.Leaf(paneGitStatus), layout.Leaf(paneFileTree)),
+			layout.Split(layout.SplitVertical, 34, layout.Leaf(paneWorktree), layout.Split(layout.SplitVertical, 50, layout.Leaf(paneGitStatus), layout.Leaf(paneFileTree))),
 			layout.Leaf(paneShell),
 		),
 		focused:        paneShell,
@@ -131,8 +132,9 @@ func New(cfg config.Config, store models.Store) tea.Model {
 	gitAdapter := adapters.NewGitLocalAdapter()
 	_ = m.adapterManager.Register(gitAdapter.Name(), gitAdapter)
 
-	gitPaneMeta := models.PaneMeta{ID: paneGitStatus, Name: "Git Status", Type: models.PaneTypeGitStatus, CWD: cwd, Status: models.PaneStatusIdle, Closable: false}
-	fileTreeMeta := models.PaneMeta{ID: paneFileTree, Name: "File Tree", Type: models.PaneTypeFileTree, CWD: cwd, Status: models.PaneStatusIdle, Closable: false}
+	gitPaneMeta := models.PaneMeta{ID: paneGitStatus, Name: "Git Status", Type: models.PaneTypeGitStatus, CWD: cwd, RepoID: cwd, WorktreeID: cwd, Status: models.PaneStatusIdle, Closable: false}
+	worktreePaneMeta := models.PaneMeta{ID: paneWorktree, Name: "Worktrees", Type: models.PaneTypeWorktree, CWD: cwd, RepoID: cwd, WorktreeID: cwd, Status: models.PaneStatusIdle, Closable: false}
+	fileTreeMeta := models.PaneMeta{ID: paneFileTree, Name: "File Tree", Type: models.PaneTypeFileTree, CWD: cwd, RepoID: cwd, WorktreeID: cwd, Status: models.PaneStatusIdle, Closable: false}
 
 	gitPlugin := gitplugin.New(m.adapterManager.Git())
 	fileTreePlugin := filebrowser.New()
@@ -142,7 +144,7 @@ func New(cfg config.Config, store models.Store) tea.Model {
 	_ = m.pluginRegistry.Register(editorPlugin)
 
 	m.registerPane(paneHeader, header.New(cfg, cm.Theme, store), models.PaneMeta{ID: paneHeader, Name: "Header", Type: models.PaneTypeHeader, Status: models.PaneStatusPassive, Closable: false})
-	m.registerPane(paneShell, shell.New(cm, paneShell), models.PaneMeta{ID: paneShell, Name: "Shell", Type: models.PaneTypeShell, CWD: cwd, Status: models.PaneStatusStarting, Closable: true})
+	m.registerPane(paneShell, shell.New(cm, paneShell), models.PaneMeta{ID: paneShell, Name: "Shell", Type: models.PaneTypeShell, CWD: cwd, RepoID: cwd, WorktreeID: cwd, Status: models.PaneStatusStarting, Closable: true})
 	m.registerPane(paneTodo, todo.New(cm), models.PaneMeta{ID: paneTodo, Name: "Todo", Type: models.PaneTypeTodo, Status: models.PaneStatusIdle, Closable: false})
 	m.registerPane(panePomodoro, pomodoro.New(cm), models.PaneMeta{ID: panePomodoro, Name: "Pomodoro", Type: models.PaneTypePomodoro, Status: models.PaneStatusIdle, Closable: false})
 	m.registerPane(paneFooter, footer.New(cm), models.PaneMeta{ID: paneFooter, Name: "Footer", Type: models.PaneTypeFooter, Status: models.PaneStatusPassive, Closable: false})
@@ -153,12 +155,28 @@ func New(cfg config.Config, store models.Store) tea.Model {
 
 	if repoRoot, ok := gitRepoRoot(cwd); ok {
 		gitPaneMeta.CWD = repoRoot
+		gitPaneMeta.RepoID = repoRoot
+		gitPaneMeta.WorktreeID = repoRoot
+		worktreePaneMeta.CWD = repoRoot
+		worktreePaneMeta.RepoID = repoRoot
+		worktreePaneMeta.WorktreeID = repoRoot
+		fileTreeMeta.CWD = repoRoot
+		fileTreeMeta.RepoID = repoRoot
+		fileTreeMeta.WorktreeID = repoRoot
+		if shellMeta, ok := m.paneMeta[paneShell]; ok {
+			shellMeta.RepoID = repoRoot
+			shellMeta.WorktreeID = repoRoot
+			m.paneMeta[paneShell] = shellMeta
+		}
+		if panel, err := m.pluginRegistry.CreatePane(models.PaneTypeWorktree, paneWorktree, worktreePaneMeta, *cm); err == nil {
+			m.registerPane(paneWorktree, panel, worktreePaneMeta)
+		}
 		if panel, err := m.pluginRegistry.CreatePane(models.PaneTypeGitStatus, paneGitStatus, gitPaneMeta, *cm); err == nil {
 			m.registerPane(paneGitStatus, panel, gitPaneMeta)
 			m.bodyTree = layout.Split(
 				layout.SplitHorizontal,
 				30,
-				layout.Split(layout.SplitVertical, 50, layout.Leaf(paneGitStatus), layout.Leaf(paneFileTree)),
+				layout.Split(layout.SplitVertical, 34, layout.Leaf(paneWorktree), layout.Split(layout.SplitVertical, 50, layout.Leaf(paneGitStatus), layout.Leaf(paneFileTree))),
 				layout.Leaf(paneShell),
 			)
 		}
@@ -574,12 +592,15 @@ func (m *model) createShellPane() (models.PaneID, tea.Cmd) {
 	id := m.nextShellPaneID()
 	panel := shell.New(m.common, id)
 	meta := models.PaneMeta{
-		ID:       id,
-		Name:     fmt.Sprintf("Shell %d", m.nextShell-1),
-		Type:     models.PaneTypeShell,
-		CWD:      m.currentCWD(),
-		Status:   models.PaneStatusStarting,
-		Closable: true,
+		ID:             id,
+		Name:           fmt.Sprintf("Shell %d", m.nextShell-1),
+		Type:           models.PaneTypeShell,
+		CWD:            m.currentCWD(),
+		RepoID:         m.currentRepoID(),
+		WorktreeID:     m.currentWorktreeID(),
+		BranchSnapshot: m.currentBranchSnapshot(),
+		Status:         models.PaneStatusStarting,
+		Closable:       true,
 	}
 	m.registerPane(id, panel, meta)
 	if frame, ok := m.frames[m.focused]; ok {
@@ -598,6 +619,36 @@ func (m *model) currentCWD() string {
 	return cwd
 }
 
+func (m *model) currentRepoID() string {
+	if meta, ok := m.paneMeta[m.focused]; ok && meta.RepoID != "" {
+		return meta.RepoID
+	}
+	if meta, ok := m.paneMeta[paneGitStatus]; ok && meta.RepoID != "" {
+		return meta.RepoID
+	}
+	return m.currentCWD()
+}
+
+func (m *model) currentWorktreeID() string {
+	if meta, ok := m.paneMeta[m.focused]; ok && meta.WorktreeID != "" {
+		return meta.WorktreeID
+	}
+	if meta, ok := m.paneMeta[paneGitStatus]; ok && meta.WorktreeID != "" {
+		return meta.WorktreeID
+	}
+	return m.currentCWD()
+}
+
+func (m *model) currentBranchSnapshot() string {
+	if meta, ok := m.paneMeta[m.focused]; ok && meta.BranchSnapshot != "" {
+		return meta.BranchSnapshot
+	}
+	if meta, ok := m.paneMeta[paneGitStatus]; ok {
+		return meta.BranchSnapshot
+	}
+	return ""
+}
+
 func (m *model) openEditorPane(msg editorplugin.OpenEditorMsg) tea.Cmd {
 	opener := m.focused
 	filePath := filepath.Clean(msg.FilePath)
@@ -613,12 +664,15 @@ func (m *model) openEditorPane(msg editorplugin.OpenEditorMsg) tea.Cmd {
 	}
 	id := m.nextEditorPaneID()
 	meta := models.PaneMeta{
-		ID:       id,
-		Name:     filepath.Base(filePath),
-		Type:     models.PaneTypeEditor,
-		CWD:      filepath.Dir(filePath),
-		Status:   models.PaneStatusReady,
-		Closable: true,
+		ID:             id,
+		Name:           filepath.Base(filePath),
+		Type:           models.PaneTypeEditor,
+		CWD:            filepath.Dir(filePath),
+		RepoID:         m.currentRepoID(),
+		WorktreeID:     m.currentWorktreeID(),
+		BranchSnapshot: m.currentBranchSnapshot(),
+		Status:         models.PaneStatusReady,
+		Closable:       true,
 	}
 	panel := editorplugin.NewEditorPane(id, meta, *m.common, filePath, msg.LineNumber)
 	m.registerPane(id, panel, meta)
@@ -638,13 +692,15 @@ func (m *model) openEditorPane(msg editorplugin.OpenEditorMsg) tea.Cmd {
 }
 
 func (m model) findEditorPaneByPath(filePath string) models.PaneID {
+	currentWorktreeID := m.currentWorktreeID()
 	for _, id := range layout.LeafOrder(m.bodyTree) {
 		panel := m.pane(id)
 		editorPane, ok := panel.(editorMetaProvider)
 		if !ok {
 			continue
 		}
-		if editorPane.FilePath() == filePath {
+		meta := m.paneMeta[id]
+		if editorPane.FilePath() == filePath && meta.WorktreeID == currentWorktreeID {
 			return id
 		}
 	}
@@ -1059,6 +1115,9 @@ func (m model) renderHelpLine(w int) string {
 	left := "[tab]next  [ctrl+h/j/k/l]focus  [enter]activate"
 	compact := "[tab]next  [enter]open  [q]uit"
 	switch focusedType {
+	case models.PaneTypeWorktree:
+		left = "[j/k]move  [r]efresh  [enter]open worktree"
+		compact = "[j/k]move  [r]efresh"
 	case models.PaneTypeGitStatus:
 		left = "[j/k]move  [enter]review  [d]iff file  [space]stage  [a]all  [f]etch  [p]ull  [c]ommit  [P]push"
 		compact = "[enter]review  [d]iff  [a]all"
@@ -1184,12 +1243,15 @@ func (m *model) openDiffPane(msg gitplugin.OpenDiffMsg) tea.Cmd {
 	m.closePane(paneGitDiff)
 
 	meta := models.PaneMeta{
-		ID:       paneGitDiff,
-		Name:     "Diff",
-		Type:     models.PaneTypeDiffView,
-		CWD:      m.gitRepoPath(),
-		Status:   models.PaneStatusReady,
-		Closable: true,
+		ID:             paneGitDiff,
+		Name:           "Diff",
+		Type:           models.PaneTypeDiffView,
+		CWD:            m.gitRepoPath(),
+		RepoID:         m.currentRepoID(),
+		WorktreeID:     m.currentWorktreeID(),
+		BranchSnapshot: m.currentBranchSnapshot(),
+		Status:         models.PaneStatusReady,
+		Closable:       true,
 	}
 	panel := gitplugin.NewDiffPane(meta.ID, meta, *m.common, m.adapterManager.Git(), msg.FilePath, msg.Staged)
 	m.registerPane(meta.ID, panel, meta)
@@ -1243,12 +1305,15 @@ func (m *model) openCommitPane(msg gitplugin.OpenCommitMsg) tea.Cmd {
 	}
 
 	meta := models.PaneMeta{
-		ID:       paneGitCommit,
-		Name:     "Commit",
-		Type:     paneTypeGitCommit,
-		CWD:      repoPath,
-		Status:   models.PaneStatusReady,
-		Closable: true,
+		ID:             paneGitCommit,
+		Name:           "Commit",
+		Type:           paneTypeGitCommit,
+		CWD:            repoPath,
+		RepoID:         m.currentRepoID(),
+		WorktreeID:     m.currentWorktreeID(),
+		BranchSnapshot: m.currentBranchSnapshot(),
+		Status:         models.PaneStatusReady,
+		Closable:       true,
 	}
 	panel := gitplugin.NewCommitPane(meta.ID, meta, *m.common, m.adapterManager.Git(), msg.StagedFiles)
 	m.registerPane(meta.ID, panel, meta)

@@ -15,6 +15,7 @@ const (
 	PaneTypeFooter   PaneType = "footer"
 
 	// Plugin panes (新增 - Phase 2.4)
+	PaneTypeWorktree  PaneType = "worktree"
 	PaneTypeGitStatus PaneType = "git-status"
 	PaneTypeFileTree  PaneType = "file-tree"
 	PaneTypeDiffView  PaneType = "diff-view"
@@ -37,12 +38,15 @@ const (
 
 // PaneMeta stores app-level metadata for routing and titles.
 type PaneMeta struct {
-	ID       PaneID
-	Name     string
-	Type     PaneType
-	CWD      string
-	Status   PaneStatus
-	Closable bool
+	ID             PaneID
+	Name           string
+	Type           PaneType
+	CWD            string
+	RepoID         string
+	WorktreeID     string
+	BranchSnapshot string
+	Status         PaneStatus
+	Closable       bool
 }
 
 // PaneFrame is the absolute screen rectangle allocated to a pane.

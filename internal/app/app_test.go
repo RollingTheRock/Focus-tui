@@ -141,6 +141,20 @@ func TestRenderHelpLineForGitStatusIncludesReviewShortcuts(t *testing.T) {
 	}
 }
 
+func TestRenderHelpLineForWorktreePaneIncludesRefreshShortcut(t *testing.T) {
+	cfg := config.DefaultConfig()
+	st, _ := store.New(":memory:")
+	m := New(cfg, st).(model)
+	m.focused = paneWorktree
+
+	help := m.renderHelpLine(120)
+	for _, want := range []string{"[j/k]move", "[r]efresh"} {
+		if !strings.Contains(help, want) {
+			t.Fatalf("expected help line to contain %q, got %q", want, help)
+		}
+	}
+}
+
 func TestRenderHelpLineForDiffPaneIncludesReviewCloseShortcut(t *testing.T) {
 	cfg := config.DefaultConfig()
 	st, _ := store.New(":memory:")
@@ -215,8 +229,8 @@ func TestSplitFocusedHorizontal(t *testing.T) {
 	m := New(cfg, st).(model)
 
 	initialOrder := layout.LeafOrder(m.bodyTree)
-	if len(initialOrder) != 3 {
-		t.Fatalf("expected 3 panes initially (shell + git + file-tree), got %d", len(initialOrder))
+	if len(initialOrder) != 4 {
+		t.Fatalf("expected 4 panes initially (shell + worktree + git + file-tree), got %d", len(initialOrder))
 	}
 
 	newM, cmd := m.Update(keyCtrlBackslash())
@@ -226,13 +240,13 @@ func TestSplitFocusedHorizontal(t *testing.T) {
 	m = newM.(model)
 
 	newOrder := layout.LeafOrder(m.bodyTree)
-	if len(newOrder) != 4 {
-		t.Fatalf("expected 4 panes after split, got %d", len(newOrder))
+	if len(newOrder) != 5 {
+		t.Fatalf("expected 5 panes after split, got %d", len(newOrder))
 	}
 
 	foundNewPane := false
 	for _, id := range newOrder {
-		if string(id) != string(paneShell) && string(id) != string(paneGitStatus) && string(id) != string(paneFileTree) {
+		if string(id) != string(paneShell) && string(id) != string(paneWorktree) && string(id) != string(paneGitStatus) && string(id) != string(paneFileTree) {
 			foundNewPane = true
 			if m.focused != id {
 				t.Fatalf("expected focus on new pane %s, got %s", id, m.focused)
