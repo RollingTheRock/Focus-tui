@@ -24,6 +24,7 @@ type WorktreePane struct {
 	repoPath  string
 	worktrees []gitmodel.Worktree
 	cursor    int
+	confirm   *worktreeConfirmState
 	loading   bool
 	width     int
 	height    int
@@ -38,6 +39,33 @@ type worktreesLoadedMsg struct {
 
 type OpenWorktreeShellMsg struct {
 	Worktree gitmodel.Worktree
+}
+
+type RequestRemoveWorktreeMsg struct {
+	Worktree gitmodel.Worktree
+	Force    bool
+}
+
+type RequestPruneWorktreesMsg struct {
+	RepoPath string
+}
+
+type WorktreeRemovedMsg struct {
+	Path  string
+	Force bool
+}
+
+type WorktreesPrunedMsg struct{}
+
+type WorktreeActionFailedMsg struct {
+	Action string
+	Err    error
+}
+
+type worktreeConfirmState struct {
+	kind     string
+	worktree gitmodel.Worktree
+	force    bool
 }
 
 func NewWorktreePane(id models.PaneID, meta models.PaneMeta, common models.CommonModel, adapter adapters.GitAdapter) *WorktreePane {
@@ -73,11 +101,39 @@ func (p *WorktreePane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 			p.notice = fmt.Sprintf("Loaded %d worktrees", len(p.worktrees))
 		}
 		return p, nil
+	case WorktreeRemovedMsg:
+		p.confirm = nil
+		p.loading = true
+		p.err = nil
+		p.notice = "Removed worktree " + shortenWorktreePath(msg.Path)
+		return p, p.loadWorktreesCmd()
+	case WorktreesPrunedMsg:
+		p.confirm = nil
+		p.loading = true
+		p.err = nil
+		p.notice = "Pruned stale worktree metadata"
+		return p, p.loadWorktreesCmd()
+	case WorktreeActionFailedMsg:
+		p.loading = false
+		p.err = msg.Err
+		return p, nil
 	case RefreshWorktreesMsg:
 		p.loading = true
 		p.notice = ""
 		return p, p.loadWorktreesCmd()
 	case tea.KeyMsg:
+		if p.confirm != nil {
+			switch msg.String() {
+			case "y":
+				return p.confirmAction()
+			case "n", "esc":
+				p.confirm = nil
+				p.notice = ""
+				return p, nil
+			default:
+				return p, nil
+			}
+		}
 		switch msg.String() {
 		case "j", "down":
 			if p.cursor < len(p.worktrees)-1 {
@@ -106,6 +162,34 @@ func (p *WorktreePane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 					return OpenWorktreeShellMsg{Worktree: wt}
 				}
 			}
+		case "x":
+			if wt, ok := p.selectedWorktree(); ok {
+				if wt.IsMain {
+					p.err = fmt.Errorf("cannot remove the main worktree")
+					return p, nil
+				}
+				if wt.DirtySummary.IsDirty() || wt.IsLocked {
+					p.err = fmt.Errorf("worktree is dirty or locked; press Shift+X to force remove")
+					return p, nil
+				}
+				p.confirm = &worktreeConfirmState{kind: "remove", worktree: wt}
+				p.err = nil
+				return p, nil
+			}
+		case "X":
+			if wt, ok := p.selectedWorktree(); ok {
+				if wt.IsMain {
+					p.err = fmt.Errorf("cannot remove the main worktree")
+					return p, nil
+				}
+				p.confirm = &worktreeConfirmState{kind: "remove", worktree: wt, force: true}
+				p.err = nil
+				return p, nil
+			}
+		case "p":
+			p.confirm = &worktreeConfirmState{kind: "prune"}
+			p.err = nil
+			return p, nil
 		}
 	}
 	return p, nil
@@ -144,6 +228,9 @@ func (p *WorktreePane) View() string {
 
 	if p.notice != "" {
 		lines = append(lines, "", upstreamStyle.Render(p.notice))
+	}
+	if p.confirm != nil {
+		lines = append(lines, "", p.renderConfirmPrompt())
 	}
 	if p.err != nil {
 		lines = append(lines, "", errorStyle.Render(p.err.Error()))
@@ -207,6 +294,47 @@ func (p *WorktreePane) selectedWorktree() (gitmodel.Worktree, bool) {
 		return gitmodel.Worktree{}, false
 	}
 	return p.worktrees[p.cursor], true
+}
+
+func (p *WorktreePane) confirmAction() (models.Panel, tea.Cmd) {
+	if p.confirm == nil {
+		return p, nil
+	}
+	confirm := *p.confirm
+	p.confirm = nil
+	p.loading = true
+	p.err = nil
+	switch confirm.kind {
+	case "remove":
+		return p, func() tea.Msg {
+			return RequestRemoveWorktreeMsg{Worktree: confirm.worktree, Force: confirm.force}
+		}
+	case "prune":
+		return p, func() tea.Msg {
+			return RequestPruneWorktreesMsg{RepoPath: p.repoPath}
+		}
+	default:
+		p.loading = false
+		return p, nil
+	}
+}
+
+func (p *WorktreePane) renderConfirmPrompt() string {
+	if p.confirm == nil {
+		return ""
+	}
+	switch p.confirm.kind {
+	case "remove":
+		verb := "Remove"
+		if p.confirm.force {
+			verb = "Force remove"
+		}
+		return commitHintWarningStyle.Render(fmt.Sprintf("%s %s? [y/n]", verb, shortenWorktreePath(p.confirm.worktree.Path)))
+	case "prune":
+		return commitHintWarningStyle.Render("Prune stale worktree metadata? [y/n]")
+	default:
+		return ""
+	}
 }
 
 func shortenWorktreePath(path string) string {

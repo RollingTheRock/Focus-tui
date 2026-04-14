@@ -102,3 +102,80 @@ func TestWorktreePaneOpenShellMessageUsesSelectedWorktree(t *testing.T) {
 		t.Fatalf("expected notice to mention selected worktree, got %q", pane.notice)
 	}
 }
+
+func TestWorktreePaneRemoveCleanWorktreeRequiresConfirmation(t *testing.T) {
+	adapter := &fakeGitAdapter{worktrees: []gitmodel.Worktree{{Path: "/repo/main", Branch: "main", IsMain: true}, {Path: "/repo/feature-a", Branch: "feature-a"}}}
+	pane := NewWorktreePane("worktree-1", models.PaneMeta{ID: "worktree-1", Type: models.PaneTypeWorktree, CWD: "/repo/main"}, models.CommonModel{}, adapter)
+	updated, _ := pane.Update(worktreesLoadedMsg{worktrees: adapter.worktrees})
+	pane = updated.(*WorktreePane)
+	updated, _ = pane.Update(tea.KeyMsg{Type: tea.KeyDown})
+	pane = updated.(*WorktreePane)
+
+	updated, _ = pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
+	pane = updated.(*WorktreePane)
+	if pane.confirm == nil || pane.confirm.kind != "remove" || pane.confirm.force {
+		t.Fatalf("expected non-force remove confirmation, got %+v", pane.confirm)
+	}
+
+	updated, cmd := pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
+	pane = updated.(*WorktreePane)
+	if cmd == nil {
+		t.Fatalf("expected remove request command")
+	}
+	msg := runCmd(t, cmd)
+	removeMsg, ok := msg.(RequestRemoveWorktreeMsg)
+	if !ok {
+		t.Fatalf("expected RequestRemoveWorktreeMsg, got %T", msg)
+	}
+	if removeMsg.Worktree.Path != "/repo/feature-a" || removeMsg.Force {
+		t.Fatalf("unexpected remove request %+v", removeMsg)
+	}
+}
+
+func TestWorktreePaneForceRemoveDirtyWorktree(t *testing.T) {
+	adapter := &fakeGitAdapter{worktrees: []gitmodel.Worktree{{Path: "/repo/main", Branch: "main", IsMain: true}, {Path: "/repo/feature-a", Branch: "feature-a", DirtySummary: gitmodel.DirtySummary{Unstaged: 1}}}}
+	pane := NewWorktreePane("worktree-1", models.PaneMeta{ID: "worktree-1", Type: models.PaneTypeWorktree, CWD: "/repo/main"}, models.CommonModel{}, adapter)
+	updated, _ := pane.Update(worktreesLoadedMsg{worktrees: adapter.worktrees})
+	pane = updated.(*WorktreePane)
+	updated, _ = pane.Update(tea.KeyMsg{Type: tea.KeyDown})
+	pane = updated.(*WorktreePane)
+
+	updated, _ = pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
+	pane = updated.(*WorktreePane)
+	if pane.confirm != nil {
+		t.Fatalf("expected dirty worktree to require explicit force path first")
+	}
+	if pane.err == nil || !strings.Contains(pane.err.Error(), "Shift+X") {
+		t.Fatalf("expected dirty warning, got %v", pane.err)
+	}
+
+	updated, _ = pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'X'}})
+	pane = updated.(*WorktreePane)
+	if pane.confirm == nil || !pane.confirm.force {
+		t.Fatalf("expected force confirmation, got %+v", pane.confirm)
+	}
+}
+
+func TestWorktreePanePruneConfirmationEmitsRequest(t *testing.T) {
+	pane := NewWorktreePane("worktree-1", models.PaneMeta{ID: "worktree-1", Type: models.PaneTypeWorktree, CWD: "/repo/main"}, models.CommonModel{}, &fakeGitAdapter{})
+
+	updated, _ := pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'p'}})
+	pane = updated.(*WorktreePane)
+	if pane.confirm == nil || pane.confirm.kind != "prune" {
+		t.Fatalf("expected prune confirmation, got %+v", pane.confirm)
+	}
+
+	updated, cmd := pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
+	pane = updated.(*WorktreePane)
+	if cmd == nil {
+		t.Fatalf("expected prune command")
+	}
+	msg := runCmd(t, cmd)
+	pruneMsg, ok := msg.(RequestPruneWorktreesMsg)
+	if !ok {
+		t.Fatalf("expected RequestPruneWorktreesMsg, got %T", msg)
+	}
+	if pruneMsg.RepoPath != "/repo/main" {
+		t.Fatalf("expected repo path /repo/main, got %q", pruneMsg.RepoPath)
+	}
+}
