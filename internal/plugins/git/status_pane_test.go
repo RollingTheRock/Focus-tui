@@ -426,24 +426,27 @@ type fakeGitAdapter struct {
 	pullErr      error
 	pushErr      error
 
-	stageCalled      bool
-	stagedPath       string
-	stageErr         error
-	stageAllCalled   bool
-	stageAllErr      error
-	unstageCalled    bool
-	unstagedPath     string
-	unstageErr       error
-	unstageAllCalled bool
-	unstageAllErr    error
-	fetchCalled      bool
-	pullCalled       bool
-	pushCalled       bool
-	discardCalled    bool
-	discardedPath    string
-	discardErr       error
-	worktrees        []gitmodel.Worktree
-	listWorktreesErr error
+	stageCalled       bool
+	stagedPath        string
+	stageErr          error
+	stageAllCalled    bool
+	stageAllErr       error
+	unstageCalled     bool
+	unstagedPath      string
+	unstageErr        error
+	unstageAllCalled  bool
+	unstageAllErr     error
+	fetchCalled       bool
+	pullCalled        bool
+	pushCalled        bool
+	discardCalled     bool
+	discardedPath     string
+	discardErr        error
+	worktrees         []gitmodel.Worktree
+	listWorktreesErr  error
+	createWorktreeReq *gitmodel.CreateWorktreeRequest
+	createWorktreeRes *gitmodel.Worktree
+	createWorktreeErr error
 }
 
 func (f *fakeGitAdapter) Name() string { return "fake-git" }
@@ -467,7 +470,9 @@ func (f *fakeGitAdapter) ListWorktrees(repoPath string) ([]gitmodel.Worktree, er
 }
 
 func (f *fakeGitAdapter) CreateWorktree(repoPath string, req gitmodel.CreateWorktreeRequest) (*gitmodel.Worktree, error) {
-	return nil, nil
+	copyReq := req
+	f.createWorktreeReq = &copyReq
+	return f.createWorktreeRes, f.createWorktreeErr
 }
 
 func (f *fakeGitAdapter) RemoveWorktree(repoPath, worktreePath string, opts gitmodel.RemoveWorktreeOptions) error {

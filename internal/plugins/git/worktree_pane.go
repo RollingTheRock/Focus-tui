@@ -36,6 +36,10 @@ type worktreesLoadedMsg struct {
 	err       error
 }
 
+type OpenWorktreeShellMsg struct {
+	Worktree gitmodel.Worktree
+}
+
 func NewWorktreePane(id models.PaneID, meta models.PaneMeta, common models.CommonModel, adapter adapters.GitAdapter) *WorktreePane {
 	repoPath := meta.CWD
 	if repoPath == "" {
@@ -69,6 +73,10 @@ func (p *WorktreePane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 			p.notice = fmt.Sprintf("Loaded %d worktrees", len(p.worktrees))
 		}
 		return p, nil
+	case RefreshWorktreesMsg:
+		p.loading = true
+		p.notice = ""
+		return p, p.loadWorktreesCmd()
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "j", "down":
@@ -83,6 +91,21 @@ func (p *WorktreePane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 			p.loading = true
 			p.notice = ""
 			return p, p.loadWorktreesCmd()
+		case "n":
+			baseRef := "HEAD"
+			if wt, ok := p.selectedWorktree(); ok && wt.Branch != "" {
+				baseRef = wt.Branch
+			}
+			return p, func() tea.Msg {
+				return OpenCreateWorktreeMsg{RepoPath: p.repoPath, BaseRef: baseRef}
+			}
+		case "enter", "o":
+			if wt, ok := p.selectedWorktree(); ok {
+				p.notice = "Opening shell in " + shortenWorktreePath(wt.Path)
+				return p, func() tea.Msg {
+					return OpenWorktreeShellMsg{Worktree: wt}
+				}
+			}
 		}
 	}
 	return p, nil
@@ -177,6 +200,13 @@ func (p *WorktreePane) renderWorktreeRow(wt gitmodel.Worktree) string {
 		return label + "\n" + pathLine
 	}
 	return label + "  " + upstreamStyle.Render("["+strings.Join(tags, ", ")+"]") + "\n" + pathLine
+}
+
+func (p *WorktreePane) selectedWorktree() (gitmodel.Worktree, bool) {
+	if p.cursor < 0 || p.cursor >= len(p.worktrees) {
+		return gitmodel.Worktree{}, false
+	}
+	return p.worktrees[p.cursor], true
 }
 
 func shortenWorktreePath(path string) string {

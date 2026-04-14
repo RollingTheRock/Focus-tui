@@ -71,3 +71,34 @@ func TestWorktreePaneKeyboardHandling(t *testing.T) {
 		t.Fatalf("expected refresh command")
 	}
 }
+
+func TestWorktreePaneOpenShellMessageUsesSelectedWorktree(t *testing.T) {
+	adapter := &fakeGitAdapter{
+		worktrees: []gitmodel.Worktree{
+			{Path: "/repo/main", Branch: "main", IsMain: true},
+			{Path: "/repo/feature-a", Branch: "feature-a"},
+		},
+	}
+	pane := NewWorktreePane("worktree-1", models.PaneMeta{ID: "worktree-1", Type: models.PaneTypeWorktree, CWD: "/repo/main"}, models.CommonModel{}, adapter)
+	updated, _ := pane.Update(worktreesLoadedMsg{worktrees: adapter.worktrees})
+	pane = updated.(*WorktreePane)
+	updated, _ = pane.Update(tea.KeyMsg{Type: tea.KeyDown})
+	pane = updated.(*WorktreePane)
+
+	updated, cmd := pane.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	pane = updated.(*WorktreePane)
+	if cmd == nil {
+		t.Fatalf("expected open-shell command")
+	}
+	msg := runCmd(t, cmd)
+	openMsg, ok := msg.(OpenWorktreeShellMsg)
+	if !ok {
+		t.Fatalf("expected OpenWorktreeShellMsg, got %T", msg)
+	}
+	if openMsg.Worktree.Path != "/repo/feature-a" {
+		t.Fatalf("expected selected worktree path, got %q", openMsg.Worktree.Path)
+	}
+	if !strings.Contains(pane.notice, "feature-a") {
+		t.Fatalf("expected notice to mention selected worktree, got %q", pane.notice)
+	}
+}
