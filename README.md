@@ -57,6 +57,7 @@ Make daily git operations possible without leaving `focus-tui`:
 - Repository status summary
 - Worktree list and state
 - Worktree create / switch / remove
+- Worktree as the primary task container for shell, editor, review, and future agent workflows
 - Diff views and staging workflow
 - Commit flow inside the workspace
 

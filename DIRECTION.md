@@ -147,25 +147,33 @@
 - ✅ Pane标题/状态展示
 - ✅ 极窄布局下降级规则
 
-**当前**: Phase 2.4 - Git集成准备
+**当前**: Phase 3A - Worktree Container Foundation
 
-### Phase 3: 原生Git工作流 📋 计划中
+**说明**: Phase 2.4 的 Plugin + Adapter 基础设施已经完成，当前阶段开始把 worktree 提升为并行开发的一等容器。
 
-**目标**: 不离开focus-tui完成日常95%的git操作。
+### Phase 3: Worktree Container Workspace 📋 计划中
+
+**目标**: 以 worktree 作为并行开发的主容器，把 shell、git、editor、review 收拢到同一个可恢复工作单元中。
 
 **范围**:
-- worktree状态面板（列表、branch、dirty状态）
-- 当前repo状态（branch、ahead/behind、staged/unstaged）
-- staged/unstaged文件列表
-- hunk级diff查看
-- 交互式staging
-- commit message编辑
+- worktree 状态面板（列表、branch、dirty状态、最近活动）
+- worktree 作为 shell / editor / review / git pane 的主作用域
+- 当前 repo 状态（branch、ahead/behind、staged/unstaged）
+- staged/unstaged 文件列表
+- hunk 级 diff 查看
+- 交互式 staging
+- commit message 编辑
+- worktree create / remove / resume 的安全流程
 
-**关键**: worktree面板必须与agent会话状态联动。
+**关键**:
+
+- 默认采用 “one active worktree per branch/task line” 的工作模式
+- 切换工作应优先切换 worktree，而不是频繁 checkout 同一目录
+- worktree 面板必须与 agent 会话状态联动
 
 ### Phase 4: Agent会话可见性 📋 计划中
 
-**目标**: 结构化展示agent活动，不绑定单一vendor。
+**目标**: 在 worktree identity 稳定之后，结构化展示 agent 活动，不绑定单一 vendor。
 
 **数据来源**（参考sidecar）:
 - Claude Code: `~/.claude/projects/<slug>/*.jsonl`
@@ -174,8 +182,27 @@
 
 **功能**:
 - Session历史面板
-- 通过CWD+Branch绑定到worktree
+- 通过 CWD + Branch 绑定到 worktree
 - 多agent并行状态展示
+
+### 当前执行重点（2026-04-14）
+
+当前代码已经具备 Git workflow MVP、review workflow 第一阶段、以及 editor MVP，但真正的 `git worktree` 原生能力仍未落地为一等 pane 和容器模型。
+
+因此当前推荐顺序调整为：
+
+1. **先完成 Phase 3A：Worktree container foundation**
+   - worktree registry / model
+   - worktree list pane
+   - worktree-scoped pane identity
+   - shell 与 git 操作绑定 worktree
+2. **再推进 Phase 3B：Worktree-local Git 深化**
+   - hunk staging / discard
+   - branch-aware actions
+   - review refresh 策略
+3. **最后进入 Phase 4：Agent visibility**
+   - session 与 worktree 绑定
+   - worktree 下的 agent 活动聚合
 
 ### Phase 5: 高级功能 📋 远期
 
@@ -210,7 +237,11 @@
 
 ## 六、下一步行动
 
-详见 [PLAN-2.4.md](./PLAN-2.4.md) - Phase 2.4详细开发计划。
+详见：
+
+- [PLAN-2.4.md](./PLAN-2.4.md) - Phase 2.4 已完成基础设施计划
+- [DESIGN-WORKTREE-CONTAINERS-2026-04.md](./DESIGN-WORKTREE-CONTAINERS-2026-04.md) - Worktree 容器架构设计
+- [PLAN-WORKTREE-CONTAINERS-2026-04.md](./PLAN-WORKTREE-CONTAINERS-2026-04.md) - 当前阶段详细实施计划
 
 ---
 
@@ -218,6 +249,8 @@
 
 - **本文件 (DIRECTION.md)**: 唯一方向文档，取代旧DIRECTION.md和NEXT_STEPS.md
 - **PLAN-2.4.md**: Phase 2.4详细任务分解
+- **DESIGN-WORKTREE-CONTAINERS-2026-04.md**: Worktree 作为开发容器的工程化设计
+- **PLAN-WORKTREE-CONTAINERS-2026-04.md**: 当前阶段实施计划
 - **LEARNINGS.md**: 源码探索总结（lazygit、sidecar等分析）
 - **SPEC.md**: 已归档，仅供历史参考
 - **README.md**: 项目介绍和快速开始
