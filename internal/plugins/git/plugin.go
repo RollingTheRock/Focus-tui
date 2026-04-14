@@ -23,11 +23,13 @@ func (p *Plugin) Name() string { return "git" }
 func (p *Plugin) Version() string { return "1.0.0" }
 
 func (p *Plugin) PaneTypes() []models.PaneType {
-	return []models.PaneType{models.PaneTypeGitStatus, models.PaneTypeDiffView}
+	return []models.PaneType{models.PaneTypeWorktree, models.PaneTypeGitStatus, models.PaneTypeDiffView}
 }
 
 func (p *Plugin) CreatePane(paneType models.PaneType, id models.PaneID, meta models.PaneMeta, common models.CommonModel) (models.Panel, error) {
 	switch paneType {
+	case models.PaneTypeWorktree:
+		return NewWorktreePane(id, meta, common, p.adapter), nil
 	case models.PaneTypeGitStatus:
 		return NewStatusPane(id, meta, common, p.adapter), nil
 	case models.PaneTypeDiffView:

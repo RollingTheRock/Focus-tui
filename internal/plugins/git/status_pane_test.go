@@ -442,6 +442,8 @@ type fakeGitAdapter struct {
 	discardCalled    bool
 	discardedPath    string
 	discardErr       error
+	worktrees        []gitmodel.Worktree
+	listWorktreesErr error
 }
 
 func (f *fakeGitAdapter) Name() string { return "fake-git" }
@@ -455,6 +457,24 @@ func (f *fakeGitAdapter) GetStatus(repoPath string) (*gitmodel.Status, error) {
 }
 
 func (f *fakeGitAdapter) GetBranches(repoPath string) ([]gitmodel.Branch, error) { return nil, nil }
+
+func (f *fakeGitAdapter) GetWorktreeStatus(worktreePath string) (*gitmodel.Status, error) {
+	return f.status, f.getStatusErr
+}
+
+func (f *fakeGitAdapter) ListWorktrees(repoPath string) ([]gitmodel.Worktree, error) {
+	return f.worktrees, f.listWorktreesErr
+}
+
+func (f *fakeGitAdapter) CreateWorktree(repoPath string, req gitmodel.CreateWorktreeRequest) (*gitmodel.Worktree, error) {
+	return nil, nil
+}
+
+func (f *fakeGitAdapter) RemoveWorktree(repoPath, worktreePath string, opts gitmodel.RemoveWorktreeOptions) error {
+	return nil
+}
+
+func (f *fakeGitAdapter) PruneWorktrees(repoPath string) error { return nil }
 
 func (f *fakeGitAdapter) GetDiff(repoPath string, path string, staged bool) (string, error) {
 	return f.diff, f.diffErr

@@ -184,7 +184,25 @@ func (f *fakeCommitAdapter) Destroy() error { return nil }
 
 func (f *fakeCommitAdapter) GetStatus(repoPath string) (*gitmodel.Status, error) { return nil, nil }
 
+func (f *fakeCommitAdapter) GetWorktreeStatus(worktreePath string) (*gitmodel.Status, error) {
+	return nil, nil
+}
+
 func (f *fakeCommitAdapter) GetBranches(repoPath string) ([]gitmodel.Branch, error) { return nil, nil }
+
+func (f *fakeCommitAdapter) ListWorktrees(repoPath string) ([]gitmodel.Worktree, error) {
+	return nil, nil
+}
+
+func (f *fakeCommitAdapter) CreateWorktree(repoPath string, req gitmodel.CreateWorktreeRequest) (*gitmodel.Worktree, error) {
+	return nil, nil
+}
+
+func (f *fakeCommitAdapter) RemoveWorktree(repoPath, worktreePath string, opts gitmodel.RemoveWorktreeOptions) error {
+	return nil
+}
+
+func (f *fakeCommitAdapter) PruneWorktrees(repoPath string) error { return nil }
 
 func (f *fakeCommitAdapter) GetDiff(repoPath string, path string, staged bool) (string, error) {
 	return "", nil
