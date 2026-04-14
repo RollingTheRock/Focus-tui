@@ -10,6 +10,7 @@ import (
 	"focus/internal/adapters"
 	"focus/internal/avatar"
 	"focus/internal/config"
+	gitmodel "focus/internal/git"
 	"focus/internal/models"
 	"focus/internal/plugins"
 	editorplugin "focus/internal/plugins/editor"
@@ -334,6 +335,31 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.invalidateView()
 		return m, tea.Batch(cmds...)
+
+	case gitplugin.RequestRemoveWorktreeMsg:
+		cmd := m.removeWorktree(msg)
+		m.invalidateView()
+		return m, cmd
+
+	case gitplugin.RequestPruneWorktreesMsg:
+		cmd := m.pruneWorktrees(msg)
+		m.invalidateView()
+		return m, cmd
+
+	case gitplugin.WorktreeRemovedMsg:
+		m.closePanesForWorktree(msg.Path)
+		m.invalidateView()
+		if _, ok := m.paneMeta[paneWorktree]; ok {
+			return m.routeToPane(paneWorktree, msg)
+		}
+		return m, nil
+
+	case gitplugin.WorktreesPrunedMsg, gitplugin.WorktreeActionFailedMsg:
+		m.invalidateView()
+		if _, ok := m.paneMeta[paneWorktree]; ok {
+			return m.routeToPane(paneWorktree, msg)
+		}
+		return m, nil
 
 	case todo.ModeChangeMsg:
 		m.setFocus(paneTodo)
@@ -1414,6 +1440,54 @@ func (m *model) openCreateWorktreePane(msg gitplugin.OpenCreateWorktreeMsg) tea.
 	m.setFocus(meta.ID)
 	m.updateSizes(m.common.Width, m.common.Height)
 	return panel.Init()
+}
+
+func (m *model) removeWorktree(msg gitplugin.RequestRemoveWorktreeMsg) tea.Cmd {
+	adapter := m.adapterManager.Git()
+	repoPath := m.gitRepoPath()
+	return func() tea.Msg {
+		if adapter == nil {
+			return gitplugin.WorktreeActionFailedMsg{Action: "remove", Err: fmt.Errorf("git adapter unavailable")}
+		}
+		if err := adapter.RemoveWorktree(repoPath, msg.Worktree.Path, gitmodel.RemoveWorktreeOptions{Force: msg.Force}); err != nil {
+			return gitplugin.WorktreeActionFailedMsg{Action: "remove", Err: err}
+		}
+		return gitplugin.WorktreeRemovedMsg{Path: msg.Worktree.Path, Force: msg.Force}
+	}
+}
+
+func (m *model) pruneWorktrees(msg gitplugin.RequestPruneWorktreesMsg) tea.Cmd {
+	adapter := m.adapterManager.Git()
+	repoPath := msg.RepoPath
+	if repoPath == "" {
+		repoPath = m.gitRepoPath()
+	}
+	return func() tea.Msg {
+		if adapter == nil {
+			return gitplugin.WorktreeActionFailedMsg{Action: "prune", Err: fmt.Errorf("git adapter unavailable")}
+		}
+		if err := adapter.PruneWorktrees(repoPath); err != nil {
+			return gitplugin.WorktreeActionFailedMsg{Action: "prune", Err: err}
+		}
+		return gitplugin.WorktreesPrunedMsg{}
+	}
+}
+
+func (m *model) closePanesForWorktree(worktreePath string) {
+	if worktreePath == "" {
+		return
+	}
+	ids := append([]models.PaneID(nil), m.paneOrder...)
+	for _, id := range ids {
+		meta, ok := m.paneMeta[id]
+		if !ok || !meta.Closable {
+			continue
+		}
+		if meta.WorktreeID != worktreePath {
+			continue
+		}
+		m.closePane(id)
+	}
 }
 
 func (m *model) closePane(id models.PaneID) {

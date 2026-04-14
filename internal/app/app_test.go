@@ -501,6 +501,27 @@ func TestWorktreeCreatedRefreshesAndOpensShell(t *testing.T) {
 	}
 }
 
+func TestWorktreeRemovedClosesScopedPanes(t *testing.T) {
+	cfg := config.DefaultConfig()
+	st, _ := store.New(":memory:")
+	m := New(cfg, st).(model)
+	m.setFocus(paneWorktree)
+	m.openWorktreeShell(gitplugin.OpenWorktreeShellMsg{Worktree: gitplugin_testWorktree("/repo/feature-a", "feature-a")})
+	removedShell := m.focused
+	if m.paneMeta[removedShell].Type != models.PaneTypeShell {
+		t.Fatalf("expected focused pane to be shell")
+	}
+
+	updatedModel, _ := m.Update(gitplugin.WorktreeRemovedMsg{Path: "/repo/feature-a"})
+	m = updatedModel.(model)
+	if _, ok := m.paneMeta[removedShell]; ok {
+		t.Fatalf("expected removed worktree shell pane to be closed")
+	}
+	if m.focused == removedShell {
+		t.Fatalf("expected focus to move away from removed shell")
+	}
+}
+
 func TestHandleMouseRoutesWheelToDiffPaneWithoutStealingFocus(t *testing.T) {
 	cfg := config.DefaultConfig()
 	st, _ := store.New(":memory:")
