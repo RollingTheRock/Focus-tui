@@ -89,6 +89,11 @@ func (g *GitLocalAdapter) GetStatus(repoPath string) (*git.Status, error) {
 	return status, nil
 }
 
+// GetWorktreeStatus retrieves status for a specific worktree path.
+func (g *GitLocalAdapter) GetWorktreeStatus(worktreePath string) (*git.Status, error) {
+	return g.GetStatus(worktreePath)
+}
+
 // getBranchInfo retrieves branch and upstream information.
 func (g *GitLocalAdapter) getBranchInfo(repoPath string) (branch, upstream string, ahead, behind int, err error) {
 	cmd := exec.Command("git", "-C", repoPath, "rev-parse", "--abbrev-ref", "HEAD")
@@ -253,6 +258,138 @@ func (g *GitLocalAdapter) GetBranches(repoPath string) ([]git.Branch, error) {
 	}
 
 	return branches, scanner.Err()
+}
+
+// ListWorktrees retrieves all worktrees for a repository.
+func (g *GitLocalAdapter) ListWorktrees(repoPath string) ([]git.Worktree, error) {
+	cmd := exec.Command("git", "-C", repoPath, "worktree", "list", "--porcelain")
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("git worktree list failed: %w", err)
+	}
+
+	mainRoot, err := g.mainWorktreeRoot(repoPath)
+	if err != nil {
+		return nil, err
+	}
+
+	worktrees, err := g.parseWorktreeListPorcelain(mainRoot, output)
+	if err != nil {
+		return nil, err
+	}
+
+	for i := range worktrees {
+		status, err := g.GetWorktreeStatus(worktrees[i].Path)
+		if err != nil {
+			continue
+		}
+		worktrees[i].DirtySummary = git.DirtySummary{
+			Staged:     len(status.StagedFiles),
+			Unstaged:   len(status.UnstagedFiles),
+			Untracked:  len(status.UntrackedFiles),
+			Conflicted: len(status.ConflictedFiles),
+		}
+		worktrees[i].AheadBehind = git.AheadBehind{
+			Ahead:  status.Ahead,
+			Behind: status.Behind,
+		}
+		if status.Branch != "" && worktrees[i].Branch == "" {
+			worktrees[i].Branch = status.Branch
+		}
+	}
+
+	return worktrees, nil
+}
+
+// CreateWorktree creates a new worktree and returns the resulting record.
+func (g *GitLocalAdapter) CreateWorktree(repoPath string, req git.CreateWorktreeRequest) (*git.Worktree, error) {
+	req.Path = strings.TrimSpace(req.Path)
+	if req.Path == "" {
+		return nil, fmt.Errorf("worktree path cannot be empty")
+	}
+
+	args := []string{"-C", repoPath, "worktree", "add"}
+	if req.Force {
+		args = append(args, "--force")
+	}
+	if req.Detach {
+		args = append(args, "--detach")
+	}
+	if req.Branch != "" && req.BaseRef != "" && !req.Detach {
+		args = append(args, "-b", req.Branch)
+	}
+	args = append(args, req.Path)
+	if req.Detach {
+		if req.BaseRef != "" {
+			args = append(args, req.BaseRef)
+		}
+	} else if req.Branch != "" && req.BaseRef == "" {
+		args = append(args, req.Branch)
+	} else if req.BaseRef != "" {
+		args = append(args, req.BaseRef)
+	}
+
+	cmd := exec.Command("git", args...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		detail := strings.TrimSpace(string(output))
+		if detail == "" {
+			return nil, fmt.Errorf("git worktree add failed: %w", err)
+		}
+		return nil, fmt.Errorf("git worktree add failed: %s", detail)
+	}
+
+	worktrees, err := g.ListWorktrees(repoPath)
+	if err != nil {
+		return nil, err
+	}
+	createdPath, err := filepath.Abs(req.Path)
+	if err != nil {
+		createdPath = req.Path
+	}
+	for i := range worktrees {
+		if samePath(worktrees[i].Path, createdPath) {
+			return &worktrees[i], nil
+		}
+	}
+
+	return nil, fmt.Errorf("created worktree %q not found after creation", createdPath)
+}
+
+// RemoveWorktree removes a worktree path from the repository.
+func (g *GitLocalAdapter) RemoveWorktree(repoPath, worktreePath string, opts git.RemoveWorktreeOptions) error {
+	args := []string{"-C", repoPath, "worktree", "remove"}
+	if opts.Force {
+		args = append(args, "--force")
+	}
+	args = append(args, worktreePath)
+
+	cmd := exec.Command("git", args...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		detail := strings.TrimSpace(string(output))
+		if detail == "" {
+			return fmt.Errorf("git worktree remove failed: %w", err)
+		}
+		return fmt.Errorf("git worktree remove failed: %s", detail)
+	}
+
+	return nil
+}
+
+// PruneWorktrees prunes stale worktree metadata.
+func (g *GitLocalAdapter) PruneWorktrees(repoPath string) error {
+	cmd := exec.Command("git", "-C", repoPath, "worktree", "prune")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		detail := strings.TrimSpace(string(output))
+		if detail == "" {
+			return fmt.Errorf("git worktree prune failed: %w", err)
+		}
+		return fmt.Errorf("git worktree prune failed: %s", detail)
+	}
+
+	return nil
 }
 
 // GetDiff retrieves the diff for a specific file.
@@ -501,6 +638,80 @@ func (g *GitLocalAdapter) statusEqual(a, b *git.Status) bool {
 		len(a.StagedFiles) == len(b.StagedFiles) &&
 		len(a.UnstagedFiles) == len(b.UnstagedFiles) &&
 		len(a.UntrackedFiles) == len(b.UntrackedFiles)
+}
+
+func (g *GitLocalAdapter) parseWorktreeListPorcelain(mainRoot string, output []byte) ([]git.Worktree, error) {
+	lines := strings.Split(strings.ReplaceAll(string(output), "\r\n", "\n"), "\n")
+	var worktrees []git.Worktree
+	var current *git.Worktree
+
+	flush := func() {
+		if current == nil || current.Path == "" {
+			return
+		}
+		current.IsMain = samePath(current.Path, mainRoot)
+		worktrees = append(worktrees, *current)
+		current = nil
+	}
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			flush()
+			continue
+		}
+
+		key, value, hasValue := strings.Cut(line, " ")
+		if key == "worktree" {
+			flush()
+			current = &git.Worktree{Path: value}
+			continue
+		}
+		if current == nil {
+			continue
+		}
+
+		switch key {
+		case "HEAD":
+			current.HeadOID = value
+		case "branch":
+			current.Branch = strings.TrimPrefix(value, "refs/heads/")
+		case "detached":
+			current.IsDetached = true
+		case "locked":
+			current.IsLocked = true
+			if hasValue {
+				current.LockReason = value
+			}
+		case "prunable":
+			current.IsPrunable = true
+			if hasValue {
+				current.PrunableReason = value
+			}
+		case "bare":
+			current.IsBare = true
+		}
+	}
+	flush()
+
+	return worktrees, nil
+}
+
+func (g *GitLocalAdapter) mainWorktreeRoot(repoPath string) (string, error) {
+	cmd := exec.Command("git", "-C", repoPath, "rev-parse", "--path-format=absolute", "--git-common-dir")
+	output, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve git common dir: %w", err)
+	}
+	commonDir := strings.TrimSpace(string(output))
+	if commonDir == "" {
+		return "", fmt.Errorf("git common dir is empty")
+	}
+	return filepath.Clean(filepath.Dir(commonDir)), nil
+}
+
+func samePath(a, b string) bool {
+	return filepath.Clean(a) == filepath.Clean(b)
 }
 
 // RefreshStatus returns a Bubble Tea command that refreshes the status.

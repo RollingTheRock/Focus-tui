@@ -1,6 +1,7 @@
 package adapters
 
 import (
+	"path/filepath"
 	"testing"
 
 	gitmodel "focus/internal/git"
@@ -63,5 +64,28 @@ func TestParsePorcelainV2MixedStateKeepsBothSides(t *testing.T) {
 	}
 	if status.StagedFiles[0].Path != "a.txt" || status.UnstagedFiles[0].Path != "a.txt" {
 		t.Fatalf("expected mixed-state file to stay aligned, got staged=%q unstaged=%q", status.StagedFiles[0].Path, status.UnstagedFiles[0].Path)
+	}
+}
+
+func TestParseWorktreeListPorcelain(t *testing.T) {
+	adapter := NewGitLocalAdapter()
+	repoPath := filepath.Join(string(filepath.Separator), "repo", "main")
+	output := []byte("worktree /repo/main\nHEAD 1111111111111111111111111111111111111111\nbranch refs/heads/main\n\nworktree /repo/feature-a\nHEAD 2222222222222222222222222222222222222222\nbranch refs/heads/feature-a\nlocked manual review\n\nworktree /repo/spike\nHEAD 3333333333333333333333333333333333333333\ndetached\nprunable gitdir file points to non-existent location\n")
+
+	worktrees, err := adapter.parseWorktreeListPorcelain(repoPath, output)
+	if err != nil {
+		t.Fatalf("parse worktree list: %v", err)
+	}
+	if len(worktrees) != 3 {
+		t.Fatalf("expected 3 worktrees, got %d", len(worktrees))
+	}
+	if !worktrees[0].IsMain || worktrees[0].Branch != "main" {
+		t.Fatalf("expected first worktree to be main on branch main, got %+v", worktrees[0])
+	}
+	if !worktrees[1].IsLocked || worktrees[1].LockReason != "manual review" {
+		t.Fatalf("expected locked worktree with reason, got %+v", worktrees[1])
+	}
+	if !worktrees[2].IsDetached || !worktrees[2].IsPrunable {
+		t.Fatalf("expected detached prunable worktree, got %+v", worktrees[2])
 	}
 }
