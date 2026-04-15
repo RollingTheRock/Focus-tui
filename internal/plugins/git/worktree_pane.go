@@ -283,10 +283,18 @@ func (p *WorktreePane) renderWorktreeRow(wt gitmodel.Worktree) string {
 	if wt.Activity.OpenEditors > 0 {
 		tags = append(tags, fmt.Sprintf("edits %d", wt.Activity.OpenEditors))
 	}
+	if wt.AheadBehind.Ahead > 0 {
+		tags = append(tags, aheadStyle.Render(fmt.Sprintf("↑%d", wt.AheadBehind.Ahead)))
+	}
+	if wt.AheadBehind.Behind > 0 {
+		tags = append(tags, behindStyle.Render(fmt.Sprintf("↓%d", wt.AheadBehind.Behind)))
+	}
 
 	label := wt.DisplayName()
 	if wt.Branch != "" {
 		label = branchStyle.Render(wt.Branch)
+	} else if wt.HeadOID != "" {
+		label = upstreamStyle.Render(wt.HeadOID[:7])
 	}
 	pathLine := emptyStyle.Render(shortenWorktreePath(wt.Path))
 	activityLine := ""

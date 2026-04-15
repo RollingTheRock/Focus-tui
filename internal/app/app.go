@@ -488,6 +488,14 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+g":
 		m.switchToOverviewPage()
 		return m, nil
+	case "ctrl+n":
+		if m.state == StateWorktreePage {
+			return m, m.switchToAdjacentWorktreePage(1)
+		}
+	case "ctrl+p":
+		if m.state == StateWorktreePage {
+			return m, m.switchToAdjacentWorktreePage(-1)
+		}
 	case "z":
 		return m.toggleZoom()
 	case "enter":
@@ -813,8 +821,13 @@ func (m model) renderHelpLine(w int) string {
 		left = "[j/k]move  [enter]open shell  [n]ew worktree  [r]efresh  [ctrl+g]overview"
 		compact = "[enter]shell  [n]ew  [r]efresh  [ctrl+g]overview"
 	case models.PaneTypeGitStatus:
-		left = "[j/k]move  [enter]review  [d]iff file  [space]stage  [a]all  [f]etch  [p]ull  [c]ommit  [P]push"
-		compact = "[enter]review  [d]iff  [a]all"
+		if m.state == StateWorktreePage {
+			left = "[j/k]move  [enter]review  [d]iff file  [space]stage  [a]all  [f]etch  [p]ull  [c]ommit  [P]push  [ctrl+n/p]worktree  [ctrl+g]overview"
+			compact = "[enter]review  [d]iff  [a]all  [ctrl+g]overview"
+		} else {
+			left = "[j/k]move  [enter]review  [d]iff file  [space]stage  [a]all  [f]etch  [p]ull  [c]ommit  [P]push"
+			compact = "[enter]review  [d]iff  [a]all"
+		}
 	case models.PaneTypeTodo:
 		if todoModel.IsConfirmingDelete() {
 			left = "[j/k]move  [y/n]delete"
@@ -843,7 +856,7 @@ func (m model) renderHelpLine(w int) string {
 			left = "[tab]next  [ctrl+h/j/k/l]focus  [shell starting]"
 			compact = "[tab]next  [shell starting]"
 		default:
-			left = "[tab]next  [ctrl+h/j/k/l]focus  [enter]shell  [ctrl+g]overview"
+			left = "[tab]next  [ctrl+h/j/k/l]focus  [enter]shell  [ctrl+n/p]worktree  [ctrl+g]overview"
 			compact = "[tab]next  [enter]shell  [ctrl+g]overview"
 		}
 	case models.PaneTypeEditor:
@@ -1099,6 +1112,35 @@ func shortenCWD(cwd string) string {
 		home = ""
 	}
 	return shortenPath(cwd, home)
+}
+
+func (m *model) worktreeList() []gitmodel.Worktree {
+	adapter := m.adapterManager.Git()
+	repoPath := m.gitRepoPath()
+	if adapter == nil || repoPath == "" {
+		return nil
+	}
+	wts, _ := adapter.ListWorktrees(repoPath)
+	return wts
+}
+
+func (m *model) switchToAdjacentWorktreePage(delta int) tea.Cmd {
+	wts := m.worktreeList()
+	if len(wts) == 0 {
+		return nil
+	}
+	idx := -1
+	for i, wt := range wts {
+		if wt.Path == m.currentWorktreePage {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		return nil
+	}
+	nextIdx := (idx + delta + len(wts)) % len(wts)
+	return m.switchToWorktreePage(wts[nextIdx].Path, "")
 }
 
 func shortenPath(path, home string) string {

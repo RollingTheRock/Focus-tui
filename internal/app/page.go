@@ -921,11 +921,23 @@ func (p *page) openWorktreeShell(msg gitplugin.OpenWorktreeShellMsg) tea.Cmd {
 	if cwd == "" {
 		cwd = p.currentCWD()
 	}
+	worktreeID := cwd
+
+	if meta, ok := p.paneMeta[paneShell]; ok && meta.WorktreeID == worktreeID {
+		p.setFocus(paneShell)
+		return nil
+	}
+	for id, meta := range p.paneMeta {
+		if meta.Type == models.PaneTypeShell && meta.WorktreeID == worktreeID {
+			p.setFocus(id)
+			return nil
+		}
+	}
+
 	repoID := p.currentRepoID()
 	if repoID == "" {
 		repoID = p.gitRepoPath()
 	}
-	worktreeID := cwd
 	branchSnapshot := msg.Worktree.Branch
 
 	id, cmd := p.createShellPaneFor(cwd, repoID, worktreeID, branchSnapshot)

@@ -562,17 +562,14 @@ func TestOpenWorktreeShellAddsScopedShellPane(t *testing.T) {
 	m := New(cfg, st).(model)
 	m.setFocus(paneWorktree)
 
-	cmd := m.openWorktreeShell(gitplugin.OpenWorktreeShellMsg{Worktree: gitplugin_testWorktree("/repo/feature-a", "feature-a")})
-	if cmd == nil {
-		t.Fatalf("expected init command for worktree shell")
+	m.openWorktreeShell(gitplugin.OpenWorktreeShellMsg{Worktree: gitplugin_testWorktree("/repo/feature-a", "feature-a")})
+	if got := len(layout.LeafOrder(m.activePage.bodyTree)); got != 3 {
+		t.Fatalf("expected leaf count 3 after opening worktree shell (reuses existing shell), got %d", got)
 	}
-	if got := len(layout.LeafOrder(m.activePage.bodyTree)); got != 4 {
-		t.Fatalf("expected leaf count 4 after opening worktree shell, got %d", got)
+	if m.activePage.focused != paneShell {
+		t.Fatalf("expected focus to move to existing shell, got %s", m.activePage.focused)
 	}
-	if m.activePage.focused == paneWorktree {
-		t.Fatalf("expected focus to move to new shell")
-	}
-	meta, ok := m.activePage.paneMeta[m.activePage.focused]
+	meta, ok := m.activePage.paneMeta[paneShell]
 	if !ok || meta.Type != models.PaneTypeShell {
 		t.Fatalf("expected focused pane to be shell, got %+v", meta)
 	}
@@ -582,11 +579,8 @@ func TestOpenWorktreeShellAddsScopedShellPane(t *testing.T) {
 	if meta.WorktreeID != "/repo/feature-a" {
 		t.Fatalf("expected shell worktree id to match path, got %q", meta.WorktreeID)
 	}
-	if meta.BranchSnapshot != "feature-a" {
-		t.Fatalf("expected branch snapshot feature-a, got %q", meta.BranchSnapshot)
-	}
-	if sh, ok := m.pane(m.activePage.focused).(*shell.Model); !ok || sh == nil {
-		t.Fatalf("expected focused pane to hold shell model")
+	if sh, ok := m.pane(paneShell).(*shell.Model); !ok || sh == nil {
+		t.Fatalf("expected shell pane to hold shell model")
 	}
 }
 
@@ -631,8 +625,8 @@ func TestWorktreeCreatedRefreshesAndOpensShell(t *testing.T) {
 	if cmd == nil {
 		t.Fatalf("expected batched commands after worktree creation")
 	}
-	if got := len(layout.LeafOrder(m.activePage.bodyTree)); got != 4 {
-		t.Fatalf("expected leaf count 4 after opening new worktree shell, got %d", got)
+	if got := len(layout.LeafOrder(m.activePage.bodyTree)); got != 3 {
+		t.Fatalf("expected leaf count 3 after opening new worktree shell (reuses existing shell), got %d", got)
 	}
 	if m.activePage.paneMeta[m.activePage.focused].Type != models.PaneTypeShell {
 		t.Fatalf("expected focus on shell after worktree creation, got %v", m.activePage.paneMeta[m.activePage.focused].Type)
