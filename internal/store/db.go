@@ -83,6 +83,12 @@ CREATE TABLE IF NOT EXISTS streaks (
     date          DATE    PRIMARY KEY,
     has_pomodoro  BOOLEAN DEFAULT 0
 );
+
+CREATE TABLE IF NOT EXISTS page_snapshots (
+    worktree_id   TEXT    PRIMARY KEY,
+    snapshot_json TEXT    NOT NULL,
+    updated_at    DATETIME DEFAULT CURRENT_TIMESTAMP
+);
 `
 	_, err := s.db.Exec(schema)
 	return err

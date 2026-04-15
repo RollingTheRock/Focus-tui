@@ -127,6 +127,8 @@ func New(cfg config.Config, store models.Store) tea.Model {
 	m.activePage = newOverviewPage(cm, m.pluginRegistry, m.adapterManager, cfg, store, cwd, repoRoot)
 	m.pages[""] = m.activePage
 
+	m.loadPageSnapshots()
+
 	return m
 }
 

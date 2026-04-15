@@ -23,6 +23,15 @@ type Store interface {
 	CancelSession(id int64) error
 	TodaySessionCount() (int, error)
 	GetStreak() (int, error)
+	SavePageSnapshot(worktreeID string, snapshotJSON []byte) error
+	LoadPageSnapshot(worktreeID string) ([]byte, error)
+	ListPageSnapshots() ([]PageSnapshotRecord, error)
+	DeletePageSnapshot(worktreeID string) error
+}
+
+type PageSnapshotRecord struct {
+	WorktreeID   string
+	SnapshotJSON string
 }
 
 // CommonModel holds shared state across all panels.

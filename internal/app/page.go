@@ -11,6 +11,7 @@ import (
 	"focus/internal/plugins"
 	editorplugin "focus/internal/plugins/editor"
 	gitplugin "focus/internal/plugins/git"
+	"focus/internal/store"
 	"focus/internal/ui/footer"
 	"focus/internal/ui/header"
 	"focus/internal/ui/layout"
@@ -50,6 +51,36 @@ type PageSnapshot struct {
 	OpenEditors  []string      `json:"openEditors"`
 	ZoomedPane   models.PaneID `json:"zoomedPane,omitempty"`
 	PreZoomTree  []byte        `json:"preZoomTree,omitempty"`
+}
+
+func pageSnapshotFromStore(s store.PageSnapshot) *PageSnapshot {
+	ps := &PageSnapshot{
+		Focused:     models.PaneID(s.Focused),
+		OpenEditors: s.OpenEditors,
+		ZoomedPane:  models.PaneID(s.ZoomedPane),
+	}
+	if len(s.BodyTreeJSON) > 0 {
+		ps.BodyTreeJSON = append([]byte(nil), s.BodyTreeJSON...)
+	}
+	if len(s.PreZoomTree) > 0 {
+		ps.PreZoomTree = append([]byte(nil), s.PreZoomTree...)
+	}
+	return ps
+}
+
+func (p *PageSnapshot) toStore() store.PageSnapshot {
+	s := store.PageSnapshot{
+		Focused:     string(p.Focused),
+		OpenEditors: append([]string(nil), p.OpenEditors...),
+		ZoomedPane:  string(p.ZoomedPane),
+	}
+	if len(p.BodyTreeJSON) > 0 {
+		s.BodyTreeJSON = append([]byte(nil), p.BodyTreeJSON...)
+	}
+	if len(p.PreZoomTree) > 0 {
+		s.PreZoomTree = append([]byte(nil), p.PreZoomTree...)
+	}
+	return s
 }
 
 func newPage(common *models.CommonModel, pluginRegistry *plugins.Registry, adapterManager *adapters.Manager) *page {
@@ -961,7 +992,57 @@ func (p *page) restoreSnapshot() {
 	}
 }
 
+func (m *model) loadPageSnapshots() {
+	if m.common.Store == nil {
+		return
+	}
+	records, err := m.common.Store.ListPageSnapshots()
+	if err != nil {
+		return
+	}
+	for _, r := range records {
+		if r.WorktreeID == "" {
+			continue
+		}
+		ss, err := store.UnmarshalPageSnapshot([]byte(r.SnapshotJSON))
+		if err != nil {
+			continue
+		}
+		repoRoot := m.gitRepoPath()
+		if repoRoot == "" {
+			cwd, _ := os.Getwd()
+			repoRoot, _ = gitRepoRoot(cwd)
+		}
+		p := newWorktreePage(m.common, m.pluginRegistry, m.adapterManager, m.common.Cfg, m.common.Store, r.WorktreeID, repoRoot)
+		p.snapshot = pageSnapshotFromStore(ss)
+		m.pages[r.WorktreeID] = p
+	}
+}
+
+func (m *model) persistActivePageSnapshot() {
+	if m.common.Store == nil || m.activePage == nil {
+		return
+	}
+	var worktreeID string
+	for id, p := range m.pages {
+		if p == m.activePage && id != "" {
+			worktreeID = id
+			break
+		}
+	}
+	if worktreeID == "" {
+		return
+	}
+	m.activePage.snapshot = m.activePage.captureSnapshot()
+	data, err := store.MarshalPageSnapshot(m.activePage.snapshot.toStore())
+	if err != nil {
+		return
+	}
+	_ = m.common.Store.SavePageSnapshot(worktreeID, data)
+}
+
 func (m *model) switchToOverviewPage() {
+	m.persistActivePageSnapshot()
 	if m.activePage != nil {
 		m.activePage.snapshot = m.activePage.captureSnapshot()
 	}
@@ -995,6 +1076,7 @@ func (m *model) switchToWorktreePage(worktreeID, preferredPane string) {
 		m.switchToOverviewPage()
 		return
 	}
+	m.persistActivePageSnapshot()
 	if m.activePage != nil {
 		m.activePage.snapshot = m.activePage.captureSnapshot()
 	}
