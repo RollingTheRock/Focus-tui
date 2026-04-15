@@ -83,7 +83,10 @@ This is the default operating model, not an absolute Git rule. Detached HEAD flo
 
 ```text
 App
-└── RepoRegistry
+├── OverviewPage
+│   └── RepoRegistry
+│       └── WorktreeContainer summaries
+└── WorktreePage
     └── WorktreeContainer
         ├── Worktree metadata
         ├── Worktree-local layout state
@@ -93,7 +96,16 @@ App
         └── Agent sessions
 ```
 
-The key shift is that panes are no longer the only top-level working object. They become views that belong to a worktree container.
+The key shift is that panes are no longer the only top-level working object. They become views that belong to a worktree page, and each worktree page belongs to one worktree container.
+
+### 5.1 Page model refinement
+
+The terminal should not try to show multiple worktree workspaces in one permanently shared pane layout. The top-level UI should instead split into:
+
+1. **OverviewPage** — orchestration, activity summary, create/remove/resume/switch
+2. **WorktreePage** — a full-screen, worktree-local development workspace
+
+This preserves global visibility while maximizing available space and cognitive bandwidth for the active worktree.
 
 ---
 

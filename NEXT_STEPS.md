@@ -1,7 +1,7 @@
 # Next Steps
 
 > 本文档已整合到新的文档体系中
-> 更新日期: 2026-04-14
+> 更新日期: 2026-04-15
 
 ---
 
@@ -20,8 +20,8 @@
 
 ## 当前状态
 
-- **阶段**: Phase 3A - Worktree Container Foundation
-- **目标**: 将 worktree 提升为 shell / git / editor / agent 的主容器
+- **阶段**: Phase 3B - Page-based Worktree Containers
+- **目标**: 将顶层 UI 升级为 overview page + per-worktree workspace page
 - **周期**: 4-6周（详见 PLAN-WORKTREE-CONTAINERS-2026-04.md）
 
 ---
@@ -31,7 +31,7 @@
 1. 阅读 **[DIRECTION.md](./DIRECTION.md)** 理解总体方向
 2. 阅读 **[DESIGN-WORKTREE-CONTAINERS-2026-04.md](./DESIGN-WORKTREE-CONTAINERS-2026-04.md)** 理解 worktree 容器设计
 3. 阅读 **[PLAN-WORKTREE-CONTAINERS-2026-04.md](./PLAN-WORKTREE-CONTAINERS-2026-04.md)** 了解详细任务分解
-4. 从 **Phase A** 任务开始：完成 worktree model / adapter / registry
+4. 从 **Phase B4** 任务开始：为 overview/worktree page 引入顶层 page model skeleton
 
 ---
 
@@ -56,4 +56,4 @@
 
 ---
 
-**下一步**: 开始 Phase A - worktree domain model、adapter 扩展、registry 基础能力
+**下一步**: 开始 Phase B4 - 引入 overview page / worktree page 骨架，并逐步把全局 bodyTree 迁移为 page-local state

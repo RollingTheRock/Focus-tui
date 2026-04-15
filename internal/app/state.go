@@ -4,7 +4,13 @@ package app
 type AppState int
 
 const (
-	StateDashboard AppState = iota
+	// StateOverviewPage is the global orchestration page that lists and manages worktree containers.
+	StateOverviewPage AppState = iota
+	// StateWorktreePage is a full-screen worktree workspace page.
+	StateWorktreePage
+
+	// StateDashboard is kept as a compatibility alias for the old single-page model.
+	StateDashboard = StateOverviewPage
 )
 
 // AppMode represents the current interaction mode.

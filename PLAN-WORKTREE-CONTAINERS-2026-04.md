@@ -171,6 +171,27 @@ Shift Focus TUI from a pane-first Git workspace into a worktree-container worksp
 
 - shells created from different worktrees never share implicit cwd state
 
+### B4. Introduce page model skeleton
+
+**Files**:
+
+- `internal/app/state.go`
+- `internal/app/page.go` (new)
+- `internal/app/app.go`
+- `internal/app/app_test.go`
+
+**Tasks**:
+
+- introduce top-level `OverviewPage` vs `WorktreePage` identity
+- keep current layout behavior intact while creating a migration seam away from one implicit global workspace
+- add explicit page switching helpers and state tracking
+
+**Acceptance**:
+
+- app can distinguish overview state from worktree workspace state
+- opening a worktree-scoped shell can mark the active worktree page
+- overview switching does not break existing pane workflows
+
 ---
 
 ## Phase C - Worktree Lifecycle Operations

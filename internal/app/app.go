@@ -83,8 +83,9 @@ type model struct {
 	nextEditor  int
 	returnFocus map[models.PaneID]models.PaneID
 
-	viewGen uint64
-	vc      *viewCache
+	viewGen             uint64
+	vc                  *viewCache
+	currentWorktreePage string
 
 	zoomedPane  models.PaneID
 	preZoomTree *layout.TreeNode
@@ -551,6 +552,9 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+t":
 		m.restoreZoom()
 		m.setFocus(paneTodo)
+		return m, nil
+	case "ctrl+g":
+		m.switchToOverviewPage()
 		return m, nil
 	case "z":
 		return m.toggleZoom()

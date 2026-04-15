@@ -156,6 +156,39 @@ func TestRenderHelpLineForWorktreePaneIncludesRefreshShortcut(t *testing.T) {
 	}
 }
 
+func TestSwitchToWorktreePageTracksPageState(t *testing.T) {
+	cfg := config.DefaultConfig()
+	st, _ := store.New(":memory:")
+	m := New(cfg, st).(model)
+
+	m.switchToWorktreePage("/repo/feature-a", string(paneShell))
+	if m.state != StateWorktreePage {
+		t.Fatalf("expected worktree page state, got %v", m.state)
+	}
+	if m.currentWorktreePage != "/repo/feature-a" {
+		t.Fatalf("expected current worktree page to be tracked, got %q", m.currentWorktreePage)
+	}
+}
+
+func TestCtrlGReturnsToOverviewPage(t *testing.T) {
+	cfg := config.DefaultConfig()
+	st, _ := store.New(":memory:")
+	m := New(cfg, st).(model)
+	m.switchToWorktreePage("/repo/feature-a", string(paneShell))
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlG})
+	m = updated.(model)
+	if m.state != StateOverviewPage {
+		t.Fatalf("expected overview page state, got %v", m.state)
+	}
+	if m.currentWorktreePage != "" {
+		t.Fatalf("expected overview to clear active worktree page, got %q", m.currentWorktreePage)
+	}
+	if m.focused != paneWorktree {
+		t.Fatalf("expected focus to return to worktree overview pane, got %s", m.focused)
+	}
+}
+
 func TestRenderHelpLineForDiffPaneIncludesReviewCloseShortcut(t *testing.T) {
 	cfg := config.DefaultConfig()
 	st, _ := store.New(":memory:")

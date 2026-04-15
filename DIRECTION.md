@@ -153,10 +153,12 @@
 
 ### Phase 3: Worktree Container Workspace 📋 计划中
 
-**目标**: 以 worktree 作为并行开发的主容器，把 shell、git、editor、review 收拢到同一个可恢复工作单元中。
+**目标**: 以 worktree 作为并行开发的主容器，并将 UI 顶层结构升级为「overview page + per-worktree full-screen workspace page」。
 
 **范围**:
 - worktree 状态面板（列表、branch、dirty状态、最近活动）
+- worktree overview / orchestration page
+- per-worktree full-screen workspace page
 - worktree 作为 shell / editor / review / git pane 的主作用域
 - 当前 repo 状态（branch、ahead/behind、staged/unstaged）
 - staged/unstaged 文件列表
@@ -169,6 +171,7 @@
 
 - 默认采用 “one active worktree per branch/task line” 的工作模式
 - 切换工作应优先切换 worktree，而不是频繁 checkout 同一目录
+- overview 页面负责编排；workspace 页面负责沉浸式开发
 - worktree 面板必须与 agent 会话状态联动
 
 ### Phase 4: Agent会话可见性 📋 计划中
@@ -196,11 +199,15 @@
    - worktree list pane
    - worktree-scoped pane identity
    - shell 与 git 操作绑定 worktree
-2. **再推进 Phase 3B：Worktree-local Git 深化**
+2. **推进 Phase 3B：Page-based container migration**
+   - 引入 overview page / worktree page 顶层模型
+   - 将当前全局 bodyTree 迁移为 page-local layout state
+   - 让 git status / file tree / shell 成为 worktree page 的局部 pane
+3. **再推进 Phase 3C：Worktree-local Git 深化**
    - hunk staging / discard
    - branch-aware actions
    - review refresh 策略
-3. **最后进入 Phase 4：Agent visibility**
+4. **最后进入 Phase 4：Agent visibility**
    - session 与 worktree 绑定
    - worktree 下的 agent 活动聚合
 
