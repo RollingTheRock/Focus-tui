@@ -132,7 +132,7 @@ func TestRenderHelpLineForGitStatusIncludesReviewShortcuts(t *testing.T) {
 	cfg := config.DefaultConfig()
 	st, _ := store.New(":memory:")
 	m := New(cfg, st).(model)
-	m.activePage.focused = paneGitStatus
+	m.switchToWorktreePage("/repo/feature-a", string(paneGitStatus))
 
 	help := m.renderHelpLine(140)
 	for _, want := range []string{"[enter]review", "[d]iff file", "[space]stage"} {
@@ -234,8 +234,8 @@ func TestWorktreePageSplitDoesNotAffectOverview(t *testing.T) {
 	}
 	m.switchToOverviewPage()
 	overviewLeaves := len(layout.LeafOrder(m.activePage.bodyTree))
-	if overviewLeaves != 4 {
-		t.Fatalf("expected overview page to have 4 leaves, got %d", overviewLeaves)
+	if overviewLeaves != 2 {
+		t.Fatalf("expected overview page to have 2 leaves, got %d", overviewLeaves)
 	}
 }
 
@@ -339,10 +339,11 @@ func TestSplitFocusedHorizontal(t *testing.T) {
 	m := New(cfg, st).(model)
 
 	initialOrder := layout.LeafOrder(m.activePage.bodyTree)
-	if len(initialOrder) != 4 {
-		t.Fatalf("expected 4 panes initially (shell + worktree + git + file-tree), got %d", len(initialOrder))
+	if len(initialOrder) != 2 {
+		t.Fatalf("expected 2 panes initially (worktree + shell), got %d", len(initialOrder))
 	}
 
+	m.setFocus(paneShell)
 	newM, cmd := m.Update(keyCtrlBackslash())
 	if cmd == nil {
 		t.Fatal("expected cmd from split, got nil")
@@ -350,13 +351,13 @@ func TestSplitFocusedHorizontal(t *testing.T) {
 	m = newM.(model)
 
 	newOrder := layout.LeafOrder(m.activePage.bodyTree)
-	if len(newOrder) != 5 {
-		t.Fatalf("expected 5 panes after split, got %d", len(newOrder))
+	if len(newOrder) != 3 {
+		t.Fatalf("expected 3 panes after split, got %d", len(newOrder))
 	}
 
 	foundNewPane := false
 	for _, id := range newOrder {
-		if string(id) != string(paneShell) && string(id) != string(paneWorktree) && string(id) != string(paneGitStatus) && string(id) != string(paneFileTree) {
+		if string(id) != string(paneShell) && string(id) != string(paneWorktree) {
 			foundNewPane = true
 			if m.activePage.focused != id {
 				t.Fatalf("expected focus on new pane %s, got %s", id, m.activePage.focused)
@@ -378,6 +379,7 @@ func TestZoomToggle(t *testing.T) {
 	m := New(cfg, st).(model)
 
 	initialOrder := layout.LeafOrder(m.activePage.bodyTree)
+	m.setFocus(paneShell)
 
 	newM, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'z'}})
 	m = newM.(model)
@@ -531,7 +533,7 @@ func TestOpenDiffPaneAddsBodyPaneAndRestoresOpenerFocus(t *testing.T) {
 	cfg := config.DefaultConfig()
 	st, _ := store.New(":memory:")
 	m := New(cfg, st).(model)
-	m.setFocus(paneGitStatus)
+	m.switchToWorktreePage("/repo/feature-a", string(paneGitStatus))
 	initialLeaves := len(layout.LeafOrder(m.activePage.bodyTree))
 
 	cmd := m.openDiffPane(gitplugin.OpenDiffMsg{FilePath: "", Staged: false})

@@ -277,16 +277,33 @@ func (p *WorktreePane) renderWorktreeRow(wt gitmodel.Worktree) string {
 	if wt.DirtySummary.IsDirty() {
 		tags = append(tags, fmt.Sprintf("dirty %d", wt.DirtySummary.Staged+wt.DirtySummary.Unstaged+wt.DirtySummary.Untracked+wt.DirtySummary.Conflicted))
 	}
+	if wt.Activity.HasShell {
+		tags = append(tags, "shell")
+	}
+	if wt.Activity.OpenEditors > 0 {
+		tags = append(tags, fmt.Sprintf("edits %d", wt.Activity.OpenEditors))
+	}
 
 	label := wt.DisplayName()
 	if wt.Branch != "" {
 		label = branchStyle.Render(wt.Branch)
 	}
 	pathLine := emptyStyle.Render(shortenWorktreePath(wt.Path))
+	activityLine := ""
+	if wt.Activity.LastActive != "" {
+		activityLine = upstreamStyle.Render("active " + wt.Activity.LastActive)
+	}
 	if len(tags) == 0 {
+		if activityLine != "" {
+			return label + "\n" + pathLine + "  " + activityLine
+		}
 		return label + "\n" + pathLine
 	}
-	return label + "  " + upstreamStyle.Render("["+strings.Join(tags, ", ")+"]") + "\n" + pathLine
+	row := label + "  " + upstreamStyle.Render("["+strings.Join(tags, ", ")+"]") + "\n" + pathLine
+	if activityLine != "" {
+		row += "  " + activityLine
+	}
+	return row
 }
 
 func (p *WorktreePane) selectedWorktree() (gitmodel.Worktree, bool) {

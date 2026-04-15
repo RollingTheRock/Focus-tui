@@ -16,6 +16,13 @@ type Worktree struct {
 	IsBare         bool
 	DirtySummary   DirtySummary
 	AheadBehind    AheadBehind
+	Activity       WorktreeActivity
+}
+
+type WorktreeActivity struct {
+	OpenEditors int
+	HasShell    bool
+	LastActive  string
 }
 
 // DisplayName returns a short label suitable for UI display.

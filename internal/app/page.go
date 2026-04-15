@@ -99,7 +99,6 @@ func newPage(common *models.CommonModel, pluginRegistry *plugins.Registry, adapt
 func newOverviewPage(common *models.CommonModel, pluginRegistry *plugins.Registry, adapterManager *adapters.Manager, cfg config.Config, store models.Store, cwd, repoRoot string) *page {
 	p := newPage(common, pluginRegistry, adapterManager)
 
-	gitPaneMeta := models.PaneMeta{ID: paneGitStatus, Name: "Git Status", Type: models.PaneTypeGitStatus, CWD: cwd, RepoID: cwd, WorktreeID: cwd, Status: models.PaneStatusIdle, Closable: false}
 	worktreePaneMeta := models.PaneMeta{ID: paneWorktree, Name: "Worktrees", Type: models.PaneTypeWorktree, CWD: cwd, RepoID: cwd, WorktreeID: cwd, Status: models.PaneStatusIdle, Closable: false}
 	fileTreeMeta := models.PaneMeta{ID: paneFileTree, Name: "File Tree", Type: models.PaneTypeFileTree, CWD: cwd, RepoID: cwd, WorktreeID: cwd, Status: models.PaneStatusIdle, Closable: false}
 
@@ -114,32 +113,18 @@ func newOverviewPage(common *models.CommonModel, pluginRegistry *plugins.Registr
 	}
 
 	if repoRoot != "" {
-		gitPaneMeta.CWD = repoRoot
-		gitPaneMeta.RepoID = repoRoot
-		gitPaneMeta.WorktreeID = repoRoot
 		worktreePaneMeta.CWD = repoRoot
 		worktreePaneMeta.RepoID = repoRoot
 		worktreePaneMeta.WorktreeID = repoRoot
-		fileTreeMeta.CWD = repoRoot
-		fileTreeMeta.RepoID = repoRoot
-		fileTreeMeta.WorktreeID = repoRoot
-		if shellMeta, ok := p.paneMeta[paneShell]; ok {
-			shellMeta.RepoID = repoRoot
-			shellMeta.WorktreeID = repoRoot
-			p.paneMeta[paneShell] = shellMeta
-		}
 		if panel, err := pluginRegistry.CreatePane(models.PaneTypeWorktree, paneWorktree, worktreePaneMeta, *common); err == nil {
 			p.registerPane(paneWorktree, panel, worktreePaneMeta)
 		}
-		if panel, err := pluginRegistry.CreatePane(models.PaneTypeGitStatus, paneGitStatus, gitPaneMeta, *common); err == nil {
-			p.registerPane(paneGitStatus, panel, gitPaneMeta)
-			p.bodyTree = layout.Split(
-				layout.SplitHorizontal,
-				30,
-				layout.Split(layout.SplitVertical, 34, layout.Leaf(paneWorktree), layout.Split(layout.SplitVertical, 50, layout.Leaf(paneGitStatus), layout.Leaf(paneFileTree))),
-				layout.Leaf(paneShell),
-			)
-		}
+		p.bodyTree = layout.Split(
+			layout.SplitHorizontal,
+			30,
+			layout.Leaf(paneWorktree),
+			layout.Leaf(paneShell),
+		)
 	} else {
 		p.bodyTree = layout.Split(
 			layout.SplitHorizontal,
@@ -148,7 +133,7 @@ func newOverviewPage(common *models.CommonModel, pluginRegistry *plugins.Registr
 			layout.Leaf(paneShell),
 		)
 	}
-	p.focused = paneShell
+	p.focused = paneWorktree
 	p.refreshPaneStatuses()
 	return p
 }
