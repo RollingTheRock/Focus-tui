@@ -408,6 +408,39 @@ func TestOpenEditorPaneReusesExistingEditorForSameFile(t *testing.T) {
 	}
 }
 
+func TestEditorIsolationAcrossWorktreePages(t *testing.T) {
+	cfg := config.DefaultConfig()
+	st, _ := store.New(":memory:")
+	m := New(cfg, st).(model)
+
+	path := filepath.Join(t.TempDir(), "main.go")
+
+	m.switchToWorktreePage("/repo/feature-a", string(paneShell))
+	cmd := m.openEditorPane(editorplugin.OpenEditorMsg{FilePath: path, Behavior: editorplugin.OpenBehaviorDefault})
+	if cmd == nil {
+		t.Fatalf("expected init command for first editor open")
+	}
+	pageA := m.pages["/repo/feature-a"]
+	editorA := pageA.focused
+
+	m.switchToWorktreePage("/repo/feature-b", string(paneShell))
+	cmd = m.openEditorPane(editorplugin.OpenEditorMsg{FilePath: path, Behavior: editorplugin.OpenBehaviorDefault})
+	if cmd == nil {
+		t.Fatalf("expected init command for second editor open in different worktree")
+	}
+	pageB := m.pages["/repo/feature-b"]
+	editorB := pageB.focused
+
+	if pageA.panes[editorA] == pageB.panes[editorB] {
+		t.Fatalf("expected different editor pane instances for same file in different worktrees")
+	}
+
+	m.switchToWorktreePage("/repo/feature-a", "")
+	if _, ok := m.activePage.paneMeta[editorA]; !ok {
+		t.Fatalf("expected editor A to remain in worktree A page")
+	}
+}
+
 func TestEditorHostPaneTargetPrefersLastEditorFromFileTree(t *testing.T) {
 	cfg := config.DefaultConfig()
 	st, _ := store.New(":memory:")
