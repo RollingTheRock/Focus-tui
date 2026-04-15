@@ -112,6 +112,45 @@ func newOverviewPage(common *models.CommonModel, pluginRegistry *plugins.Registr
 	return p
 }
 
+func newWorktreePage(common *models.CommonModel, pluginRegistry *plugins.Registry, adapterManager *adapters.Manager, cfg config.Config, store models.Store, worktreeID, repoRoot string) *page {
+	p := newPage(common, pluginRegistry, adapterManager)
+
+	gitPaneMeta := models.PaneMeta{ID: paneGitStatus, Name: "Git Status", Type: models.PaneTypeGitStatus, CWD: worktreeID, RepoID: repoRoot, WorktreeID: worktreeID, Status: models.PaneStatusIdle, Closable: false}
+	fileTreeMeta := models.PaneMeta{ID: paneFileTree, Name: "File Tree", Type: models.PaneTypeFileTree, CWD: worktreeID, RepoID: repoRoot, WorktreeID: worktreeID, Status: models.PaneStatusIdle, Closable: false}
+
+	p.registerPane(paneHeader, header.New(cfg, common.Theme, store), models.PaneMeta{ID: paneHeader, Name: "Header", Type: models.PaneTypeHeader, Status: models.PaneStatusPassive, Closable: false})
+	p.registerPane(paneShell, shell.NewWithCWD(common, paneShell, worktreeID), models.PaneMeta{ID: paneShell, Name: "Shell", Type: models.PaneTypeShell, CWD: worktreeID, RepoID: repoRoot, WorktreeID: worktreeID, Status: models.PaneStatusStarting, Closable: true})
+	p.registerPane(paneTodo, todo.New(common), models.PaneMeta{ID: paneTodo, Name: "Todo", Type: models.PaneTypeTodo, Status: models.PaneStatusIdle, Closable: false})
+	p.registerPane(panePomodoro, pomodoro.New(common), models.PaneMeta{ID: panePomodoro, Name: "Pomodoro", Type: models.PaneTypePomodoro, Status: models.PaneStatusIdle, Closable: false})
+	p.registerPane(paneFooter, footer.New(common), models.PaneMeta{ID: paneFooter, Name: "Footer", Type: models.PaneTypeFooter, Status: models.PaneStatusPassive, Closable: false})
+
+	if panel, err := pluginRegistry.CreatePane(models.PaneTypeFileTree, paneFileTree, fileTreeMeta, *common); err == nil {
+		p.registerPane(paneFileTree, panel, fileTreeMeta)
+	}
+
+	if repoRoot != "" {
+		if panel, err := pluginRegistry.CreatePane(models.PaneTypeGitStatus, paneGitStatus, gitPaneMeta, *common); err == nil {
+			p.registerPane(paneGitStatus, panel, gitPaneMeta)
+			p.bodyTree = layout.Split(
+				layout.SplitHorizontal,
+				30,
+				layout.Split(layout.SplitVertical, 50, layout.Leaf(paneGitStatus), layout.Leaf(paneFileTree)),
+				layout.Leaf(paneShell),
+			)
+		}
+	} else {
+		p.bodyTree = layout.Split(
+			layout.SplitHorizontal,
+			30,
+			layout.Leaf(paneFileTree),
+			layout.Leaf(paneShell),
+		)
+	}
+	p.focused = paneShell
+	p.refreshPaneStatuses()
+	return p
+}
+
 func (p *page) registerPane(id models.PaneID, panel models.Panel, meta models.PaneMeta) {
 	p.panes[id] = panel
 	p.paneMeta[id] = meta
@@ -873,6 +912,13 @@ func (p *page) openWorktreeShell(msg gitplugin.OpenWorktreeShellMsg) tea.Cmd {
 func (m *model) switchToOverviewPage() {
 	m.state = StateOverviewPage
 	m.currentWorktreePage = ""
+	m.activePage = m.pages[""]
+	if m.activePage == nil {
+		cwd, _ := os.Getwd()
+		repoRoot, _ := gitRepoRoot(cwd)
+		m.activePage = newOverviewPage(m.common, m.pluginRegistry, m.adapterManager, m.common.Cfg, m.common.Store, cwd, repoRoot)
+		m.pages[""] = m.activePage
+	}
 	if m.activePage.paneMeta[paneWorktree].ID != "" {
 		m.activePage.setFocus(paneWorktree)
 	}
@@ -882,14 +928,32 @@ func (m *model) switchToOverviewPage() {
 	if m.activePage.zoomedPane != "" {
 		m.activePage.restoreZoom()
 	}
+	m.updateSizes(m.common.Width, m.common.Height)
 	m.invalidateView()
 }
 
 func (m *model) switchToWorktreePage(worktreeID, preferredPane string) {
+	if worktreeID == "" {
+		m.switchToOverviewPage()
+		return
+	}
 	m.state = StateWorktreePage
 	m.currentWorktreePage = worktreeID
+	if p, ok := m.pages[worktreeID]; ok && p != nil {
+		m.activePage = p
+	} else {
+		repoRoot := m.gitRepoPath()
+		if repoRoot == "" {
+			cwd, _ := os.Getwd()
+			repoRoot, _ = gitRepoRoot(cwd)
+		}
+		p = newWorktreePage(m.common, m.pluginRegistry, m.adapterManager, m.common.Cfg, m.common.Store, worktreeID, repoRoot)
+		m.pages[worktreeID] = p
+		m.activePage = p
+	}
 	if preferredPane != "" {
 		m.activePage.setFocus(models.PaneID(preferredPane))
 	}
+	m.updateSizes(m.common.Width, m.common.Height)
 	m.invalidateView()
 }

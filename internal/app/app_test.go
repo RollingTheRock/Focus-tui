@@ -168,12 +168,19 @@ func TestSwitchToWorktreePageTracksPageState(t *testing.T) {
 	if m.currentWorktreePage != "/repo/feature-a" {
 		t.Fatalf("expected current worktree page to be tracked, got %q", m.currentWorktreePage)
 	}
+	if m.activePage == nil {
+		t.Fatal("expected active page to be set")
+	}
+	if m.activePage.paneMeta[paneShell].CWD != "/repo/feature-a" {
+		t.Fatalf("expected worktree page shell cwd to be worktree path, got %q", m.activePage.paneMeta[paneShell].CWD)
+	}
 }
 
 func TestCtrlGReturnsToOverviewPage(t *testing.T) {
 	cfg := config.DefaultConfig()
 	st, _ := store.New(":memory:")
 	m := New(cfg, st).(model)
+	overviewPage := m.activePage
 	m.switchToWorktreePage("/repo/feature-a", string(paneShell))
 
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlG})
@@ -184,8 +191,51 @@ func TestCtrlGReturnsToOverviewPage(t *testing.T) {
 	if m.currentWorktreePage != "" {
 		t.Fatalf("expected overview to clear active worktree page, got %q", m.currentWorktreePage)
 	}
+	if m.activePage != overviewPage {
+		t.Fatal("expected active page to return to overview instance")
+	}
 	if m.activePage.focused != paneWorktree {
 		t.Fatalf("expected focus to return to worktree overview pane, got %s", m.activePage.focused)
+	}
+}
+
+func TestOpenWorktreeShellCreatesNewPageInstance(t *testing.T) {
+	cfg := config.DefaultConfig()
+	st, _ := store.New(":memory:")
+	m := New(cfg, st).(model)
+	overviewPage := m.activePage
+
+	cmd := m.openWorktreeShell(gitplugin.OpenWorktreeShellMsg{Worktree: gitplugin_testWorktree("/repo/feature-a", "feature-a")})
+	if cmd == nil {
+		t.Fatalf("expected init command for worktree shell")
+	}
+	if m.activePage == overviewPage {
+		t.Fatal("expected active page to switch away from overview")
+	}
+	if m.state != StateWorktreePage {
+		t.Fatalf("expected worktree page state, got %v", m.state)
+	}
+	if m.activePage.paneMeta[m.activePage.focused].CWD != "/repo/feature-a" {
+		t.Fatalf("expected shell cwd to be worktree path, got %q", m.activePage.paneMeta[m.activePage.focused].CWD)
+	}
+}
+
+func TestWorktreePageSplitDoesNotAffectOverview(t *testing.T) {
+	cfg := config.DefaultConfig()
+	st, _ := store.New(":memory:")
+	m := New(cfg, st).(model)
+	m.switchToWorktreePage("/repo/feature-a", string(paneShell))
+	worktreePage := m.activePage
+
+	m.Update(keyCtrlBackslash())
+
+	if got := len(layout.LeafOrder(worktreePage.bodyTree)); got != 4 {
+		t.Fatalf("expected 4 panes in worktree page after split, got %d", got)
+	}
+	m.switchToOverviewPage()
+	overviewLeaves := len(layout.LeafOrder(m.activePage.bodyTree))
+	if overviewLeaves != 4 {
+		t.Fatalf("expected overview page to have 4 leaves, got %d", overviewLeaves)
 	}
 }
 
@@ -452,14 +502,13 @@ func TestOpenWorktreeShellAddsScopedShellPane(t *testing.T) {
 	st, _ := store.New(":memory:")
 	m := New(cfg, st).(model)
 	m.setFocus(paneWorktree)
-	initialLeaves := len(layout.LeafOrder(m.activePage.bodyTree))
 
 	cmd := m.openWorktreeShell(gitplugin.OpenWorktreeShellMsg{Worktree: gitplugin_testWorktree("/repo/feature-a", "feature-a")})
 	if cmd == nil {
 		t.Fatalf("expected init command for worktree shell")
 	}
-	if got := len(layout.LeafOrder(m.activePage.bodyTree)); got != initialLeaves+1 {
-		t.Fatalf("expected leaf count %d after opening worktree shell, got %d", initialLeaves+1, got)
+	if got := len(layout.LeafOrder(m.activePage.bodyTree)); got != 4 {
+		t.Fatalf("expected leaf count 4 after opening worktree shell, got %d", got)
 	}
 	if m.activePage.focused == paneWorktree {
 		t.Fatalf("expected focus to move to new shell")
@@ -517,15 +566,14 @@ func TestWorktreeCreatedRefreshesAndOpensShell(t *testing.T) {
 	if !ok || worktreePanel == nil {
 		t.Fatalf("expected worktree pane to be registered")
 	}
-	initialLeaves := len(layout.LeafOrder(m.activePage.bodyTree))
 
 	updatedModel, cmd := m.Update(gitplugin.WorktreeCreatedMsg{ID: paneWorktreeCreate, Worktree: gitplugin_testWorktree("/repo/feature-a", "feature-a")})
 	m = updatedModel.(model)
 	if cmd == nil {
 		t.Fatalf("expected batched commands after worktree creation")
 	}
-	if got := len(layout.LeafOrder(m.activePage.bodyTree)); got != initialLeaves+1 {
-		t.Fatalf("expected leaf count %d after opening new worktree shell, got %d", initialLeaves+1, got)
+	if got := len(layout.LeafOrder(m.activePage.bodyTree)); got != 4 {
+		t.Fatalf("expected leaf count 4 after opening new worktree shell, got %d", got)
 	}
 	if m.activePage.paneMeta[m.activePage.focused].Type != models.PaneTypeShell {
 		t.Fatalf("expected focus on shell after worktree creation, got %v", m.activePage.paneMeta[m.activePage.focused].Type)

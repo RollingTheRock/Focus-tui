@@ -538,6 +538,11 @@ func (m *model) createShellPaneFor(cwd, repoID, worktreeID, branchSnapshot strin
 }
 
 func (m *model) openWorktreeShell(msg gitplugin.OpenWorktreeShellMsg) tea.Cmd {
+	worktreeID := msg.Worktree.Path
+	if worktreeID == "" {
+		worktreeID = m.currentWorktreeID()
+	}
+	m.switchToWorktreePage(worktreeID, "")
 	cmd := m.activePage.openWorktreeShell(msg)
 	m.updateSizes(m.common.Width, m.common.Height)
 	return cmd
