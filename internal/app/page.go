@@ -1056,10 +1056,10 @@ func (m *model) switchToOverviewPage() {
 	m.invalidateView()
 }
 
-func (m *model) switchToWorktreePage(worktreeID, preferredPane string) {
+func (m *model) switchToWorktreePage(worktreeID, preferredPane string) tea.Cmd {
 	if worktreeID == "" {
 		m.switchToOverviewPage()
-		return
+		return nil
 	}
 	m.persistActivePageSnapshot()
 	if m.activePage != nil {
@@ -1067,6 +1067,7 @@ func (m *model) switchToWorktreePage(worktreeID, preferredPane string) {
 	}
 	m.state = StateWorktreePage
 	m.currentWorktreePage = worktreeID
+	var initCmds []tea.Cmd
 	if p, ok := m.pages[worktreeID]; ok && p != nil {
 		m.activePage = p
 	} else {
@@ -1078,6 +1079,11 @@ func (m *model) switchToWorktreePage(worktreeID, preferredPane string) {
 		p = newWorktreePage(m.common, m.pluginRegistry, m.adapterManager, m.common.Cfg, m.common.Store, worktreeID, repoRoot)
 		m.pages[worktreeID] = p
 		m.activePage = p
+		for _, id := range p.paneOrder {
+			if cmd := p.pane(id).Init(); cmd != nil {
+				initCmds = append(initCmds, cmd)
+			}
+		}
 	}
 	if m.activePage.snapshot != nil {
 		m.activePage.restoreSnapshot()
@@ -1087,4 +1093,8 @@ func (m *model) switchToWorktreePage(worktreeID, preferredPane string) {
 	}
 	m.updateSizes(m.common.Width, m.common.Height)
 	m.invalidateView()
+	if len(initCmds) == 0 {
+		return nil
+	}
+	return tea.Batch(initCmds...)
 }

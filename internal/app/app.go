@@ -431,6 +431,9 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.mode = ModeNormal
 			m.setFocus(paneTodo)
 			return m, nil
+		case "ctrl+g":
+			m.switchToOverviewPage()
+			return m, nil
 		default:
 			if m.activePage.paneMeta[m.activePage.focused].Type == models.PaneTypeShell {
 				return m, m.routeToPane(m.activePage.focused, msg)
@@ -544,9 +547,15 @@ func (m *model) openWorktreeShell(msg gitplugin.OpenWorktreeShellMsg) tea.Cmd {
 	if worktreeID == "" {
 		worktreeID = m.currentWorktreeID()
 	}
-	m.switchToWorktreePage(worktreeID, "")
+	pageCmd := m.switchToWorktreePage(worktreeID, "")
 	cmd := m.activePage.openWorktreeShell(msg)
 	m.updateSizes(m.common.Width, m.common.Height)
+	if pageCmd != nil && cmd != nil {
+		return tea.Batch(pageCmd, cmd)
+	}
+	if pageCmd != nil {
+		return pageCmd
+	}
 	return cmd
 }
 
@@ -801,8 +810,8 @@ func (m model) renderHelpLine(w int) string {
 	compact := "[tab]next  [enter]open  [q]uit"
 	switch focusedType {
 	case models.PaneTypeWorktree:
-		left = "[j/k]move  [enter]open shell  [n]ew worktree  [r]efresh"
-		compact = "[enter]shell  [n]ew  [r]efresh"
+		left = "[j/k]move  [enter]open shell  [n]ew worktree  [r]efresh  [ctrl+g]overview"
+		compact = "[enter]shell  [n]ew  [r]efresh  [ctrl+g]overview"
 	case models.PaneTypeGitStatus:
 		left = "[j/k]move  [enter]review  [d]iff file  [space]stage  [a]all  [f]etch  [p]ull  [c]ommit  [P]push"
 		compact = "[enter]review  [d]iff  [a]all"
@@ -834,8 +843,8 @@ func (m model) renderHelpLine(w int) string {
 			left = "[tab]next  [ctrl+h/j/k/l]focus  [shell starting]"
 			compact = "[tab]next  [shell starting]"
 		default:
-			left = "[tab]next  [ctrl+h/j/k/l]focus  [enter]shell"
-			compact = "[tab]next  [enter]shell  [q]uit"
+			left = "[tab]next  [ctrl+h/j/k/l]focus  [enter]shell  [ctrl+g]overview"
+			compact = "[tab]next  [enter]shell  [ctrl+g]overview"
 		}
 	case models.PaneTypeEditor:
 		left = "[ctrl+s]save  [ctrl+f /]search  [:]line  [n/N]result  [esc]close"
