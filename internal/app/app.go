@@ -73,22 +73,12 @@ type model struct {
 	overlay        OverlayKind
 	avatarRendered string
 
-	panes       map[models.PaneID]models.Panel
-	paneMeta    map[models.PaneID]models.PaneMeta
-	paneOrder   []models.PaneID
-	bodyTree    *layout.TreeNode
-	frames      map[models.PaneID]models.PaneFrame
-	focused     models.PaneID
-	nextShell   int
-	nextEditor  int
-	returnFocus map[models.PaneID]models.PaneID
+	activePage *page
+	pages      map[string]*page
 
 	viewGen             uint64
 	vc                  *viewCache
 	currentWorktreePage string
-
-	zoomedPane  models.PaneID
-	preZoomTree *layout.TreeNode
 
 	overlayBaseFocus models.PaneID
 
@@ -111,34 +101,21 @@ func New(cfg config.Config, store models.Store) tea.Model {
 	}
 
 	cwd, _ := os.Getwd()
+	repoRoot, _ := gitRepoRoot(cwd)
+
 	m := model{
-		common:   cm,
-		state:    StateDashboard,
-		mode:     ModeNormal,
-		overlay:  OverlayNone,
-		panes:    make(map[models.PaneID]models.Panel),
-		paneMeta: make(map[models.PaneID]models.PaneMeta),
-		bodyTree: layout.Split(
-			layout.SplitHorizontal,
-			30,
-			layout.Split(layout.SplitVertical, 34, layout.Leaf(paneWorktree), layout.Split(layout.SplitVertical, 50, layout.Leaf(paneGitStatus), layout.Leaf(paneFileTree))),
-			layout.Leaf(paneShell),
-		),
-		focused:        paneShell,
-		nextShell:      2,
-		nextEditor:     1,
-		returnFocus:    make(map[models.PaneID]models.PaneID),
+		common:         cm,
+		state:          StateDashboard,
+		mode:           ModeNormal,
+		overlay:        OverlayNone,
 		vc:             &viewCache{},
 		pluginRegistry: plugins.NewRegistry(),
 		adapterManager: adapters.NewManager(),
+		pages:          make(map[string]*page),
 	}
 
 	gitAdapter := adapters.NewGitLocalAdapter()
 	_ = m.adapterManager.Register(gitAdapter.Name(), gitAdapter)
-
-	gitPaneMeta := models.PaneMeta{ID: paneGitStatus, Name: "Git Status", Type: models.PaneTypeGitStatus, CWD: cwd, RepoID: cwd, WorktreeID: cwd, Status: models.PaneStatusIdle, Closable: false}
-	worktreePaneMeta := models.PaneMeta{ID: paneWorktree, Name: "Worktrees", Type: models.PaneTypeWorktree, CWD: cwd, RepoID: cwd, WorktreeID: cwd, Status: models.PaneStatusIdle, Closable: false}
-	fileTreeMeta := models.PaneMeta{ID: paneFileTree, Name: "File Tree", Type: models.PaneTypeFileTree, CWD: cwd, RepoID: cwd, WorktreeID: cwd, Status: models.PaneStatusIdle, Closable: false}
 
 	gitPlugin := gitplugin.New(m.adapterManager.Git())
 	fileTreePlugin := filebrowser.New()
@@ -147,77 +124,29 @@ func New(cfg config.Config, store models.Store) tea.Model {
 	_ = m.pluginRegistry.Register(fileTreePlugin)
 	_ = m.pluginRegistry.Register(editorPlugin)
 
-	m.registerPane(paneHeader, header.New(cfg, cm.Theme, store), models.PaneMeta{ID: paneHeader, Name: "Header", Type: models.PaneTypeHeader, Status: models.PaneStatusPassive, Closable: false})
-	m.registerPane(paneShell, shell.New(cm, paneShell), models.PaneMeta{ID: paneShell, Name: "Shell", Type: models.PaneTypeShell, CWD: cwd, RepoID: cwd, WorktreeID: cwd, Status: models.PaneStatusStarting, Closable: true})
-	m.registerPane(paneTodo, todo.New(cm), models.PaneMeta{ID: paneTodo, Name: "Todo", Type: models.PaneTypeTodo, Status: models.PaneStatusIdle, Closable: false})
-	m.registerPane(panePomodoro, pomodoro.New(cm), models.PaneMeta{ID: panePomodoro, Name: "Pomodoro", Type: models.PaneTypePomodoro, Status: models.PaneStatusIdle, Closable: false})
-	m.registerPane(paneFooter, footer.New(cm), models.PaneMeta{ID: paneFooter, Name: "Footer", Type: models.PaneTypeFooter, Status: models.PaneStatusPassive, Closable: false})
-
-	if panel, err := m.pluginRegistry.CreatePane(models.PaneTypeFileTree, paneFileTree, fileTreeMeta, *cm); err == nil {
-		m.registerPane(paneFileTree, panel, fileTreeMeta)
-	}
-
-	if repoRoot, ok := gitRepoRoot(cwd); ok {
-		gitPaneMeta.CWD = repoRoot
-		gitPaneMeta.RepoID = repoRoot
-		gitPaneMeta.WorktreeID = repoRoot
-		worktreePaneMeta.CWD = repoRoot
-		worktreePaneMeta.RepoID = repoRoot
-		worktreePaneMeta.WorktreeID = repoRoot
-		fileTreeMeta.CWD = repoRoot
-		fileTreeMeta.RepoID = repoRoot
-		fileTreeMeta.WorktreeID = repoRoot
-		if shellMeta, ok := m.paneMeta[paneShell]; ok {
-			shellMeta.RepoID = repoRoot
-			shellMeta.WorktreeID = repoRoot
-			m.paneMeta[paneShell] = shellMeta
-		}
-		if panel, err := m.pluginRegistry.CreatePane(models.PaneTypeWorktree, paneWorktree, worktreePaneMeta, *cm); err == nil {
-			m.registerPane(paneWorktree, panel, worktreePaneMeta)
-		}
-		if panel, err := m.pluginRegistry.CreatePane(models.PaneTypeGitStatus, paneGitStatus, gitPaneMeta, *cm); err == nil {
-			m.registerPane(paneGitStatus, panel, gitPaneMeta)
-			m.bodyTree = layout.Split(
-				layout.SplitHorizontal,
-				30,
-				layout.Split(layout.SplitVertical, 34, layout.Leaf(paneWorktree), layout.Split(layout.SplitVertical, 50, layout.Leaf(paneGitStatus), layout.Leaf(paneFileTree))),
-				layout.Leaf(paneShell),
-			)
-		}
-	} else {
-		m.bodyTree = layout.Split(
-			layout.SplitHorizontal,
-			30,
-			layout.Leaf(paneFileTree),
-			layout.Leaf(paneShell),
-		)
-	}
-	m.refreshPaneStatuses()
+	m.activePage = newOverviewPage(cm, m.pluginRegistry, m.adapterManager, cfg, store, cwd, repoRoot)
+	m.pages[""] = m.activePage
 
 	return m
 }
 
 func (m *model) registerPane(id models.PaneID, panel models.Panel, meta models.PaneMeta) {
-	m.panes[id] = panel
-	m.paneMeta[id] = meta
-	m.paneOrder = append(m.paneOrder, id)
+	m.activePage.registerPane(id, panel, meta)
 }
 
 func (m *model) pane(id models.PaneID) models.Panel {
-	return m.panes[id]
+	return m.activePage.pane(id)
 }
 
 func (m *model) setPane(id models.PaneID, panel models.Panel) {
-	m.panes[id] = panel
-	m.syncPaneMeta(id)
+	m.activePage.setPane(id, panel)
 }
 
-// Init implements tea.Model.
 func (m model) Init() tea.Cmd {
 	var cmds []tea.Cmd
 	if m.adapterManager != nil {
 		if err := m.adapterManager.Init(); err != nil {
-			if meta, ok := m.paneMeta[paneGitStatus]; ok {
+			if meta, ok := m.activePage.paneMeta[paneGitStatus]; ok {
 				repoPath := meta.CWD
 				cmds = append(cmds, func() tea.Msg {
 					return adapters.StatusEvent{RepoPath: repoPath, Error: err}
@@ -225,7 +154,7 @@ func (m model) Init() tea.Cmd {
 			}
 		}
 	}
-	for _, id := range m.paneOrder {
+	for _, id := range m.activePage.paneOrder {
 		if cmd := m.pane(id).Init(); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
@@ -261,7 +190,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.overlay = OverlayPicker
 		m.setFocus(panePomodoro)
 		m.invalidateView()
-		return m.routeToPane(panePomodoro, msg)
+		return m, m.routeToPane(panePomodoro, msg)
 
 	case gitplugin.OpenDiffMsg:
 		cmd := m.openDiffPane(msg)
@@ -316,17 +245,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case gitplugin.CommitCompletedMsg:
 		m.closePane(msg.ID)
 		m.invalidateView()
-		if _, ok := m.paneMeta[paneGitStatus]; ok {
-			return m.routeToPane(paneGitStatus, msg)
+		if _, ok := m.activePage.paneMeta[paneGitStatus]; ok {
+			return m, m.routeToPane(paneGitStatus, msg)
 		}
 		return m, nil
 
 	case gitplugin.WorktreeCreatedMsg:
 		m.closePane(msg.ID)
 		var cmds []tea.Cmd
-		if _, ok := m.paneMeta[paneWorktree]; ok {
-			updated, cmd := m.routeToPane(paneWorktree, gitplugin.RefreshWorktreesMsg{})
-			m = updated.(model)
+		if _, ok := m.activePage.paneMeta[paneWorktree]; ok {
+			cmd := m.routeToPane(paneWorktree, gitplugin.RefreshWorktreesMsg{})
 			if cmd != nil {
 				cmds = append(cmds, cmd)
 			}
@@ -350,15 +278,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case gitplugin.WorktreeRemovedMsg:
 		m.closePanesForWorktree(msg.Path)
 		m.invalidateView()
-		if _, ok := m.paneMeta[paneWorktree]; ok {
-			return m.routeToPane(paneWorktree, msg)
+		if _, ok := m.activePage.paneMeta[paneWorktree]; ok {
+			return m, m.routeToPane(paneWorktree, msg)
 		}
 		return m, nil
 
 	case gitplugin.WorktreesPrunedMsg, gitplugin.WorktreeActionFailedMsg:
 		m.invalidateView()
-		if _, ok := m.paneMeta[paneWorktree]; ok {
-			return m.routeToPane(paneWorktree, msg)
+		if _, ok := m.activePage.paneMeta[paneWorktree]; ok {
+			return m, m.routeToPane(paneWorktree, msg)
 		}
 		return m, nil
 
@@ -380,21 +308,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case shell.StartedMsg:
 		m.invalidateView()
-		return m.routeToPane(msg.PaneID, msg)
+		return m, m.routeToPane(msg.PaneID, msg)
 
 	case shell.RefreshMsg:
 		m.invalidateView()
-		return m.routeToPane(msg.PaneID, msg)
+		return m, m.routeToPane(msg.PaneID, msg)
 
 	case shell.ExitedMsg:
 		m.invalidateView()
-		return m.routeToPane(msg.PaneID, msg)
+		return m, m.routeToPane(msg.PaneID, msg)
 
 	case adapters.StatusEvent:
 		m.invalidateView()
 		var cmds []tea.Cmd
-		for _, id := range m.paneOrder {
-			if m.paneMeta[id].Type != models.PaneTypeGitStatus {
+		for _, id := range m.activePage.paneOrder {
+			if m.activePage.paneMeta[id].Type != models.PaneTypeGitStatus {
 				continue
 			}
 			newPanel, cmd := m.pane(id).Update(msg)
@@ -415,7 +343,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	m.invalidateView()
 	var cmds []tea.Cmd
-	for _, id := range m.paneOrder {
+	for _, id := range m.activePage.paneOrder {
 		newPanel, cmd := m.pane(id).Update(msg)
 		m.setPane(id, newPanel)
 		if cmd != nil {
@@ -441,13 +369,13 @@ func (m model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	if clicked == "" {
 		return m, nil
 	}
-	if m.paneMeta[clicked].Type != models.PaneTypeShell {
-		return m.routeToPane(clicked, msg)
+	if m.activePage.paneMeta[clicked].Type != models.PaneTypeShell {
+		return m, m.routeToPane(clicked, msg)
 	}
 	if m.mode != ModeShell {
 		return m, nil
 	}
-	frame, ok := m.frames[clicked]
+	frame, ok := m.activePage.frames[clicked]
 	if !ok {
 		return m, nil
 	}
@@ -459,7 +387,7 @@ func (m model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	if adjusted.X < 0 || adjusted.X >= contentW || adjusted.Y < 0 || adjusted.Y >= contentH {
 		return m, nil
 	}
-	return m.routeToPane(clicked, tea.Msg(adjusted))
+	return m, m.routeToPane(clicked, tea.Msg(adjusted))
 }
 
 // handleKey routes keyboard input based on overlay, mode, and focused pane.
@@ -469,8 +397,7 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	if m.overlay == OverlayPicker {
 		if pomo.IsPickerActive() {
-			updated, cmd := m.routeToPane(panePomodoro, msg)
-			m = updated.(model)
+			cmd := m.routeToPane(panePomodoro, msg)
 			if !m.pane(panePomodoro).(*pomodoro.Model).IsPickerActive() {
 				m.overlay = OverlayNone
 			}
@@ -481,7 +408,7 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	if overlayID := m.activeOverlayPane(); overlayID != "" {
-		return m.routeToPane(overlayID, msg)
+		return m, m.routeToPane(overlayID, msg)
 	}
 
 	if m.mode == ModeInput {
@@ -489,7 +416,7 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.closeShellPanes()
 			return m, tea.Quit
 		}
-		return m.routeToPane(paneTodo, msg)
+		return m, m.routeToPane(paneTodo, msg)
 	}
 
 	if m.mode == ModeShell {
@@ -503,8 +430,8 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.setFocus(paneTodo)
 			return m, nil
 		default:
-			if m.paneMeta[m.focused].Type == models.PaneTypeShell {
-				return m.routeToPane(m.focused, msg)
+			if m.activePage.paneMeta[m.activePage.focused].Type == models.PaneTypeShell {
+				return m, m.routeToPane(m.activePage.focused, msg)
 			}
 			m.mode = ModeNormal
 		}
@@ -526,8 +453,8 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.focusCycle(1)
 		return m, nil
 	case "shift+tab":
-		if m.paneMeta[m.focused].Type == models.PaneTypeTodo {
-			return m.routeToPane(m.focused, msg)
+		if m.activePage.paneMeta[m.activePage.focused].Type == models.PaneTypeTodo {
+			return m, m.routeToPane(m.activePage.focused, msg)
 		}
 		m.focusCycle(-1)
 		return m, nil
@@ -538,16 +465,16 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+w":
 		return m.closeFocusedPane()
 	case "ctrl+h":
-		m.setFocus(layout.MoveFocus(m.focused, m.frames, layout.FocusLeft))
+		m.setFocus(layout.MoveFocus(m.activePage.focused, m.activePage.frames, layout.FocusLeft))
 		return m, nil
 	case "ctrl+l":
-		m.setFocus(layout.MoveFocus(m.focused, m.frames, layout.FocusRight))
+		m.setFocus(layout.MoveFocus(m.activePage.focused, m.activePage.frames, layout.FocusRight))
 		return m, nil
 	case "ctrl+k":
-		m.setFocus(layout.MoveFocus(m.focused, m.frames, layout.FocusUp))
+		m.setFocus(layout.MoveFocus(m.activePage.focused, m.activePage.frames, layout.FocusUp))
 		return m, nil
 	case "ctrl+j":
-		m.setFocus(layout.MoveFocus(m.focused, m.frames, layout.FocusDown))
+		m.setFocus(layout.MoveFocus(m.activePage.focused, m.activePage.frames, layout.FocusDown))
 		return m, nil
 	case "ctrl+t":
 		m.restoreZoom()
@@ -559,390 +486,144 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "z":
 		return m.toggleZoom()
 	case "enter":
-		if m.paneMeta[m.focused].Type == models.PaneTypeShell {
+		if m.activePage.paneMeta[m.activePage.focused].Type == models.PaneTypeShell {
 			m.mode = ModeShell
 			m.refreshPaneStatuses()
-			if m.paneMeta[m.focused].Status == models.PaneStatusExited {
-				return m.routeToPane(m.focused, msg)
+			if m.activePage.paneMeta[m.activePage.focused].Status == models.PaneStatusExited {
+				return m, m.routeToPane(m.activePage.focused, msg)
 			}
 			return m, nil
 		}
 	}
 
-	if m.focused != "" && m.paneMeta[m.focused].Type != models.PaneTypeShell {
-		return m.routeToPane(m.focused, msg)
+	if m.activePage.focused != "" && m.activePage.paneMeta[m.activePage.focused].Type != models.PaneTypeShell {
+		return m, m.routeToPane(m.activePage.focused, msg)
 	}
 
 	return m, nil
 }
 
 func (m *model) setPaneStatus(id models.PaneID, status models.PaneStatus) {
-	meta := m.paneMeta[id]
+	meta := m.activePage.paneMeta[id]
 	meta.Status = status
-	m.paneMeta[id] = meta
+	m.activePage.paneMeta[id] = meta
 }
 
 func (m *model) setFocus(id models.PaneID) {
-	if id == "" {
-		return
-	}
-	if _, ok := m.paneMeta[id]; !ok {
-		return
-	}
-	m.focused = id
-	m.refreshPaneStatuses()
+	m.activePage.setFocus(id)
 }
 
 func (m *model) refreshPaneStatuses() {
-	for id, meta := range m.paneMeta {
-		if editorPane, ok := m.pane(id).(editorMetaProvider); ok {
-			meta.Name = editorPane.DisplayName()
-			if editorPane.Dirty() {
-				meta.Name = "*" + meta.Name
-			}
-			meta.CWD = filepath.Dir(editorPane.FilePath())
-		}
-		switch meta.Type {
-		case models.PaneTypeHeader, models.PaneTypeFooter:
-			meta.Status = models.PaneStatusPassive
-		case models.PaneTypeShell:
-			if sh, ok := m.pane(id).(*shell.Model); ok {
-				meta.Status = sh.SessionStatus()
-			} else {
-				meta.Status = models.PaneStatusStarting
-			}
-		default:
-			if id == m.focused {
-				meta.Status = models.PaneStatusReady
-			} else {
-				meta.Status = models.PaneStatusIdle
-			}
-		}
-		m.paneMeta[id] = meta
-	}
+	m.activePage.refreshPaneStatuses()
 }
 
 func (m *model) syncPaneMeta(id models.PaneID) {
-	meta, ok := m.paneMeta[id]
-	if !ok {
-		return
-	}
-	if editorPane, ok := m.pane(id).(editorMetaProvider); ok {
-		meta.Name = editorPane.DisplayName()
-		if editorPane.Dirty() {
-			meta.Name = "*" + meta.Name
-		}
-		if filePath := editorPane.FilePath(); filePath != "" {
-			meta.CWD = filepath.Dir(filePath)
-		}
-		m.paneMeta[id] = meta
-	}
+	m.activePage.syncPaneMeta(id)
 }
 
 func (m *model) nextShellPaneID() models.PaneID {
-	id := models.PaneID(fmt.Sprintf("shell-%d", m.nextShell))
-	m.nextShell++
-	return id
+	return m.activePage.nextShellPaneID()
 }
 
 func (m *model) nextEditorPaneID() models.PaneID {
-	id := models.PaneID(fmt.Sprintf("editor-%d", m.nextEditor))
-	m.nextEditor++
-	return id
+	return m.activePage.nextEditorPaneID()
 }
 
 func (m *model) createShellPane() (models.PaneID, tea.Cmd) {
-	return m.createShellPaneFor(m.currentCWD(), m.currentRepoID(), m.currentWorktreeID(), m.currentBranchSnapshot())
+	return m.activePage.createShellPane()
 }
 
 func (m *model) createShellPaneFor(cwd, repoID, worktreeID, branchSnapshot string) (models.PaneID, tea.Cmd) {
-	id := m.nextShellPaneID()
-	panel := shell.NewWithCWD(m.common, id, cwd)
-	meta := models.PaneMeta{
-		ID:             id,
-		Name:           fmt.Sprintf("Shell %d", m.nextShell-1),
-		Type:           models.PaneTypeShell,
-		CWD:            cwd,
-		RepoID:         repoID,
-		WorktreeID:     worktreeID,
-		BranchSnapshot: branchSnapshot,
-		Status:         models.PaneStatusStarting,
-		Closable:       true,
-	}
-	m.registerPane(id, panel, meta)
-	if frame, ok := m.frames[m.focused]; ok {
-		contentW := max(frame.W-4, 8)
-		contentH := max(frame.H-2, 3)
-		panel.SetSize(contentW, contentH)
-	}
-	return id, panel.Init()
+	return m.activePage.createShellPaneFor(cwd, repoID, worktreeID, branchSnapshot)
 }
 
 func (m *model) openWorktreeShell(msg gitplugin.OpenWorktreeShellMsg) tea.Cmd {
-	cwd := msg.Worktree.Path
-	if cwd == "" {
-		cwd = m.currentCWD()
-	}
-	repoID := m.currentRepoID()
-	if repoID == "" {
-		repoID = m.gitRepoPath()
-	}
-	worktreeID := cwd
-	branchSnapshot := msg.Worktree.Branch
-
-	id, cmd := m.createShellPaneFor(cwd, repoID, worktreeID, branchSnapshot)
-	m.bodyTree = layout.SplitLeaf(m.bodyTree, m.focused, id, layout.SplitHorizontal, true)
-	m.setFocus(id)
+	cmd := m.activePage.openWorktreeShell(msg)
 	m.updateSizes(m.common.Width, m.common.Height)
 	return cmd
 }
 
 func (m *model) currentCWD() string {
-	if meta, ok := m.paneMeta[m.focused]; ok && meta.CWD != "" {
-		return meta.CWD
-	}
-	cwd, _ := os.Getwd()
-	return cwd
+	return m.activePage.currentCWD()
 }
 
 func (m *model) currentRepoID() string {
-	if meta, ok := m.paneMeta[m.focused]; ok && meta.RepoID != "" {
-		return meta.RepoID
-	}
-	if meta, ok := m.paneMeta[paneGitStatus]; ok && meta.RepoID != "" {
-		return meta.RepoID
-	}
-	return m.currentCWD()
+	return m.activePage.currentRepoID()
 }
 
 func (m *model) currentWorktreeID() string {
-	if meta, ok := m.paneMeta[m.focused]; ok && meta.WorktreeID != "" {
-		return meta.WorktreeID
-	}
-	if meta, ok := m.paneMeta[paneGitStatus]; ok && meta.WorktreeID != "" {
-		return meta.WorktreeID
-	}
-	return m.currentCWD()
+	return m.activePage.currentWorktreeID()
 }
 
 func (m *model) currentBranchSnapshot() string {
-	if meta, ok := m.paneMeta[m.focused]; ok && meta.BranchSnapshot != "" {
-		return meta.BranchSnapshot
-	}
-	if meta, ok := m.paneMeta[paneGitStatus]; ok {
-		return meta.BranchSnapshot
-	}
-	return ""
+	return m.activePage.currentBranchSnapshot()
 }
 
 func (m *model) openEditorPane(msg editorplugin.OpenEditorMsg) tea.Cmd {
-	opener := m.focused
-	filePath := filepath.Clean(msg.FilePath)
-	if existing := m.findEditorPaneByPath(filePath); existing != "" {
-		m.setFocus(existing)
-		if msg.LineNumber > 0 {
-			newPanel, cmd := m.pane(existing).Update(editorplugin.OpenEditorMsg{FilePath: filePath, LineNumber: msg.LineNumber})
-			m.setPane(existing, newPanel)
-			m.syncPaneMeta(existing)
-			return cmd
-		}
-		return nil
-	}
-	id := m.nextEditorPaneID()
-	meta := models.PaneMeta{
-		ID:             id,
-		Name:           filepath.Base(filePath),
-		Type:           models.PaneTypeEditor,
-		CWD:            filepath.Dir(filePath),
-		RepoID:         m.currentRepoID(),
-		WorktreeID:     m.currentWorktreeID(),
-		BranchSnapshot: m.currentBranchSnapshot(),
-		Status:         models.PaneStatusReady,
-		Closable:       true,
-	}
-	panel := editorplugin.NewEditorPane(id, meta, *m.common, filePath, msg.LineNumber)
-	m.registerPane(id, panel, meta)
-	if opener != "" && opener != id {
-		if m.returnFocus == nil {
-			m.returnFocus = make(map[models.PaneID]models.PaneID)
-		}
-		m.returnFocus[id] = opener
-	}
-
-	target := m.editorHostPaneTarget(opener, msg.Behavior)
-	direction := m.editorSplitDirection(target, msg.Behavior)
-	m.bodyTree = layout.SplitLeaf(m.bodyTree, target, id, direction, true)
-	m.setFocus(id)
+	cmd := m.activePage.openEditorPane(msg)
 	m.updateSizes(m.common.Width, m.common.Height)
-	return panel.Init()
+	return cmd
 }
 
 func (m model) findEditorPaneByPath(filePath string) models.PaneID {
-	currentWorktreeID := m.currentWorktreeID()
-	for _, id := range layout.LeafOrder(m.bodyTree) {
-		panel := m.pane(id)
-		editorPane, ok := panel.(editorMetaProvider)
-		if !ok {
-			continue
-		}
-		meta := m.paneMeta[id]
-		if editorPane.FilePath() == filePath && meta.WorktreeID == currentWorktreeID {
-			return id
-		}
-	}
-	return ""
+	return m.activePage.findEditorPaneByPath(filePath)
 }
 
 func (m model) editorHostPaneTarget(opener models.PaneID, behavior editorplugin.OpenBehavior) models.PaneID {
-	if meta, ok := m.paneMeta[opener]; ok && (meta.Type == models.PaneTypeEditor || meta.Type == models.PaneTypeShell) {
-		return opener
-	}
-	if editor := m.lastEditorPane(); editor != "" {
-		return editor
-	}
-	if _, ok := m.paneMeta[paneShell]; ok {
-		return paneShell
-	}
-	if behavior == editorplugin.OpenBehaviorVSplit {
-		return opener
-	}
-	return opener
+	return m.activePage.editorHostPaneTarget(opener, behavior)
 }
 
 func (m model) lastEditorPane() models.PaneID {
-	order := layout.LeafOrder(m.bodyTree)
-	for idx := len(order) - 1; idx >= 0; idx-- {
-		id := order[idx]
-		if meta, ok := m.paneMeta[id]; ok && meta.Type == models.PaneTypeEditor {
-			return id
-		}
-	}
-	return ""
+	return m.activePage.lastEditorPane()
 }
 
 func (m model) editorSplitDirection(target models.PaneID, behavior editorplugin.OpenBehavior) layout.SplitDirection {
-	if behavior == editorplugin.OpenBehaviorVSplit {
-		return layout.SplitHorizontal
-	}
-	if meta, ok := m.paneMeta[target]; ok && meta.Type == models.PaneTypeEditor {
-		return layout.SplitVertical
-	}
-	return layout.SplitHorizontal
+	return m.activePage.editorSplitDirection(target, behavior)
 }
 
 func (m model) splitFocused(direction layout.SplitDirection) (tea.Model, tea.Cmd) {
-	newID, cmd := m.createShellPane()
-	m.bodyTree = layout.SplitLeaf(m.bodyTree, m.focused, newID, direction, true)
-	m.setFocus(newID)
+	cmd := m.activePage.splitFocused(direction)
 	m.updateSizes(m.common.Width, m.common.Height)
 	m.invalidateView()
 	return m, cmd
 }
 
 func (m model) adjustFocusedSplit(direction layout.FocusDirection) (tea.Model, tea.Cmd) {
-	if m.focused == "" {
-		return m, nil
-	}
-
-	splitDirection := layout.SplitHorizontal
-	delta := splitRatioStep
-	switch direction {
-	case layout.FocusLeft:
-		delta = -splitRatioStep
-	case layout.FocusRight:
-		delta = splitRatioStep
-	case layout.FocusUp:
-		splitDirection = layout.SplitVertical
-		delta = -splitRatioStep
-	case layout.FocusDown:
-		splitDirection = layout.SplitVertical
-		delta = splitRatioStep
-	}
-
-	if !layout.AdjustSplitRatio(m.bodyTree, m.bodyBounds(), m.focused, splitDirection, delta) {
-		return m, nil
-	}
-	m.updateSizes(m.common.Width, m.common.Height)
-	m.invalidateView()
-	return m, nil
-}
-
-func (m model) closeFocusedPane() (tea.Model, tea.Cmd) {
-	meta, ok := m.paneMeta[m.focused]
-	if !ok || !meta.Closable {
-		return m, nil
-	}
-	m.closePane(m.focused)
-	m.invalidateView()
-	return m, nil
-}
-
-func (m *model) focusCycle(delta int) {
-	if m.zoomedPane != "" {
-		m.restoreZoom()
-	}
-	order := layout.LeafOrder(m.bodyTree)
-	if len(order) == 0 {
-		return
-	}
-	idx := 0
-	for i, id := range order {
-		if id == m.focused {
-			idx = i
-			break
-		}
-	}
-	idx = (idx + delta + len(order)) % len(order)
-	m.setFocus(order[idx])
-}
-
-func (m model) toggleZoom() (tea.Model, tea.Cmd) {
-	if m.zoomedPane != "" {
-		m.restoreZoom()
-	} else {
-		if m.focused == "" || m.focused == paneHeader || m.focused == paneFooter {
-			return m, nil
-		}
-		m.preZoomTree = m.bodyTree
-		m.bodyTree = layout.Leaf(m.focused)
-		m.zoomedPane = m.focused
+	if m.activePage.adjustFocusedSplit(direction) {
 		m.updateSizes(m.common.Width, m.common.Height)
 		m.invalidateView()
 	}
 	return m, nil
 }
 
-func (m *model) restoreZoom() {
-	if m.zoomedPane == "" {
-		return
-	}
-	if m.preZoomTree != nil {
-		m.bodyTree = m.preZoomTree
-		m.preZoomTree = nil
-	}
-	m.zoomedPane = ""
+func (m model) closeFocusedPane() (tea.Model, tea.Cmd) {
+	m.activePage.closeFocusedPane()
 	m.updateSizes(m.common.Width, m.common.Height)
 	m.invalidateView()
+	return m, nil
+}
+
+func (m *model) focusCycle(delta int) {
+	m.activePage.focusCycle(delta)
+}
+
+func (m model) toggleZoom() (tea.Model, tea.Cmd) {
+	m.activePage.toggleZoom()
+	m.updateSizes(m.common.Width, m.common.Height)
+	m.invalidateView()
+	return m, nil
+}
+
+func (m *model) restoreZoom() {
+	m.activePage.restoreZoom()
 }
 
 func (m *model) removePaneOrder(id models.PaneID) {
-	filtered := m.paneOrder[:0]
-	for _, existing := range m.paneOrder {
-		if existing != id {
-			filtered = append(filtered, existing)
-		}
-	}
-	m.paneOrder = filtered
+	m.activePage.removePaneOrder(id)
 }
 
 func (m model) activeOverlayPane() models.PaneID {
-	if _, ok := m.paneMeta[paneWorktreeCreate]; ok {
-		return paneWorktreeCreate
-	}
-	if _, ok := m.paneMeta[paneGitCommit]; ok {
-		return paneGitCommit
-	}
-	return ""
+	return m.activePage.activeOverlayPane()
 }
 
 func (m model) isOverlayPane(id models.PaneID) bool {
@@ -950,53 +631,25 @@ func (m model) isOverlayPane(id models.PaneID) bool {
 }
 
 func (m *model) paneAt(x, y int) models.PaneID {
-	for _, id := range layout.LeafOrder(m.bodyTree) {
-		frame, ok := m.frames[id]
-		if !ok {
-			continue
-		}
-		if x >= frame.X && x < frame.X+frame.W && y >= frame.Y && y < frame.Y+frame.H {
-			return id
-		}
-	}
-	return ""
+	return m.activePage.paneAt(x, y)
 }
 
-func (m model) routeToPane(id models.PaneID, msg tea.Msg) (tea.Model, tea.Cmd) {
-	panel := m.pane(id)
-	if panel == nil {
-		return m, nil
-	}
-	newPanel, cmd := panel.Update(msg)
-	m.setPane(id, newPanel)
-	m.refreshPaneStatuses()
-	return m, cmd
+func (m model) routeToPane(id models.PaneID, msg tea.Msg) tea.Cmd {
+	return m.activePage.routeToPane(id, msg)
 }
 
 func (m *model) updateSizes(w, h int) {
 	dims := layout.ComputeBanner(w, h)
-	m.pane(paneHeader).SetSize(w, dims.HeaderH)
+	m.activePage.pane(paneHeader).SetSize(w, dims.HeaderH)
 	footerHeight := 0
 	if footerVisible(h) {
 		footerHeight = 1
 	}
-	m.pane(paneFooter).SetSize(w, footerHeight)
-
-	m.frames = layout.ComputeFrames(m.bodyTree, m.bodyBounds())
-	for id, frame := range m.frames {
-		contentW := frame.W - 4
-		if contentW < 8 {
-			contentW = 8
-		}
-		contentH := frame.H - 2
-		if contentH < 3 {
-			contentH = 3
-		}
-		m.pane(id).SetSize(contentW, contentH)
-	}
-	if overlayID := m.activeOverlayPane(); overlayID != "" {
+	m.activePage.pane(paneFooter).SetSize(w, footerHeight)
+	m.activePage.updateSizes(m.activePage.bodyBounds(w, h))
+	if overlayID := m.activePage.activeOverlayPane(); overlayID != "" {
 		overlayW, overlayH := m.overlayContentSize()
-		if panel := m.pane(overlayID); panel != nil {
+		if panel := m.activePage.pane(overlayID); panel != nil {
 			panel.SetSize(overlayW, overlayH)
 		}
 	}
@@ -1017,26 +670,9 @@ func gitRepoRoot(path string) (string, bool) {
 }
 
 func (m model) bodyBounds() models.PaneFrame {
-	w := m.common.Width
-	h := m.common.Height
-	if w <= 0 {
-		w = 80
-	}
-	if h <= 0 {
-		h = 24
-	}
-	dims := layout.ComputeBanner(w, h)
-	bodyHeight := h - dims.HeaderH - 1
-	if footerVisible(h) {
-		bodyHeight--
-	}
-	if bodyHeight < 0 {
-		bodyHeight = 0
-	}
-	return models.PaneFrame{X: 0, Y: 0, W: w, H: bodyHeight}
+	return m.activePage.bodyBounds(m.common.Width, m.common.Height)
 }
 
-// View implements tea.Model.
 func (m model) View() string {
 	w := m.common.Width
 	h := m.common.Height
@@ -1057,9 +693,9 @@ func (m model) View() string {
 		m.vc.gen = m.viewGen
 	}
 
-	if m.mode == ModeShell && m.paneMeta[m.focused].Type == models.PaneTypeShell {
-		if sh, ok := m.pane(m.focused).(*shell.Model); ok {
-			if frame, exists := m.frames[m.focused]; exists {
+	if m.mode == ModeShell && m.activePage.paneMeta[m.activePage.focused].Type == models.PaneTypeShell {
+		if sh, ok := m.pane(m.activePage.focused).(*shell.Model); ok {
+			if frame, exists := m.activePage.frames[m.activePage.focused]; exists {
 				if cx, cy, vis := sh.CursorPos(); vis {
 					termRow := dims.HeaderH + frame.Y + 1 + cy + 1
 					termCol := frame.X + 2 + cx + 1
@@ -1116,60 +752,11 @@ func (m model) buildView(dims layout.Dimensions, w, h int) string {
 }
 
 func (m model) renderBody(w, h int) string {
-	if w <= 0 {
-		w = 80
-	}
-	if h <= 0 {
-		h = 6
-	}
-	base := blankCanvas(w, h)
-	for _, id := range layout.LeafOrder(m.bodyTree) {
-		frame, ok := m.frames[id]
-		if !ok {
-			continue
-		}
-		panel := m.pane(id)
-		active := id == m.focused
-		content := panel.View()
-		title := m.renderPaneTitle(id, max(frame.W-4, 8))
-		panelView := layout.RenderPanel(title, content, max(frame.W-4, 8), max(frame.H-2, 3), active)
-		base = layout.OverlayOnBase(base, panelView, frame.X, frame.Y)
-	}
-
-	if m.overlay == OverlayPicker {
-		if frame, ok := m.frames[panePomodoro]; ok {
-			pomo := m.pane(panePomodoro).(*pomodoro.Model)
-			overlayW := frame.W - 8
-			if overlayW > 50 {
-				overlayW = 50
-			}
-			if overlayW < 20 {
-				overlayW = 20
-			}
-			overlayH := frame.H - 4
-			if overlayH > 15 {
-				overlayH = 15
-			}
-			if overlayH < 4 {
-				overlayH = 4
-			}
-			overlayView := layout.RenderPanel("SELECT TASK", pomo.PickerView(), overlayW, overlayH, true)
-			x := frame.X + (frame.W-(overlayW+4))/2
-			y := frame.Y + (frame.H-(overlayH+2))/2
-			base = layout.OverlayOnBase(base, overlayView, x, y)
-		}
-	}
-
-	if overlayID := m.activeOverlayPane(); overlayID != "" {
-		base = m.renderOverlayPane(base, overlayID)
-	}
-
-	return base
+	return m.activePage.renderBody(w, h, m.overlay)
 }
 
 func (m model) renderPaneTitle(id models.PaneID, contentWidth int) string {
-	meta := m.paneMeta[id]
-	return formatPaneTitle(meta, id == m.focused, m.mode == ModeShell && meta.Type == models.PaneTypeShell, contentWidth)
+	return m.activePage.renderPaneTitle(id, m.activePage.focused, m.mode, contentWidth)
 }
 
 func (m model) renderHelpLine(w int) string {
@@ -1179,13 +766,13 @@ func (m model) renderHelpLine(w int) string {
 	helpStyle := lipgloss.NewStyle().Foreground(styles.Subtle)
 	pomo := m.pane(panePomodoro).(*pomodoro.Model)
 	todoModel := m.pane(paneTodo).(*todo.Model)
-	focusedType := m.paneMeta[m.focused].Type
+	focusedType := m.activePage.paneMeta[m.activePage.focused].Type
 
 	if m.overlay == OverlayPicker {
 		return renderCompactHelpLine(helpStyle, "[enter]select  [esc]skip", w)
 	}
 	if overlayID := m.activeOverlayPane(); overlayID != "" {
-		switch m.paneMeta[overlayID].Type {
+		switch m.activePage.paneMeta[overlayID].Type {
 		case paneTypeGitCommit:
 			return renderCompactHelpLine(helpStyle, "[ctrl+s]commit  [ctrl+j]fallback  [esc]cancel", w)
 		case paneTypeWorktreeCreate:
@@ -1232,7 +819,7 @@ func (m model) renderHelpLine(w int) string {
 			compact = "[p]ause  [r]eset"
 		}
 	case models.PaneTypeShell:
-		switch m.paneMeta[m.focused].Status {
+		switch m.activePage.paneMeta[m.activePage.focused].Status {
 		case models.PaneStatusExited:
 			left = "[tab]next  [ctrl+h/j/k/l]focus  [enter]restart shell"
 			compact = "[tab]next  [enter]restart  [q]uit"
@@ -1254,7 +841,7 @@ func (m model) renderHelpLine(w int) string {
 		return renderCompactHelpLine(helpStyle, compact, w)
 	}
 	right := "[ctrl+\\/ctrl+-]split  [ctrl+arrows]resize"
-	if meta, ok := m.paneMeta[m.focused]; ok && meta.Closable {
+	if meta, ok := m.activePage.paneMeta[m.activePage.focused]; ok && meta.Closable {
 		right += "  [ctrl+w]close"
 	}
 	right += "  [q]uit"
@@ -1317,133 +904,33 @@ func renderWindowTooSmallBody(w, h int) string {
 }
 
 func (m *model) closeShellPanes() {
-	for id, meta := range m.paneMeta {
-		if meta.Type != models.PaneTypeShell {
-			continue
-		}
-		if sh, ok := m.pane(id).(*shell.Model); ok {
-			_ = sh.Close()
-		}
-	}
+	m.activePage.closeShellPanes()
 }
 
 func (m *model) openDiffPane(msg gitplugin.OpenDiffMsg) tea.Cmd {
-	opener := m.focused
-	target := m.reviewHostPaneTarget(opener)
-	m.closePane(paneGitCommit)
-	m.closePane(paneGitDiff)
-
-	meta := models.PaneMeta{
-		ID:             paneGitDiff,
-		Name:           "Diff",
-		Type:           models.PaneTypeDiffView,
-		CWD:            m.gitRepoPath(),
-		RepoID:         m.currentRepoID(),
-		WorktreeID:     m.currentWorktreeID(),
-		BranchSnapshot: m.currentBranchSnapshot(),
-		Status:         models.PaneStatusReady,
-		Closable:       true,
-	}
-	panel := gitplugin.NewDiffPane(meta.ID, meta, *m.common, m.adapterManager.Git(), msg.FilePath, msg.Staged)
-	m.registerPane(meta.ID, panel, meta)
-	if opener != "" && opener != paneGitDiff {
-		if m.returnFocus == nil {
-			m.returnFocus = make(map[models.PaneID]models.PaneID)
-		}
-		m.returnFocus[paneGitDiff] = opener
-	}
-	m.bodyTree = layout.SplitLeaf(m.bodyTree, target, paneGitDiff, m.reviewSplitDirection(target), true)
-	m.setFocus(meta.ID)
+	cmd := m.activePage.openDiffPane(msg)
 	m.updateSizes(m.common.Width, m.common.Height)
-	return panel.Init()
+	return cmd
 }
 
 func (m model) reviewHostPaneTarget(opener models.PaneID) models.PaneID {
-	if meta, ok := m.paneMeta[opener]; ok && (meta.Type == models.PaneTypeEditor || meta.Type == models.PaneTypeShell) {
-		return opener
-	}
-	if editor := m.lastEditorPane(); editor != "" {
-		return editor
-	}
-	if _, ok := m.paneMeta[paneShell]; ok {
-		return paneShell
-	}
-	if opener != "" {
-		return opener
-	}
-	return paneGitStatus
+	return m.activePage.reviewHostPaneTarget(opener)
 }
 
 func (m model) reviewSplitDirection(target models.PaneID) layout.SplitDirection {
-	if meta, ok := m.paneMeta[target]; ok && meta.Type == models.PaneTypeEditor {
-		return layout.SplitVertical
-	}
-	return layout.SplitHorizontal
+	return m.activePage.reviewSplitDirection(target)
 }
 
 func (m *model) openCommitPane(msg gitplugin.OpenCommitMsg) tea.Cmd {
-	m.closePane(paneGitDiff)
-	m.closePane(paneGitCommit)
-
-	baseFocus := m.focused
-	if baseFocus == "" {
-		baseFocus = paneGitStatus
-	}
-
-	repoPath := msg.RepoPath
-	if repoPath == "" {
-		repoPath = m.gitRepoPath()
-	}
-
-	meta := models.PaneMeta{
-		ID:             paneGitCommit,
-		Name:           "Commit",
-		Type:           paneTypeGitCommit,
-		CWD:            repoPath,
-		RepoID:         m.currentRepoID(),
-		WorktreeID:     m.currentWorktreeID(),
-		BranchSnapshot: m.currentBranchSnapshot(),
-		Status:         models.PaneStatusReady,
-		Closable:       true,
-	}
-	panel := gitplugin.NewCommitPane(meta.ID, meta, *m.common, m.adapterManager.Git(), msg.StagedFiles)
-	m.registerPane(meta.ID, panel, meta)
-	m.overlayBaseFocus = baseFocus
-	m.setFocus(meta.ID)
+	cmd := m.activePage.openCommitPane(msg)
 	m.updateSizes(m.common.Width, m.common.Height)
-	return panel.Init()
+	return cmd
 }
 
 func (m *model) openCreateWorktreePane(msg gitplugin.OpenCreateWorktreeMsg) tea.Cmd {
-	m.closePane(paneWorktreeCreate)
-
-	baseFocus := m.focused
-	if baseFocus == "" {
-		baseFocus = paneWorktree
-	}
-
-	repoPath := msg.RepoPath
-	if repoPath == "" {
-		repoPath = m.gitRepoPath()
-	}
-
-	meta := models.PaneMeta{
-		ID:             paneWorktreeCreate,
-		Name:           "Create Worktree",
-		Type:           paneTypeWorktreeCreate,
-		CWD:            repoPath,
-		RepoID:         m.currentRepoID(),
-		WorktreeID:     m.currentWorktreeID(),
-		BranchSnapshot: m.currentBranchSnapshot(),
-		Status:         models.PaneStatusReady,
-		Closable:       true,
-	}
-	panel := gitplugin.NewWorktreeCreatePane(meta.ID, meta, *m.common, m.adapterManager.Git(), msg)
-	m.registerPane(meta.ID, panel, meta)
-	m.overlayBaseFocus = baseFocus
-	m.setFocus(meta.ID)
+	cmd := m.activePage.openCreateWorktreePane(msg)
 	m.updateSizes(m.common.Width, m.common.Height)
-	return panel.Init()
+	return cmd
 }
 
 func (m *model) removeWorktree(msg gitplugin.RequestRemoveWorktreeMsg) tea.Cmd {
@@ -1478,150 +965,23 @@ func (m *model) pruneWorktrees(msg gitplugin.RequestPruneWorktreesMsg) tea.Cmd {
 }
 
 func (m *model) closePanesForWorktree(worktreePath string) {
-	if worktreePath == "" {
-		return
-	}
-	ids := append([]models.PaneID(nil), m.paneOrder...)
-	for _, id := range ids {
-		meta, ok := m.paneMeta[id]
-		if !ok || !meta.Closable {
-			continue
-		}
-		if meta.WorktreeID != worktreePath {
-			continue
-		}
-		m.closePane(id)
-	}
+	m.activePage.closePanesForWorktree(worktreePath)
 }
 
 func (m *model) closePane(id models.PaneID) {
-	meta, ok := m.paneMeta[id]
-	if !ok || !meta.Closable {
-		return
-	}
-	if m.zoomedPane == id {
-		m.restoreZoom()
-	}
-
-	if sh, ok := m.pane(id).(*shell.Model); ok {
-		_ = sh.Close()
-	}
-
-	wasFocused := m.focused == id
-	wasOverlay := m.isOverlayPane(id)
-	preferred := m.returnFocus[id]
-	var fallback models.PaneID
-	leafOrder := layout.LeafOrder(m.bodyTree)
-	leafCount := len(leafOrder)
-	leafPresent := false
-	for _, leafID := range leafOrder {
-		if leafID == id {
-			leafPresent = true
-			break
-		}
-	}
-	if leafPresent {
-		if leafCount <= 1 {
-			return
-		}
-		if wasFocused {
-			fallback = layout.CloseFocusFallback(id, m.frames)
-		}
-		m.bodyTree = layout.RemoveLeaf(m.bodyTree, id)
-	}
-
-	delete(m.panes, id)
-	delete(m.paneMeta, id)
-	m.removePaneOrder(id)
-	if m.returnFocus != nil {
-		delete(m.returnFocus, id)
-		for paneID, target := range m.returnFocus {
-			if target == id {
-				delete(m.returnFocus, paneID)
-			}
-		}
-	}
-
-	if wasOverlay {
-		restore := m.overlayBaseFocus
-		m.overlayBaseFocus = ""
-		if restore != "" {
-			if _, ok := m.paneMeta[restore]; ok {
-				m.setFocus(restore)
-			} else if _, ok := m.paneMeta[paneGitStatus]; ok {
-				m.setFocus(paneGitStatus)
-			}
-		} else if _, ok := m.paneMeta[paneGitStatus]; ok {
-			m.setFocus(paneGitStatus)
-		}
-	} else if wasFocused {
-		restoredPreferred := false
-		if preferred != "" {
-			if _, ok := m.paneMeta[preferred]; ok && preferred != id {
-				m.setFocus(preferred)
-				restoredPreferred = true
-			}
-		}
-		if !restoredPreferred && fallback != "" && fallback != id {
-			m.setFocus(fallback)
-		} else if !restoredPreferred {
-			remaining := layout.LeafOrder(m.bodyTree)
-			if len(remaining) > 0 {
-				m.setFocus(remaining[0])
-			}
-		}
-	}
-
-	m.updateSizes(m.common.Width, m.common.Height)
-	m.refreshPaneStatuses()
+	m.activePage.closePane(id)
 }
 
 func (m model) gitRepoPath() string {
-	if meta, ok := m.paneMeta[paneGitStatus]; ok && meta.CWD != "" {
-		return meta.CWD
-	}
-	return m.currentCWD()
+	return m.activePage.gitRepoPath()
 }
 
 func (m model) overlayContentSize() (int, int) {
-	bounds := m.bodyBounds()
-	width := bounds.W - 12
-	if width > 96 {
-		width = 96
-	}
-	if width < 20 {
-		width = 20
-	}
-
-	height := bounds.H - 6
-	if height > 18 {
-		height = 18
-	}
-	if height < 4 {
-		height = 4
-	}
-
-	return width, height
+	return m.activePage.overlayContentSize()
 }
 
 func (m model) renderOverlayPane(base string, id models.PaneID) string {
-	panel := m.pane(id)
-	if panel == nil {
-		return base
-	}
-
-	bounds := m.bodyBounds()
-	overlayW, overlayH := m.overlayContentSize()
-	overlayView := layout.RenderPanel(m.renderPaneTitle(id, overlayW), panel.View(), overlayW, overlayH, true)
-	x := bounds.X + (bounds.W-(overlayW+4))/2
-	y := bounds.Y + (bounds.H-(overlayH+2))/2
-	if x < bounds.X {
-		x = bounds.X
-	}
-	if y < bounds.Y {
-		y = bounds.Y
-	}
-	return layout.OverlayOnBase(base, overlayView, x, y)
+	return m.activePage.renderOverlayPane(base, id)
 }
 
 func blankCanvas(w, h int) string {

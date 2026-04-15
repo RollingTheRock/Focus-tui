@@ -113,12 +113,12 @@ func TestRenderHelpLineForEditorIncludesSearchShortcuts(t *testing.T) {
 	cfg := config.DefaultConfig()
 	st, _ := store.New(":memory:")
 	m := New(cfg, st).(model)
-	m.focused = paneFileTree
+	m.activePage.focused = paneFileTree
 	editorID := models.PaneID("editor-1")
-	m.panes[editorID] = &fakeEditorMetaPanel{name: "main.go", filePath: "/tmp/main.go"}
-	m.paneMeta[editorID] = models.PaneMeta{ID: editorID, Name: "main.go", Type: models.PaneTypeEditor, Closable: true}
-	m.paneOrder = append(m.paneOrder, editorID)
-	m.focused = editorID
+	m.activePage.panes[editorID] = &fakeEditorMetaPanel{name: "main.go", filePath: "/tmp/main.go"}
+	m.activePage.paneMeta[editorID] = models.PaneMeta{ID: editorID, Name: "main.go", Type: models.PaneTypeEditor, Closable: true}
+	m.activePage.paneOrder = append(m.activePage.paneOrder, editorID)
+	m.activePage.focused = editorID
 
 	help := m.renderHelpLine(120)
 	for _, want := range []string{"[ctrl+s]save", "[ctrl+f /]search", "[:]line", "[n/N]result"} {
@@ -132,7 +132,7 @@ func TestRenderHelpLineForGitStatusIncludesReviewShortcuts(t *testing.T) {
 	cfg := config.DefaultConfig()
 	st, _ := store.New(":memory:")
 	m := New(cfg, st).(model)
-	m.focused = paneGitStatus
+	m.activePage.focused = paneGitStatus
 
 	help := m.renderHelpLine(140)
 	for _, want := range []string{"[enter]review", "[d]iff file", "[space]stage"} {
@@ -146,7 +146,7 @@ func TestRenderHelpLineForWorktreePaneIncludesRefreshShortcut(t *testing.T) {
 	cfg := config.DefaultConfig()
 	st, _ := store.New(":memory:")
 	m := New(cfg, st).(model)
-	m.focused = paneWorktree
+	m.activePage.focused = paneWorktree
 
 	help := m.renderHelpLine(120)
 	for _, want := range []string{"[j/k]move", "[r]efresh"} {
@@ -184,8 +184,8 @@ func TestCtrlGReturnsToOverviewPage(t *testing.T) {
 	if m.currentWorktreePage != "" {
 		t.Fatalf("expected overview to clear active worktree page, got %q", m.currentWorktreePage)
 	}
-	if m.focused != paneWorktree {
-		t.Fatalf("expected focus to return to worktree overview pane, got %s", m.focused)
+	if m.activePage.focused != paneWorktree {
+		t.Fatalf("expected focus to return to worktree overview pane, got %s", m.activePage.focused)
 	}
 }
 
@@ -193,10 +193,10 @@ func TestRenderHelpLineForDiffPaneIncludesReviewCloseShortcut(t *testing.T) {
 	cfg := config.DefaultConfig()
 	st, _ := store.New(":memory:")
 	m := New(cfg, st).(model)
-	m.panes[paneGitDiff] = &fakePanel{}
-	m.paneMeta[paneGitDiff] = models.PaneMeta{ID: paneGitDiff, Name: "Diff", Type: models.PaneTypeDiffView, Closable: true}
-	m.bodyTree = layout.SplitLeaf(m.bodyTree, paneShell, paneGitDiff, layout.SplitHorizontal, true)
-	m.focused = paneGitDiff
+	m.activePage.panes[paneGitDiff] = &fakePanel{}
+	m.activePage.paneMeta[paneGitDiff] = models.PaneMeta{ID: paneGitDiff, Name: "Diff", Type: models.PaneTypeDiffView, Closable: true}
+	m.activePage.bodyTree = layout.SplitLeaf(m.activePage.bodyTree, paneShell, paneGitDiff, layout.SplitHorizontal, true)
+	m.activePage.focused = paneGitDiff
 
 	help := m.renderHelpLine(120)
 	for _, want := range []string{"[enter]open file", "[s]toggle staged", "[[]/[]]files", "[wheel]scroll", "[q/esc]close review"} {
@@ -225,22 +225,24 @@ func TestShellRefreshMsgRoutesOnlyToTargetPane(t *testing.T) {
 	target := &fakePanel{}
 	other := &fakePanel{}
 	m := model{
-		panes: map[models.PaneID]models.Panel{
-			"shell-1": target,
-			"shell-2": other,
+		activePage: &page{
+			panes: map[models.PaneID]models.Panel{
+				"shell-1": target,
+				"shell-2": other,
+			},
+			paneMeta: map[models.PaneID]models.PaneMeta{
+				"shell-1": {ID: "shell-1", Type: models.PaneTypeShell},
+				"shell-2": {ID: "shell-2", Type: models.PaneTypeShell},
+			},
+			paneOrder: []models.PaneID{"shell-1", "shell-2"},
 		},
-		paneMeta: map[models.PaneID]models.PaneMeta{
-			"shell-1": {ID: "shell-1", Type: models.PaneTypeShell},
-			"shell-2": {ID: "shell-2", Type: models.PaneTypeShell},
-		},
-		paneOrder: []models.PaneID{"shell-1", "shell-2"},
 	}
 
 	updated, _ := m.Update(shell.RefreshMsg{PaneID: "shell-1"})
 	m = updated.(model)
 
-	targetPanel := m.panes["shell-1"].(*fakePanel)
-	otherPanel := m.panes["shell-2"].(*fakePanel)
+	targetPanel := m.activePage.panes["shell-1"].(*fakePanel)
+	otherPanel := m.activePage.panes["shell-2"].(*fakePanel)
 	if len(targetPanel.updates) != 1 {
 		t.Fatalf("expected target pane to receive 1 update, got %d", len(targetPanel.updates))
 	}
@@ -262,7 +264,7 @@ func TestSplitFocusedHorizontal(t *testing.T) {
 	st, _ := store.New(":memory:")
 	m := New(cfg, st).(model)
 
-	initialOrder := layout.LeafOrder(m.bodyTree)
+	initialOrder := layout.LeafOrder(m.activePage.bodyTree)
 	if len(initialOrder) != 4 {
 		t.Fatalf("expected 4 panes initially (shell + worktree + git + file-tree), got %d", len(initialOrder))
 	}
@@ -273,7 +275,7 @@ func TestSplitFocusedHorizontal(t *testing.T) {
 	}
 	m = newM.(model)
 
-	newOrder := layout.LeafOrder(m.bodyTree)
+	newOrder := layout.LeafOrder(m.activePage.bodyTree)
 	if len(newOrder) != 5 {
 		t.Fatalf("expected 5 panes after split, got %d", len(newOrder))
 	}
@@ -282,10 +284,10 @@ func TestSplitFocusedHorizontal(t *testing.T) {
 	for _, id := range newOrder {
 		if string(id) != string(paneShell) && string(id) != string(paneWorktree) && string(id) != string(paneGitStatus) && string(id) != string(paneFileTree) {
 			foundNewPane = true
-			if m.focused != id {
-				t.Fatalf("expected focus on new pane %s, got %s", id, m.focused)
+			if m.activePage.focused != id {
+				t.Fatalf("expected focus on new pane %s, got %s", id, m.activePage.focused)
 			}
-			if meta, ok := m.paneMeta[id]; !ok || meta.Type != models.PaneTypeShell {
+			if meta, ok := m.activePage.paneMeta[id]; !ok || meta.Type != models.PaneTypeShell {
 				t.Fatalf("expected new pane to be shell type, got %v", meta.Type)
 			}
 			break
@@ -301,16 +303,16 @@ func TestZoomToggle(t *testing.T) {
 	st, _ := store.New(":memory:")
 	m := New(cfg, st).(model)
 
-	initialOrder := layout.LeafOrder(m.bodyTree)
+	initialOrder := layout.LeafOrder(m.activePage.bodyTree)
 
 	newM, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'z'}})
 	m = newM.(model)
 
-	if m.zoomedPane != paneShell {
-		t.Fatalf("expected zoomed pane to be shell, got %s", m.zoomedPane)
+	if m.activePage.zoomedPane != paneShell {
+		t.Fatalf("expected zoomed pane to be shell, got %s", m.activePage.zoomedPane)
 	}
 
-	zoomedOrder := layout.LeafOrder(m.bodyTree)
+	zoomedOrder := layout.LeafOrder(m.activePage.bodyTree)
 	if len(zoomedOrder) != 1 {
 		t.Fatalf("expected 1 pane when zoomed, got %d", len(zoomedOrder))
 	}
@@ -318,11 +320,11 @@ func TestZoomToggle(t *testing.T) {
 	newM, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'z'}})
 	m = newM.(model)
 
-	if m.zoomedPane != "" {
-		t.Fatalf("expected zoom to be restored, got %s", m.zoomedPane)
+	if m.activePage.zoomedPane != "" {
+		t.Fatalf("expected zoom to be restored, got %s", m.activePage.zoomedPane)
 	}
 
-	restoredOrder := layout.LeafOrder(m.bodyTree)
+	restoredOrder := layout.LeafOrder(m.activePage.bodyTree)
 	if len(restoredOrder) != len(initialOrder) {
 		t.Fatalf("expected %d panes after restore, got %d", len(initialOrder), len(restoredOrder))
 	}
@@ -338,21 +340,21 @@ func TestOpenEditorPaneReusesExistingEditorForSameFile(t *testing.T) {
 	if cmd == nil {
 		t.Fatalf("expected init command for first editor open")
 	}
-	firstFocused := m.focused
-	if meta, ok := m.paneMeta[firstFocused]; !ok || meta.Type != models.PaneTypeEditor {
+	firstFocused := m.activePage.focused
+	if meta, ok := m.activePage.paneMeta[firstFocused]; !ok || meta.Type != models.PaneTypeEditor {
 		t.Fatalf("expected focused pane to be editor, got %v", meta.Type)
 	}
-	leafCount := len(layout.LeafOrder(m.bodyTree))
+	leafCount := len(layout.LeafOrder(m.activePage.bodyTree))
 
 	cmd = m.openEditorPane(editorplugin.OpenEditorMsg{FilePath: path, Behavior: editorplugin.OpenBehaviorDefault})
 	if cmd != nil {
 		t.Fatalf("expected no init command when reusing existing editor")
 	}
-	if len(layout.LeafOrder(m.bodyTree)) != leafCount {
+	if len(layout.LeafOrder(m.activePage.bodyTree)) != leafCount {
 		t.Fatalf("expected leaf count to remain %d when reusing editor", leafCount)
 	}
-	if m.focused != firstFocused {
-		t.Fatalf("expected focus to stay on reused editor %s, got %s", firstFocused, m.focused)
+	if m.activePage.focused != firstFocused {
+		t.Fatalf("expected focus to stay on reused editor %s, got %s", firstFocused, m.activePage.focused)
 	}
 }
 
@@ -363,15 +365,15 @@ func TestEditorHostPaneTargetPrefersLastEditorFromFileTree(t *testing.T) {
 
 	path := filepath.Join(t.TempDir(), "main.go")
 	m.openEditorPane(editorplugin.OpenEditorMsg{FilePath: path, Behavior: editorplugin.OpenBehaviorDefault})
-	firstEditor := m.focused
+	firstEditor := m.activePage.focused
 	m.setFocus(paneFileTree)
 
-	target := m.editorHostPaneTarget(m.focused, editorplugin.OpenBehaviorDefault)
+	target := m.editorHostPaneTarget(m.activePage.focused, editorplugin.OpenBehaviorDefault)
 	if target != firstEditor {
 		t.Fatalf("expected default tree open to target existing editor %s, got %s", firstEditor, target)
 	}
 
-	vsplitTarget := m.editorHostPaneTarget(m.focused, editorplugin.OpenBehaviorVSplit)
+	vsplitTarget := m.editorHostPaneTarget(m.activePage.focused, editorplugin.OpenBehaviorVSplit)
 	if vsplitTarget != firstEditor {
 		t.Fatalf("expected vsplit tree open to target existing editor %s, got %s", firstEditor, vsplitTarget)
 	}
@@ -379,9 +381,11 @@ func TestEditorHostPaneTargetPrefersLastEditorFromFileTree(t *testing.T) {
 
 func TestEditorSplitDirectionDistinguishesDefaultAndVSplit(t *testing.T) {
 	m := model{
-		paneMeta: map[models.PaneID]models.PaneMeta{
-			"editor-1": {ID: "editor-1", Type: models.PaneTypeEditor},
-			paneShell:  {ID: paneShell, Type: models.PaneTypeShell},
+		activePage: &page{
+			paneMeta: map[models.PaneID]models.PaneMeta{
+				"editor-1": {ID: "editor-1", Type: models.PaneTypeEditor},
+				paneShell:  {ID: paneShell, Type: models.PaneTypeShell},
+			},
 		},
 	}
 
@@ -404,14 +408,14 @@ func TestClosePaneRestoresFocusToEditorOpener(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "main.go")
 	m.setFocus(paneFileTree)
 	m.openEditorPane(editorplugin.OpenEditorMsg{FilePath: path, Behavior: editorplugin.OpenBehaviorDefault})
-	editorID := m.focused
+	editorID := m.activePage.focused
 
 	m.closePane(editorID)
 
-	if m.focused != paneFileTree {
-		t.Fatalf("expected focus to return to file tree, got %s", m.focused)
+	if m.activePage.focused != paneFileTree {
+		t.Fatalf("expected focus to return to file tree, got %s", m.activePage.focused)
 	}
-	if _, ok := m.paneMeta[editorID]; ok {
+	if _, ok := m.activePage.paneMeta[editorID]; ok {
 		t.Fatalf("expected editor pane %s to be removed", editorID)
 	}
 }
@@ -421,25 +425,25 @@ func TestOpenDiffPaneAddsBodyPaneAndRestoresOpenerFocus(t *testing.T) {
 	st, _ := store.New(":memory:")
 	m := New(cfg, st).(model)
 	m.setFocus(paneGitStatus)
-	initialLeaves := len(layout.LeafOrder(m.bodyTree))
+	initialLeaves := len(layout.LeafOrder(m.activePage.bodyTree))
 
 	cmd := m.openDiffPane(gitplugin.OpenDiffMsg{FilePath: "", Staged: false})
 	if cmd == nil {
 		t.Fatalf("expected init command for diff pane")
 	}
-	if m.focused != paneGitDiff {
-		t.Fatalf("expected diff pane to be focused, got %s", m.focused)
+	if m.activePage.focused != paneGitDiff {
+		t.Fatalf("expected diff pane to be focused, got %s", m.activePage.focused)
 	}
-	if got := len(layout.LeafOrder(m.bodyTree)); got != initialLeaves+1 {
+	if got := len(layout.LeafOrder(m.activePage.bodyTree)); got != initialLeaves+1 {
 		t.Fatalf("expected leaf count %d after opening diff pane, got %d", initialLeaves+1, got)
 	}
-	if meta, ok := m.paneMeta[paneGitDiff]; !ok || meta.Type != models.PaneTypeDiffView {
+	if meta, ok := m.activePage.paneMeta[paneGitDiff]; !ok || meta.Type != models.PaneTypeDiffView {
 		t.Fatalf("expected diff pane metadata to be registered")
 	}
 
 	m.closePane(paneGitDiff)
-	if m.focused != paneGitStatus {
-		t.Fatalf("expected focus to return to git status, got %s", m.focused)
+	if m.activePage.focused != paneGitStatus {
+		t.Fatalf("expected focus to return to git status, got %s", m.activePage.focused)
 	}
 }
 
@@ -448,19 +452,19 @@ func TestOpenWorktreeShellAddsScopedShellPane(t *testing.T) {
 	st, _ := store.New(":memory:")
 	m := New(cfg, st).(model)
 	m.setFocus(paneWorktree)
-	initialLeaves := len(layout.LeafOrder(m.bodyTree))
+	initialLeaves := len(layout.LeafOrder(m.activePage.bodyTree))
 
 	cmd := m.openWorktreeShell(gitplugin.OpenWorktreeShellMsg{Worktree: gitplugin_testWorktree("/repo/feature-a", "feature-a")})
 	if cmd == nil {
 		t.Fatalf("expected init command for worktree shell")
 	}
-	if got := len(layout.LeafOrder(m.bodyTree)); got != initialLeaves+1 {
+	if got := len(layout.LeafOrder(m.activePage.bodyTree)); got != initialLeaves+1 {
 		t.Fatalf("expected leaf count %d after opening worktree shell, got %d", initialLeaves+1, got)
 	}
-	if m.focused == paneWorktree {
+	if m.activePage.focused == paneWorktree {
 		t.Fatalf("expected focus to move to new shell")
 	}
-	meta, ok := m.paneMeta[m.focused]
+	meta, ok := m.activePage.paneMeta[m.activePage.focused]
 	if !ok || meta.Type != models.PaneTypeShell {
 		t.Fatalf("expected focused pane to be shell, got %+v", meta)
 	}
@@ -473,7 +477,7 @@ func TestOpenWorktreeShellAddsScopedShellPane(t *testing.T) {
 	if meta.BranchSnapshot != "feature-a" {
 		t.Fatalf("expected branch snapshot feature-a, got %q", meta.BranchSnapshot)
 	}
-	if sh, ok := m.pane(m.focused).(*shell.Model); !ok || sh == nil {
+	if sh, ok := m.pane(m.activePage.focused).(*shell.Model); !ok || sh == nil {
 		t.Fatalf("expected focused pane to hold shell model")
 	}
 }
@@ -495,13 +499,13 @@ func TestOpenCreateWorktreePaneUsesOverlayLifecycle(t *testing.T) {
 	if m.activeOverlayPane() != paneWorktreeCreate {
 		t.Fatalf("expected active overlay %s, got %s", paneWorktreeCreate, m.activeOverlayPane())
 	}
-	if m.focused != paneWorktreeCreate {
-		t.Fatalf("expected focus on create overlay, got %s", m.focused)
+	if m.activePage.focused != paneWorktreeCreate {
+		t.Fatalf("expected focus on create overlay, got %s", m.activePage.focused)
 	}
 
 	m.closePane(paneWorktreeCreate)
-	if m.focused != paneWorktree {
-		t.Fatalf("expected focus to restore to worktree pane, got %s", m.focused)
+	if m.activePage.focused != paneWorktree {
+		t.Fatalf("expected focus to restore to worktree pane, got %s", m.activePage.focused)
 	}
 }
 
@@ -513,21 +517,21 @@ func TestWorktreeCreatedRefreshesAndOpensShell(t *testing.T) {
 	if !ok || worktreePanel == nil {
 		t.Fatalf("expected worktree pane to be registered")
 	}
-	initialLeaves := len(layout.LeafOrder(m.bodyTree))
+	initialLeaves := len(layout.LeafOrder(m.activePage.bodyTree))
 
 	updatedModel, cmd := m.Update(gitplugin.WorktreeCreatedMsg{ID: paneWorktreeCreate, Worktree: gitplugin_testWorktree("/repo/feature-a", "feature-a")})
 	m = updatedModel.(model)
 	if cmd == nil {
 		t.Fatalf("expected batched commands after worktree creation")
 	}
-	if got := len(layout.LeafOrder(m.bodyTree)); got != initialLeaves+1 {
+	if got := len(layout.LeafOrder(m.activePage.bodyTree)); got != initialLeaves+1 {
 		t.Fatalf("expected leaf count %d after opening new worktree shell, got %d", initialLeaves+1, got)
 	}
-	if m.paneMeta[m.focused].Type != models.PaneTypeShell {
-		t.Fatalf("expected focus on shell after worktree creation, got %v", m.paneMeta[m.focused].Type)
+	if m.activePage.paneMeta[m.activePage.focused].Type != models.PaneTypeShell {
+		t.Fatalf("expected focus on shell after worktree creation, got %v", m.activePage.paneMeta[m.activePage.focused].Type)
 	}
-	if m.paneMeta[m.focused].CWD != "/repo/feature-a" {
-		t.Fatalf("expected created shell cwd /repo/feature-a, got %q", m.paneMeta[m.focused].CWD)
+	if m.activePage.paneMeta[m.activePage.focused].CWD != "/repo/feature-a" {
+		t.Fatalf("expected created shell cwd /repo/feature-a, got %q", m.activePage.paneMeta[m.activePage.focused].CWD)
 	}
 	if worktreePanel == nil {
 		t.Fatalf("expected worktree pane to remain present")
@@ -540,17 +544,17 @@ func TestWorktreeRemovedClosesScopedPanes(t *testing.T) {
 	m := New(cfg, st).(model)
 	m.setFocus(paneWorktree)
 	m.openWorktreeShell(gitplugin.OpenWorktreeShellMsg{Worktree: gitplugin_testWorktree("/repo/feature-a", "feature-a")})
-	removedShell := m.focused
-	if m.paneMeta[removedShell].Type != models.PaneTypeShell {
+	removedShell := m.activePage.focused
+	if m.activePage.paneMeta[removedShell].Type != models.PaneTypeShell {
 		t.Fatalf("expected focused pane to be shell")
 	}
 
 	updatedModel, _ := m.Update(gitplugin.WorktreeRemovedMsg{Path: "/repo/feature-a"})
 	m = updatedModel.(model)
-	if _, ok := m.paneMeta[removedShell]; ok {
+	if _, ok := m.activePage.paneMeta[removedShell]; ok {
 		t.Fatalf("expected removed worktree shell pane to be closed")
 	}
-	if m.focused == removedShell {
+	if m.activePage.focused == removedShell {
 		t.Fatalf("expected focus to move away from removed shell")
 	}
 }
@@ -559,14 +563,14 @@ func TestHandleMouseRoutesWheelToDiffPaneWithoutStealingFocus(t *testing.T) {
 	cfg := config.DefaultConfig()
 	st, _ := store.New(":memory:")
 	m := New(cfg, st).(model)
-	m.panes[paneGitDiff] = &fakePanel{}
-	m.paneMeta[paneGitDiff] = models.PaneMeta{ID: paneGitDiff, Name: "Diff", Type: models.PaneTypeDiffView, Closable: true}
-	m.bodyTree = layout.SplitLeaf(m.bodyTree, paneShell, paneGitDiff, layout.SplitHorizontal, true)
-	m.focused = paneGitStatus
+	m.activePage.panes[paneGitDiff] = &fakePanel{}
+	m.activePage.paneMeta[paneGitDiff] = models.PaneMeta{ID: paneGitDiff, Name: "Diff", Type: models.PaneTypeDiffView, Closable: true}
+	m.activePage.bodyTree = layout.SplitLeaf(m.activePage.bodyTree, paneShell, paneGitDiff, layout.SplitHorizontal, true)
+	m.activePage.focused = paneGitStatus
 	m.common.Width = 120
 	m.common.Height = 40
 	m.updateSizes(120, 40)
-	frame := m.frames[paneGitDiff]
+	frame := m.activePage.frames[paneGitDiff]
 	dims := layout.ComputeBanner(m.common.Width, m.common.Height)
 
 	updated, _ := m.handleMouse(tea.MouseMsg{X: frame.X + 1, Y: dims.HeaderH + frame.Y + 1, Button: tea.MouseButtonWheelDown})
@@ -579,23 +583,25 @@ func TestHandleMouseRoutesWheelToDiffPaneWithoutStealingFocus(t *testing.T) {
 	if _, ok := diffPanel.updates[0].(tea.MouseMsg); !ok {
 		t.Fatalf("expected forwarded message to be tea.MouseMsg, got %T", diffPanel.updates[0])
 	}
-	if m.focused != paneGitStatus {
-		t.Fatalf("expected wheel scroll not to steal focus, got %s", m.focused)
+	if m.activePage.focused != paneGitStatus {
+		t.Fatalf("expected wheel scroll not to steal focus, got %s", m.activePage.focused)
 	}
 }
 
 func TestSyncPaneMetaMarksDirtyEditorName(t *testing.T) {
 	m := model{
-		panes: map[models.PaneID]models.Panel{
-			"editor-1": &fakeEditorMetaPanel{filePath: "/tmp/main.go", dirty: true, name: "main.go"},
-		},
-		paneMeta: map[models.PaneID]models.PaneMeta{
-			"editor-1": {ID: "editor-1", Name: "main.go", Type: models.PaneTypeEditor, Closable: true},
+		activePage: &page{
+			panes: map[models.PaneID]models.Panel{
+				"editor-1": &fakeEditorMetaPanel{filePath: "/tmp/main.go", dirty: true, name: "main.go"},
+			},
+			paneMeta: map[models.PaneID]models.PaneMeta{
+				"editor-1": {ID: "editor-1", Name: "main.go", Type: models.PaneTypeEditor, Closable: true},
+			},
 		},
 	}
 
 	m.syncPaneMeta("editor-1")
-	if got := m.paneMeta["editor-1"].Name; got != "*main.go" {
+	if got := m.activePage.paneMeta["editor-1"].Name; got != "*main.go" {
 		t.Fatalf("expected dirty editor title '*main.go', got %q", got)
 	}
 }
