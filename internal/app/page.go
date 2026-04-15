@@ -40,6 +40,16 @@ type page struct {
 
 	zoomedPane  models.PaneID
 	preZoomTree *layout.TreeNode
+
+	snapshot *PageSnapshot
+}
+
+type PageSnapshot struct {
+	BodyTreeJSON []byte        `json:"bodyTree"`
+	Focused      models.PaneID `json:"focused"`
+	OpenEditors  []string      `json:"openEditors"`
+	ZoomedPane   models.PaneID `json:"zoomedPane,omitempty"`
+	PreZoomTree  []byte        `json:"preZoomTree,omitempty"`
 }
 
 func newPage(common *models.CommonModel, pluginRegistry *plugins.Registry, adapterManager *adapters.Manager) *page {
@@ -909,7 +919,52 @@ func (p *page) openWorktreeShell(msg gitplugin.OpenWorktreeShellMsg) tea.Cmd {
 	return cmd
 }
 
+func (p *page) captureSnapshot() *PageSnapshot {
+	bodyJSON, _ := layout.SerializeTree(p.bodyTree)
+	preZoomJSON, _ := layout.SerializeTree(p.preZoomTree)
+	var editors []string
+	for _, id := range layout.LeafOrder(p.bodyTree) {
+		if meta, ok := p.paneMeta[id]; ok && meta.Type == models.PaneTypeEditor {
+			if ep, ok := p.pane(id).(editorMetaProvider); ok {
+				editors = append(editors, ep.FilePath())
+			}
+		}
+	}
+	return &PageSnapshot{
+		BodyTreeJSON: bodyJSON,
+		Focused:      p.focused,
+		OpenEditors:  editors,
+		ZoomedPane:   p.zoomedPane,
+		PreZoomTree:  preZoomJSON,
+	}
+}
+
+func (p *page) restoreSnapshot() {
+	if p.snapshot == nil {
+		return
+	}
+	if len(p.snapshot.BodyTreeJSON) > 0 {
+		if tree, err := layout.DeserializeTree(p.snapshot.BodyTreeJSON); err == nil && tree != nil {
+			p.bodyTree = tree
+		}
+	}
+	if p.snapshot.Focused != "" {
+		if _, ok := p.paneMeta[p.snapshot.Focused]; ok {
+			p.focused = p.snapshot.Focused
+		}
+	}
+	if p.snapshot.ZoomedPane != "" {
+		if preZoom, err := layout.DeserializeTree(p.snapshot.PreZoomTree); err == nil && preZoom != nil {
+			p.zoomedPane = p.snapshot.ZoomedPane
+			p.preZoomTree = preZoom
+		}
+	}
+}
+
 func (m *model) switchToOverviewPage() {
+	if m.activePage != nil {
+		m.activePage.snapshot = m.activePage.captureSnapshot()
+	}
 	m.state = StateOverviewPage
 	m.currentWorktreePage = ""
 	m.activePage = m.pages[""]
@@ -918,6 +973,9 @@ func (m *model) switchToOverviewPage() {
 		repoRoot, _ := gitRepoRoot(cwd)
 		m.activePage = newOverviewPage(m.common, m.pluginRegistry, m.adapterManager, m.common.Cfg, m.common.Store, cwd, repoRoot)
 		m.pages[""] = m.activePage
+	}
+	if m.activePage.snapshot != nil {
+		m.activePage.restoreSnapshot()
 	}
 	if m.activePage.paneMeta[paneWorktree].ID != "" {
 		m.activePage.setFocus(paneWorktree)
@@ -937,6 +995,9 @@ func (m *model) switchToWorktreePage(worktreeID, preferredPane string) {
 		m.switchToOverviewPage()
 		return
 	}
+	if m.activePage != nil {
+		m.activePage.snapshot = m.activePage.captureSnapshot()
+	}
 	m.state = StateWorktreePage
 	m.currentWorktreePage = worktreeID
 	if p, ok := m.pages[worktreeID]; ok && p != nil {
@@ -950,6 +1011,9 @@ func (m *model) switchToWorktreePage(worktreeID, preferredPane string) {
 		p = newWorktreePage(m.common, m.pluginRegistry, m.adapterManager, m.common.Cfg, m.common.Store, worktreeID, repoRoot)
 		m.pages[worktreeID] = p
 		m.activePage = p
+	}
+	if m.activePage.snapshot != nil {
+		m.activePage.restoreSnapshot()
 	}
 	if preferredPane != "" {
 		m.activePage.setFocus(models.PaneID(preferredPane))

@@ -239,6 +239,30 @@ func TestWorktreePageSplitDoesNotAffectOverview(t *testing.T) {
 	}
 }
 
+func TestWorktreePageSnapshotRestoresLayoutAndFocus(t *testing.T) {
+	cfg := config.DefaultConfig()
+	st, _ := store.New(":memory:")
+	m := New(cfg, st).(model)
+	m.switchToWorktreePage("/repo/feature-a", string(paneShell))
+
+	m.Update(keyCtrlBackslash())
+	worktreeLeavesAfterSplit := len(layout.LeafOrder(m.activePage.bodyTree))
+	if worktreeLeavesAfterSplit != 4 {
+		t.Fatalf("expected 4 panes after split, got %d", worktreeLeavesAfterSplit)
+	}
+
+	m.switchToOverviewPage()
+	m.switchToWorktreePage("/repo/feature-a", "")
+
+	restoredLeaves := len(layout.LeafOrder(m.activePage.bodyTree))
+	if restoredLeaves != worktreeLeavesAfterSplit {
+		t.Fatalf("expected restored layout to have %d panes, got %d", worktreeLeavesAfterSplit, restoredLeaves)
+	}
+	if m.activePage.focused != paneShell && m.activePage.paneMeta[m.activePage.focused].Type != models.PaneTypeShell {
+		t.Fatalf("expected focus to restore to a shell pane, got %s", m.activePage.focused)
+	}
+}
+
 func TestRenderHelpLineForDiffPaneIncludesReviewCloseShortcut(t *testing.T) {
 	cfg := config.DefaultConfig()
 	st, _ := store.New(":memory:")
