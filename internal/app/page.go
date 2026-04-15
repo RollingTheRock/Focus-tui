@@ -976,6 +976,11 @@ func (p *page) restoreSnapshot() {
 			p.bodyTree = tree
 		}
 	}
+	for _, id := range layout.LeafOrder(p.bodyTree) {
+		if _, ok := p.panes[id]; !ok {
+			p.bodyTree = layout.RemoveLeaf(p.bodyTree, id)
+		}
+	}
 	if p.snapshot.Focused != "" {
 		if _, ok := p.paneMeta[p.snapshot.Focused]; ok {
 			p.focused = p.snapshot.Focused
