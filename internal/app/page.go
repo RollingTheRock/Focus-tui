@@ -42,7 +42,8 @@ type page struct {
 	zoomedPane  models.PaneID
 	preZoomTree *layout.TreeNode
 
-	snapshot *PageSnapshot
+	snapshot    *PageSnapshot
+	initialized bool
 }
 
 type PageSnapshot struct {
@@ -1096,8 +1097,11 @@ func (m *model) switchToWorktreePage(worktreeID, preferredPane string) tea.Cmd {
 		p = newWorktreePage(m.common, m.pluginRegistry, m.adapterManager, m.common.Cfg, m.common.Store, worktreeID, repoRoot)
 		m.pages[worktreeID] = p
 		m.activePage = p
-		for _, id := range p.paneOrder {
-			if cmd := p.pane(id).Init(); cmd != nil {
+	}
+	if !m.activePage.initialized {
+		m.activePage.initialized = true
+		for _, id := range m.activePage.paneOrder {
+			if cmd := m.activePage.pane(id).Init(); cmd != nil {
 				initCmds = append(initCmds, cmd)
 			}
 		}
