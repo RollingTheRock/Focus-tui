@@ -152,7 +152,7 @@ func TestRenderHelpLineForWorktreePaneIncludesRefreshShortcut(t *testing.T) {
 	m.activePage.focused = paneWorktree
 
 	help := m.renderHelpLine(120)
-	for _, want := range []string{"[j/k]move", "[enter]open", "[d]el", "[r]efresh"} {
+	for _, want := range []string{"[j/k]move", "[enter]resume", "[o]shell", "[d]el"} {
 		if !strings.Contains(help, want) {
 			t.Fatalf("expected help line to contain %q, got %q", want, help)
 		}
@@ -234,6 +234,26 @@ func TestOpenWorktreeShellCreatesNewPageInstance(t *testing.T) {
 	}
 	if m.activePage.paneMeta[m.activePage.focused].CWD != "/repo/feature-a" {
 		t.Fatalf("expected shell cwd to be worktree path, got %q", m.activePage.paneMeta[m.activePage.focused].CWD)
+	}
+}
+
+func TestResumeWorktreeSwitchesPageWithoutOpeningExtraShell(t *testing.T) {
+	cfg := config.DefaultConfig()
+	st, _ := store.New(":memory:")
+	m := New(cfg, st).(model)
+
+	cmd := m.resumeWorktree(gitplugin.ResumeWorktreeMsg{Worktree: gitplugin_testWorktree("/repo/feature-a", "feature-a")})
+	if cmd == nil {
+		t.Fatalf("expected resume command")
+	}
+	if m.state != StateWorktreePage {
+		t.Fatalf("expected worktree page state, got %v", m.state)
+	}
+	if got := len(layout.LeafOrder(m.activePage.bodyTree)); got != 4 {
+		t.Fatalf("expected default worktree layout without extra shell split, got %d leaves", got)
+	}
+	if m.activePage.focused != paneShell {
+		t.Fatalf("expected resume to keep default useful focus, got %s", m.activePage.focused)
 	}
 }
 
@@ -482,6 +502,69 @@ func TestSyncWorktreeActivitiesBuildsResumeSummaryCache(t *testing.T) {
 	}
 	if summary.NextStep != "Render task summary in worktree pane" {
 		t.Fatalf("expected next step in summary, got %+v", summary)
+	}
+}
+
+func TestOpenTaskEditPaneUsesOverlayLifecycle(t *testing.T) {
+	cfg := config.DefaultConfig()
+	st, _ := store.New(":memory:")
+	m := New(cfg, st).(model)
+
+	m.switchToWorktreePage("/repo/feature-a", string(paneShell))
+	cmd := m.openTaskEditPane(gitplugin.OpenTaskEditMsg{WorktreeID: "/repo/feature-a"})
+	if cmd == nil {
+		t.Fatalf("expected init command for task edit overlay")
+	}
+	if m.activeOverlayPane() != paneTaskEdit {
+		t.Fatalf("expected active overlay %s, got %s", paneTaskEdit, m.activeOverlayPane())
+	}
+	if m.activePage.focused != paneTaskEdit {
+		t.Fatalf("expected focus on task edit overlay, got %s", m.activePage.focused)
+	}
+	updated, _ := m.Update(CloseTaskEditorMsg{ID: paneTaskEdit})
+	m = updated.(model)
+	if m.activeOverlayPane() != "" {
+		t.Fatalf("expected overlay to close, got %s", m.activeOverlayPane())
+	}
+}
+
+func TestSaveTaskEditorPersistsTaskAndPrimaryWorktreeLink(t *testing.T) {
+	cfg := config.DefaultConfig()
+	st, _ := store.New(":memory:")
+	m := New(cfg, st).(model)
+
+	m.switchToWorktreePage("/repo/feature-a", string(paneShell))
+	if cmd := m.saveTaskEditor(TaskEditorSavedMsg{
+		ID:         paneTaskEdit,
+		WorktreeID: "/repo/feature-a",
+		Title:      "Draft overview task planning",
+		Goal:       "Enable lightweight task editing",
+		NextStep:   "Save primary task to worktree context",
+		State:      "active",
+	}); cmd != nil {
+		t.Fatalf("expected saveTaskEditor to complete synchronously")
+	}
+
+	worktreeContext, err := st.GetWorktreeContext("/repo/feature-a")
+	if err != nil {
+		t.Fatalf("get worktree context: %v", err)
+	}
+	if worktreeContext == nil || worktreeContext.PrimaryTaskID == nil {
+		t.Fatalf("expected primary task to be linked, got %+v", worktreeContext)
+	}
+	task, err := st.GetTaskContext(*worktreeContext.PrimaryTaskID)
+	if err != nil {
+		t.Fatalf("get task context: %v", err)
+	}
+	if task == nil || task.Title != "Draft overview task planning" || task.NextStep != "Save primary task to worktree context" {
+		t.Fatalf("unexpected task context: %+v", task)
+	}
+	links, err := st.ListWorktreeTaskLinks("/repo/feature-a")
+	if err != nil {
+		t.Fatalf("list worktree task links: %v", err)
+	}
+	if len(links) != 1 || links[0].RelationType != "primary" {
+		t.Fatalf("unexpected task/worktree links: %+v", links)
 	}
 }
 

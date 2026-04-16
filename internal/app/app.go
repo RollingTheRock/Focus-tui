@@ -31,6 +31,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/google/uuid"
 )
 
 const (
@@ -41,6 +42,7 @@ const (
 	paneGitDiff        models.PaneID = "git-diff-pane"
 	paneGitCommit      models.PaneID = "git-commit-overlay"
 	paneWorktreeCreate models.PaneID = "worktree-create-overlay"
+	paneTaskEdit       models.PaneID = "task-edit-overlay"
 	paneTodo           models.PaneID = "todo-main"
 	paneFileTree       models.PaneID = "file-tree-main"
 	panePomodoro       models.PaneID = "pomodoro-main"
@@ -49,6 +51,7 @@ const (
 
 	paneTypeGitCommit      models.PaneType = "git-commit"
 	paneTypeWorktreeCreate models.PaneType = "worktree-create"
+	paneTypeTaskEdit       models.PaneType = "task-edit"
 
 	splitRatioStep = 5
 
@@ -228,6 +231,31 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case gitplugin.OpenWorktreeShellMsg:
 		cmd := m.openWorktreeShell(msg)
+		m.syncWorktreeActivities()
+		m.invalidateView()
+		return m, cmd
+
+	case gitplugin.ResumeWorktreeMsg:
+		cmd := m.resumeWorktree(msg)
+		m.syncWorktreeActivities()
+		m.invalidateView()
+		return m, cmd
+
+	case gitplugin.OpenTaskEditMsg:
+		cmd := m.openTaskEditPane(msg)
+		m.syncWorktreeActivities()
+		m.invalidateView()
+		return m, cmd
+
+	case CloseTaskEditorMsg:
+		m.closePane(msg.ID)
+		m.syncWorktreeActivities()
+		m.invalidateView()
+		return m, nil
+
+	case TaskEditorSavedMsg:
+		cmd := m.saveTaskEditor(msg)
+		m.closePane(msg.ID)
 		m.syncWorktreeActivities()
 		m.invalidateView()
 		return m, cmd
@@ -640,6 +668,16 @@ func (m *model) openWorktreeShell(msg gitplugin.OpenWorktreeShellMsg) tea.Cmd {
 	return cmd
 }
 
+func (m *model) resumeWorktree(msg gitplugin.ResumeWorktreeMsg) tea.Cmd {
+	worktreeID := msg.Worktree.Path
+	if worktreeID == "" {
+		worktreeID = m.currentWorktreeID()
+	}
+	cmd := m.switchToWorktreePage(worktreeID, "")
+	m.updateSizes(m.common.Width, m.common.Height)
+	return cmd
+}
+
 func (m *model) launchAgent(msg agents.LaunchAgentMsg) tea.Cmd {
 	worktreeID := msg.WorktreeID
 	provider := msg.Provider
@@ -971,6 +1009,8 @@ func (m model) renderHelpLine(w int) string {
 			return renderCompactHelpLine(helpStyle, "[ctrl+s]commit  [ctrl+j]fallback  [esc]cancel", w)
 		case paneTypeWorktreeCreate:
 			return renderCompactHelpLine(helpStyle, "[tab]next  [enter]next/create  [ctrl+s]create  [esc]cancel", w)
+		case paneTypeTaskEdit:
+			return renderCompactHelpLine(helpStyle, "[tab]next  [enter]next/save  [ctrl+s]save  [esc]cancel", w)
 		}
 	}
 	if m.mode == ModeInput {
@@ -988,8 +1028,8 @@ func (m model) renderHelpLine(w int) string {
 	compact := "[tab]next  [enter]open  [q]uit"
 	switch focusedType {
 	case models.PaneTypeWorktree:
-		left = "[j/k]move  [enter]open  [d]el  [n]ew worktree  [r]efresh  [ctrl+g]overview"
-		compact = "[enter]open  [d]el  [n]ew  [r]efresh"
+		left = "[j/k]move  [enter]resume  [o]shell  [e]task  [d]el  [n]ew worktree  [r]efresh  [ctrl+g]overview"
+		compact = "[enter]resume  [o]shell  [e]task  [d]el"
 	case models.PaneTypeGitStatus:
 		if m.state == StateWorktreePage {
 			left = "[j/k]move  [enter]review  [d]iff file  [space]stage  [a]all  [f]etch  [p]ull  [c]ommit  [P]push  [ctrl+n/p]worktree  [ctrl+g]overview"
@@ -1130,6 +1170,77 @@ func (m *model) openCreateWorktreePane(msg gitplugin.OpenCreateWorktreeMsg) tea.
 	cmd := m.activePage.openCreateWorktreePane(msg)
 	m.updateSizes(m.common.Width, m.common.Height)
 	return cmd
+}
+
+func (m *model) openTaskEditPane(msg gitplugin.OpenTaskEditMsg) tea.Cmd {
+	seed := taskEditorSeed{WorktreeID: msg.WorktreeID, State: "active"}
+	if m.common != nil && m.common.Store != nil {
+		if wc, _ := m.common.Store.GetWorktreeContext(msg.WorktreeID); wc != nil {
+			seed.Title = wc.TaskName
+			if wc.PrimaryTaskID != nil {
+				if task, _ := m.common.Store.GetTaskContext(*wc.PrimaryTaskID); task != nil {
+					seed.Title = task.Title
+					seed.Goal = task.Goal
+					seed.NextStep = task.NextStep
+					seed.State = task.State
+				}
+			}
+		}
+	}
+	cmd := m.activePage.openTaskEditPane(seed)
+	m.updateSizes(m.common.Width, m.common.Height)
+	return cmd
+}
+
+func (m *model) saveTaskEditor(msg TaskEditorSavedMsg) tea.Cmd {
+	if m.common == nil || m.common.Store == nil || msg.WorktreeID == "" {
+		return nil
+	}
+	repoID := m.gitRepoPath()
+	if repoID == "" {
+		repoID, _ = gitRepoRoot(msg.WorktreeID)
+	}
+	if repoID == "" {
+		repoID = msg.WorktreeID
+	}
+	worktreeContext, _ := m.common.Store.GetWorktreeContext(msg.WorktreeID)
+	taskID := uuid.NewString()
+	if worktreeContext != nil && worktreeContext.PrimaryTaskID != nil && *worktreeContext.PrimaryTaskID != "" {
+		taskID = *worktreeContext.PrimaryTaskID
+	}
+	now := time.Now()
+	_ = m.common.Store.SaveTaskContext(models.TaskContextRecord{
+		ID:                  taskID,
+		RepoID:              repoID,
+		Title:               msg.Title,
+		Goal:                msg.Goal,
+		NextStep:            msg.NextStep,
+		State:               msg.State,
+		Priority:            "medium",
+		PreferredWorktreeID: msg.WorktreeID,
+	})
+	branchSnapshot := ""
+	if worktreeContext != nil {
+		branchSnapshot = worktreeContext.BranchSnapshot
+	}
+	_ = m.common.Store.SaveWorktreeContext(models.WorktreeContextRecord{
+		WorktreeID:     msg.WorktreeID,
+		RepoID:         repoID,
+		PrimaryTaskID:  &taskID,
+		TaskMode:       "single",
+		TaskName:       msg.Title,
+		BranchSnapshot: branchSnapshot,
+		LastActiveAt:   now,
+		LastOpenedAt:   &now,
+		LastAgentAt:    lastAgentAtForWorktree(m.listAgentSessionRecords(msg.WorktreeID)),
+	})
+	_ = m.common.Store.SaveTaskWorktreeLink(models.TaskWorktreeLinkRecord{
+		ID:           taskID + "::" + msg.WorktreeID + "::primary",
+		TaskID:       taskID,
+		WorktreeID:   msg.WorktreeID,
+		RelationType: "primary",
+	})
+	return nil
 }
 
 func (m *model) removeWorktree(msg gitplugin.RequestRemoveWorktreeMsg) tea.Cmd {
@@ -1571,6 +1682,21 @@ func buildResumeHint(summary gitmodel.WorktreeResumeSummary) string {
 		return summary.LastAgentSummary
 	}
 	return ""
+}
+
+func lastAgentAtForWorktree(records []models.AgentSessionRecord) *time.Time {
+	var latest *time.Time
+	for _, record := range records {
+		candidate := record.UpdatedAt
+		if record.LastActivityAt != nil {
+			candidate = *record.LastActivityAt
+		}
+		if latest == nil || candidate.After(*latest) {
+			t := candidate
+			latest = &t
+		}
+	}
+	return latest
 }
 
 func (m *model) touchActiveWorktreeContext() {

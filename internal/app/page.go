@@ -537,11 +537,14 @@ func (p *page) activeOverlayPane() models.PaneID {
 	if _, ok := p.paneMeta[paneGitCommit]; ok {
 		return paneGitCommit
 	}
+	if _, ok := p.paneMeta[paneTaskEdit]; ok {
+		return paneTaskEdit
+	}
 	return ""
 }
 
 func (p *page) isOverlayPane(id models.PaneID) bool {
-	return id == paneGitCommit || id == paneWorktreeCreate
+	return id == paneGitCommit || id == paneWorktreeCreate || id == paneTaskEdit
 }
 
 func (p *page) paneAt(x, y int) models.PaneID {
@@ -899,6 +902,27 @@ func (p *page) openCreateWorktreePane(msg gitplugin.OpenCreateWorktreeMsg) tea.C
 		Closable:       true,
 	}
 	panel := gitplugin.NewWorktreeCreatePane(meta.ID, meta, *p.common, p.adapterManager.Git(), msg)
+	p.registerPane(meta.ID, panel, meta)
+	p.setFocus(meta.ID)
+	p.updateSizes(p.bodyBoundsSize())
+	return panel.Init()
+}
+
+func (p *page) openTaskEditPane(seed taskEditorSeed) tea.Cmd {
+	p.closePane(paneTaskEdit)
+
+	meta := models.PaneMeta{
+		ID:             paneTaskEdit,
+		Name:           "Task Context",
+		Type:           paneTypeTaskEdit,
+		CWD:            p.gitRepoPath(),
+		RepoID:         p.currentRepoID(),
+		WorktreeID:     seed.WorktreeID,
+		BranchSnapshot: p.currentBranchSnapshot(),
+		Status:         models.PaneStatusReady,
+		Closable:       true,
+	}
+	panel := NewTaskEditPane(meta.ID, meta, *p.common, seed)
 	p.registerPane(meta.ID, panel, meta)
 	p.setFocus(meta.ID)
 	p.updateSizes(p.bodyBoundsSize())
