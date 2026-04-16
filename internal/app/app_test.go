@@ -229,13 +229,13 @@ func TestWorktreePageSplitDoesNotAffectOverview(t *testing.T) {
 
 	m.Update(keyCtrlBackslash())
 
-	if got := len(layout.LeafOrder(worktreePage.bodyTree)); got != 4 {
-		t.Fatalf("expected 4 panes in worktree page after split, got %d", got)
+	if got := len(layout.LeafOrder(worktreePage.bodyTree)); got != 5 {
+		t.Fatalf("expected 5 panes in worktree page after split, got %d", got)
 	}
 	m.switchToOverviewPage()
 	overviewLeaves := len(layout.LeafOrder(m.activePage.bodyTree))
-	if overviewLeaves != 2 {
-		t.Fatalf("expected overview page to have 2 leaves, got %d", overviewLeaves)
+	if overviewLeaves != 3 {
+		t.Fatalf("expected overview page to have 3 leaves, got %d", overviewLeaves)
 	}
 }
 
@@ -247,8 +247,8 @@ func TestWorktreePageSnapshotRestoresLayoutAndFocus(t *testing.T) {
 
 	m.Update(keyCtrlBackslash())
 	worktreeLeavesAfterSplit := len(layout.LeafOrder(m.activePage.bodyTree))
-	if worktreeLeavesAfterSplit != 4 {
-		t.Fatalf("expected 4 panes after split, got %d", worktreeLeavesAfterSplit)
+	if worktreeLeavesAfterSplit != 5 {
+		t.Fatalf("expected 5 panes after split, got %d", worktreeLeavesAfterSplit)
 	}
 
 	m.switchToOverviewPage()
@@ -339,8 +339,8 @@ func TestSplitFocusedHorizontal(t *testing.T) {
 	m := New(cfg, st).(model)
 
 	initialOrder := layout.LeafOrder(m.activePage.bodyTree)
-	if len(initialOrder) != 2 {
-		t.Fatalf("expected 2 panes initially (worktree + shell), got %d", len(initialOrder))
+	if len(initialOrder) != 3 {
+		t.Fatalf("expected 3 panes initially (worktree + agent-session + shell), got %d", len(initialOrder))
 	}
 
 	m.setFocus(paneShell)
@@ -351,13 +351,13 @@ func TestSplitFocusedHorizontal(t *testing.T) {
 	m = newM.(model)
 
 	newOrder := layout.LeafOrder(m.activePage.bodyTree)
-	if len(newOrder) != 3 {
-		t.Fatalf("expected 3 panes after split, got %d", len(newOrder))
+	if len(newOrder) != 4 {
+		t.Fatalf("expected 4 panes after split, got %d", len(newOrder))
 	}
 
 	foundNewPane := false
 	for _, id := range newOrder {
-		if string(id) != string(paneShell) && string(id) != string(paneWorktree) {
+		if string(id) != string(paneShell) && string(id) != string(paneWorktree) && string(id) != string(paneAgentSession) {
 			foundNewPane = true
 			if m.activePage.focused != id {
 				t.Fatalf("expected focus on new pane %s, got %s", id, m.activePage.focused)
@@ -563,8 +563,8 @@ func TestOpenWorktreeShellAddsScopedShellPane(t *testing.T) {
 	m.setFocus(paneWorktree)
 
 	m.openWorktreeShell(gitplugin.OpenWorktreeShellMsg{Worktree: gitplugin_testWorktree("/repo/feature-a", "feature-a")})
-	if got := len(layout.LeafOrder(m.activePage.bodyTree)); got != 3 {
-		t.Fatalf("expected leaf count 3 after opening worktree shell (reuses existing shell), got %d", got)
+	if got := len(layout.LeafOrder(m.activePage.bodyTree)); got != 4 {
+		t.Fatalf("expected leaf count 4 after opening worktree shell (reuses existing shell), got %d", got)
 	}
 	if m.activePage.focused != paneShell {
 		t.Fatalf("expected focus to move to existing shell, got %s", m.activePage.focused)
@@ -625,8 +625,8 @@ func TestWorktreeCreatedRefreshesAndOpensShell(t *testing.T) {
 	if cmd == nil {
 		t.Fatalf("expected batched commands after worktree creation")
 	}
-	if got := len(layout.LeafOrder(m.activePage.bodyTree)); got != 3 {
-		t.Fatalf("expected leaf count 3 after opening new worktree shell (reuses existing shell), got %d", got)
+	if got := len(layout.LeafOrder(m.activePage.bodyTree)); got != 4 {
+		t.Fatalf("expected leaf count 4 after opening new worktree shell (reuses existing shell), got %d", got)
 	}
 	if m.activePage.paneMeta[m.activePage.focused].Type != models.PaneTypeShell {
 		t.Fatalf("expected focus on shell after worktree creation, got %v", m.activePage.paneMeta[m.activePage.focused].Type)

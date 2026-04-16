@@ -9,6 +9,7 @@ import (
 	gitmodel "focus/internal/git"
 	"focus/internal/models"
 	"focus/internal/plugins"
+	agentsplugin "focus/internal/plugins/agents"
 	editorplugin "focus/internal/plugins/editor"
 	filebrowser "focus/internal/plugins/filebrowser"
 	gitplugin "focus/internal/plugins/git"
@@ -22,6 +23,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -41,6 +43,7 @@ const (
 	paneTodo           models.PaneID = "todo-main"
 	paneFileTree       models.PaneID = "file-tree-main"
 	panePomodoro       models.PaneID = "pomodoro-main"
+	paneAgentSession   models.PaneID = "agent-session-main"
 	paneFooter         models.PaneID = "footer"
 
 	paneTypeGitCommit      models.PaneType = "git-commit"
@@ -125,9 +128,11 @@ func New(cfg config.Config, store models.Store) tea.Model {
 	gitPlugin := gitplugin.New(m.adapterManager.Git())
 	fileTreePlugin := filebrowser.New()
 	editorPlugin := editorplugin.New()
+	agentPlugin := agentsplugin.New()
 	_ = m.pluginRegistry.Register(gitPlugin)
 	_ = m.pluginRegistry.Register(fileTreePlugin)
 	_ = m.pluginRegistry.Register(editorPlugin)
+	_ = m.pluginRegistry.Register(agentPlugin)
 
 	m.activePage = newOverviewPage(cm, m.pluginRegistry, m.adapterManager, cfg, store, cwd, repoRoot)
 	m.pages[""] = m.activePage
@@ -225,6 +230,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case agents.LaunchAgentMsg:
 		cmd := m.launchAgent(msg)
+		m.syncWorktreeActivities()
+		m.invalidateView()
+		return m, cmd
+
+	case agentsplugin.KillSessionMsg:
+		cmd := m.killAgent(msg)
+		m.syncWorktreeActivities()
+		m.invalidateView()
+		return m, cmd
+
+	case agentsplugin.FocusAgentSessionMsg:
+		cmd := m.focusAgentSession(msg)
 		m.syncWorktreeActivities()
 		m.invalidateView()
 		return m, cmd
@@ -649,6 +666,33 @@ func (m *model) launchAgent(msg agents.LaunchAgentMsg) tea.Cmd {
 		return pageCmd
 	}
 	return launchCmd
+}
+
+func (m *model) killAgent(msg agentsplugin.KillSessionMsg) tea.Cmd {
+	if m.agentRegistry != nil {
+		m.agentRegistry.Remove(msg.SessionID)
+	}
+	if msg.PID > 0 {
+		_ = exec.Command("kill", "-TERM", strconv.Itoa(msg.PID)).Run()
+	}
+	return nil
+}
+
+func (m *model) focusAgentSession(msg agentsplugin.FocusAgentSessionMsg) tea.Cmd {
+	worktreeID := msg.WorktreeID
+	pageCmd := m.switchToWorktreePage(worktreeID, "")
+	var focusCmd tea.Cmd
+	if m.activePage != nil {
+		focusCmd = m.activePage.focusAgentShell(worktreeID)
+	}
+	m.updateSizes(m.common.Width, m.common.Height)
+	if pageCmd != nil && focusCmd != nil {
+		return tea.Batch(pageCmd, focusCmd)
+	}
+	if pageCmd != nil {
+		return pageCmd
+	}
+	return focusCmd
 }
 
 func (m *model) currentCWD() string {
@@ -1248,6 +1292,12 @@ func (m *model) syncWorktreeActivities() {
 	if m.agentRegistry != nil {
 		for _, s := range m.agentRegistry.All() {
 			agentSessions[s.WorktreeID] = append(agentSessions[s.WorktreeID], *s)
+		}
+	}
+
+	for _, p := range m.pages {
+		if ap, ok := p.pane(paneAgentSession).(*agentsplugin.SessionPane); ok {
+			ap.SetSessions(m.agentRegistry.All())
 		}
 	}
 

@@ -15,12 +15,13 @@ const (
 	PaneTypeFooter   PaneType = "footer"
 
 	// Plugin panes (新增 - Phase 2.4)
-	PaneTypeWorktree  PaneType = "worktree"
-	PaneTypeGitStatus PaneType = "git-status"
-	PaneTypeFileTree  PaneType = "file-tree"
-	PaneTypeDiffView  PaneType = "diff-view"
-	PaneTypeLogView   PaneType = "log-view"
-	PaneTypeEditor    PaneType = "editor"
+	PaneTypeWorktree     PaneType = "worktree"
+	PaneTypeGitStatus    PaneType = "git-status"
+	PaneTypeFileTree     PaneType = "file-tree"
+	PaneTypeDiffView     PaneType = "diff-view"
+	PaneTypeLogView      PaneType = "log-view"
+	PaneTypeEditor       PaneType = "editor"
+	PaneTypeAgentSession PaneType = "agent-session"
 )
 
 // PaneStatus is lightweight display metadata for a pane.

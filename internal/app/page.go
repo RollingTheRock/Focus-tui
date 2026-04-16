@@ -104,6 +104,7 @@ func newOverviewPage(common *models.CommonModel, pluginRegistry *plugins.Registr
 
 	worktreePaneMeta := models.PaneMeta{ID: paneWorktree, Name: "Worktrees", Type: models.PaneTypeWorktree, CWD: cwd, RepoID: cwd, WorktreeID: cwd, Status: models.PaneStatusIdle, Closable: false}
 	fileTreeMeta := models.PaneMeta{ID: paneFileTree, Name: "File Tree", Type: models.PaneTypeFileTree, CWD: cwd, RepoID: cwd, WorktreeID: cwd, Status: models.PaneStatusIdle, Closable: false}
+	agentSessionMeta := models.PaneMeta{ID: paneAgentSession, Name: "Agents", Type: models.PaneTypeAgentSession, CWD: cwd, RepoID: cwd, WorktreeID: cwd, Status: models.PaneStatusIdle, Closable: false}
 
 	p.registerPane(paneHeader, header.New(cfg, common.Theme, store), models.PaneMeta{ID: paneHeader, Name: "Header", Type: models.PaneTypeHeader, Status: models.PaneStatusPassive, Closable: false})
 	p.registerPane(paneShell, shell.New(common, paneShell), models.PaneMeta{ID: paneShell, Name: "Shell", Type: models.PaneTypeShell, CWD: cwd, RepoID: cwd, WorktreeID: cwd, Status: models.PaneStatusStarting, Closable: true})
@@ -113,6 +114,10 @@ func newOverviewPage(common *models.CommonModel, pluginRegistry *plugins.Registr
 
 	if panel, err := pluginRegistry.CreatePane(models.PaneTypeFileTree, paneFileTree, fileTreeMeta, *common); err == nil {
 		p.registerPane(paneFileTree, panel, fileTreeMeta)
+	}
+
+	if panel, err := pluginRegistry.CreatePane(models.PaneTypeAgentSession, paneAgentSession, agentSessionMeta, *common); err == nil {
+		p.registerPane(paneAgentSession, panel, agentSessionMeta)
 	}
 
 	if repoRoot != "" {
@@ -126,14 +131,14 @@ func newOverviewPage(common *models.CommonModel, pluginRegistry *plugins.Registr
 			layout.SplitHorizontal,
 			30,
 			layout.Leaf(paneWorktree),
-			layout.Leaf(paneShell),
+			layout.Split(layout.SplitVertical, 50, layout.Leaf(paneAgentSession), layout.Leaf(paneShell)),
 		)
 	} else {
 		p.bodyTree = layout.Split(
 			layout.SplitHorizontal,
 			30,
 			layout.Leaf(paneFileTree),
-			layout.Leaf(paneShell),
+			layout.Split(layout.SplitVertical, 50, layout.Leaf(paneAgentSession), layout.Leaf(paneShell)),
 		)
 	}
 	p.focused = paneWorktree
@@ -146,6 +151,7 @@ func newWorktreePage(common *models.CommonModel, pluginRegistry *plugins.Registr
 
 	gitPaneMeta := models.PaneMeta{ID: paneGitStatus, Name: "Git Status", Type: models.PaneTypeGitStatus, CWD: worktreeID, RepoID: repoRoot, WorktreeID: worktreeID, Status: models.PaneStatusIdle, Closable: false}
 	fileTreeMeta := models.PaneMeta{ID: paneFileTree, Name: "File Tree", Type: models.PaneTypeFileTree, CWD: worktreeID, RepoID: repoRoot, WorktreeID: worktreeID, Status: models.PaneStatusIdle, Closable: false}
+	agentSessionMeta := models.PaneMeta{ID: paneAgentSession, Name: "Agents", Type: models.PaneTypeAgentSession, CWD: worktreeID, RepoID: repoRoot, WorktreeID: worktreeID, Status: models.PaneStatusIdle, Closable: false}
 
 	p.registerPane(paneHeader, header.New(cfg, common.Theme, store), models.PaneMeta{ID: paneHeader, Name: "Header", Type: models.PaneTypeHeader, Status: models.PaneStatusPassive, Closable: false})
 	p.registerPane(paneShell, shell.NewWithCWD(common, paneShell, worktreeID), models.PaneMeta{ID: paneShell, Name: "Shell", Type: models.PaneTypeShell, CWD: worktreeID, RepoID: repoRoot, WorktreeID: worktreeID, Status: models.PaneStatusStarting, Closable: true})
@@ -155,6 +161,10 @@ func newWorktreePage(common *models.CommonModel, pluginRegistry *plugins.Registr
 
 	if panel, err := pluginRegistry.CreatePane(models.PaneTypeFileTree, paneFileTree, fileTreeMeta, *common); err == nil {
 		p.registerPane(paneFileTree, panel, fileTreeMeta)
+	}
+
+	if panel, err := pluginRegistry.CreatePane(models.PaneTypeAgentSession, paneAgentSession, agentSessionMeta, *common); err == nil {
+		p.registerPane(paneAgentSession, panel, agentSessionMeta)
 	}
 
 	if repoRoot != "" {
@@ -167,14 +177,14 @@ func newWorktreePage(common *models.CommonModel, pluginRegistry *plugins.Registr
 			layout.SplitHorizontal,
 			30,
 			layout.Split(layout.SplitVertical, 50, layout.Leaf(paneGitStatus), layout.Leaf(paneFileTree)),
-			layout.Leaf(paneShell),
+			layout.Split(layout.SplitVertical, 50, layout.Leaf(paneAgentSession), layout.Leaf(paneShell)),
 		)
 	} else {
 		p.bodyTree = layout.Split(
 			layout.SplitHorizontal,
 			30,
 			layout.Leaf(paneFileTree),
-			layout.Leaf(paneShell),
+			layout.Split(layout.SplitVertical, 50, layout.Leaf(paneAgentSession), layout.Leaf(paneShell)),
 		)
 	}
 	p.focused = paneShell
@@ -615,6 +625,55 @@ func (p *page) renderBody(w, h int, overlay OverlayKind) string {
 	if h <= 0 {
 		h = 6
 	}
+	if p.common.Cfg.Experimental.UseCanvasCompositor {
+		return p.renderBodyCanvas(w, h, overlay)
+	}
+	base := blankCanvas(w, h)
+	for _, id := range layout.LeafOrder(p.bodyTree) {
+		frame, ok := p.frames[id]
+		if !ok {
+			continue
+		}
+		panel := p.pane(id)
+		active := id == p.focused
+		content := panel.View()
+		title := p.renderPaneTitle(id, p.focused, ModeNormal, max(frame.W-4, 8))
+		panelView := layout.RenderPanel(title, content, max(frame.W-4, 8), max(frame.H-2, 3), active)
+		base = layout.OverlayOnBase(base, panelView, frame.X, frame.Y)
+	}
+
+	if overlay == OverlayPicker {
+		if frame, ok := p.frames[panePomodoro]; ok {
+			pomo := p.pane(panePomodoro).(*pomodoro.Model)
+			overlayW := frame.W - 8
+			if overlayW > 50 {
+				overlayW = 50
+			}
+			if overlayW < 20 {
+				overlayW = 20
+			}
+			overlayH := frame.H - 4
+			if overlayH > 15 {
+				overlayH = 15
+			}
+			if overlayH < 4 {
+				overlayH = 4
+			}
+			overlayView := layout.RenderPanel("SELECT TASK", pomo.PickerView(), overlayW, overlayH, true)
+			x := frame.X + (frame.W-(overlayW+4))/2
+			y := frame.Y + (frame.H-(overlayH+2))/2
+			base = layout.OverlayOnBase(base, overlayView, x, y)
+		}
+	}
+
+	if overlayID := p.activeOverlayPane(); overlayID != "" {
+		base = p.renderOverlayPane(base, overlayID)
+	}
+
+	return base
+}
+
+func (p *page) renderBodyCanvas(w, h int, overlay OverlayKind) string {
 	canvas := render.NewCanvas(w, h)
 	canvas.Clear()
 	for _, id := range layout.LeafOrder(p.bodyTree) {

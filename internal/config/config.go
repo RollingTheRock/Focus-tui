@@ -25,13 +25,16 @@ type Config struct {
 		Mouse bool `yaml:"mouse"` // enable mouse forwarding to embedded shell
 	} `yaml:"shell"`
 	Pomodoro struct {
-		WorkMinutes       int `yaml:"work_minutes"`
-		ShortBreakMinutes int `yaml:"short_break_minutes"`
-		LongBreakMinutes  int `yaml:"long_break_minutes"`
-		LongBreakInterval int `yaml:"long_break_interval"`
+		WorkMinutes       int  `yaml:"work_minutes"`
+		ShortBreakMinutes int  `yaml:"short_break_minutes"`
+		LongBreakMinutes  int  `yaml:"long_break_minutes"`
+		LongBreakInterval int  `yaml:"long_break_interval"`
 		Notify            bool `yaml:"notify"`
 	} `yaml:"pomodoro"`
-	TimeFormat string `yaml:"time_format"`
+	TimeFormat   string `yaml:"time_format"`
+	Experimental struct {
+		UseCanvasCompositor bool `yaml:"use_canvas_compositor"`
+	} `yaml:"experimental"`
 }
 
 // DefaultConfig returns the default configuration.
