@@ -9,23 +9,43 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"focus/internal/git"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
+const defaultCacheTTL = time.Second
+
+type cachedStatus struct {
+	status    *git.Status
+	timestamp time.Time
+}
+
+type cachedWorktrees struct {
+	worktrees []git.Worktree
+	timestamp time.Time
+}
+
 // GitLocalAdapter implements GitAdapter using local git CLI.
 type GitLocalAdapter struct {
-	name    string
-	watches map[string]chan StatusEvent
+	name          string
+	watches       map[string]chan StatusEvent
+	cacheTTL      time.Duration
+	statusCache   map[string]cachedStatus
+	worktreeCache map[string]cachedWorktrees
+	cacheMu       sync.RWMutex
 }
 
 // NewGitLocalAdapter creates a new GitLocalAdapter.
 func NewGitLocalAdapter() *GitLocalAdapter {
 	return &GitLocalAdapter{
-		name:    "git-local",
-		watches: make(map[string]chan StatusEvent),
+		name:          "git-local",
+		watches:       make(map[string]chan StatusEvent),
+		cacheTTL:      defaultCacheTTL,
+		statusCache:   make(map[string]cachedStatus),
+		worktreeCache: make(map[string]cachedWorktrees),
 	}
 }
 
@@ -54,9 +74,44 @@ func (g *GitLocalAdapter) Destroy() error {
 	return nil
 }
 
+func (g *GitLocalAdapter) cachedStatus(repoPath string) (*git.Status, bool) {
+	g.cacheMu.RLock()
+	c, ok := g.statusCache[repoPath]
+	g.cacheMu.RUnlock()
+	if !ok {
+		return nil, false
+	}
+	if time.Since(c.timestamp) > g.cacheTTL {
+		return nil, false
+	}
+	return c.status, true
+}
+
+func (g *GitLocalAdapter) setCachedStatus(repoPath string, status *git.Status) {
+	g.cacheMu.Lock()
+	g.statusCache[repoPath] = cachedStatus{status: status, timestamp: time.Now()}
+	g.cacheMu.Unlock()
+}
+
+func (g *GitLocalAdapter) invalidateStatusCache(repoPath string) {
+	g.cacheMu.Lock()
+	delete(g.statusCache, repoPath)
+	g.cacheMu.Unlock()
+}
+
+func (g *GitLocalAdapter) invalidateWorktreeCache(repoPath string) {
+	g.cacheMu.Lock()
+	delete(g.worktreeCache, repoPath)
+	g.cacheMu.Unlock()
+}
+
 // GetStatus retrieves the git status for a repository.
 // Uses porcelain=v2 format for reliable parsing.
 func (g *GitLocalAdapter) GetStatus(repoPath string) (*git.Status, error) {
+	if cached, ok := g.cachedStatus(repoPath); ok {
+		return cached, nil
+	}
+
 	// Get branch info
 	branch, upstream, ahead, behind, err := g.getBranchInfo(repoPath)
 	if err != nil {
@@ -81,11 +136,11 @@ func (g *GitLocalAdapter) GetStatus(repoPath string) (*git.Status, error) {
 		return nil, fmt.Errorf("git status failed: %w", err)
 	}
 
-	// Parse porcelain=v2 output
 	if err := g.parsePorcelainV2(output, status); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to parse status: %w", err)
 	}
 
+	g.setCachedStatus(repoPath, status)
 	return status, nil
 }
 
@@ -261,7 +316,30 @@ func (g *GitLocalAdapter) GetBranches(repoPath string) ([]git.Branch, error) {
 }
 
 // ListWorktrees retrieves all worktrees for a repository.
+func (g *GitLocalAdapter) cachedWorktrees(repoPath string) ([]git.Worktree, bool) {
+	g.cacheMu.RLock()
+	c, ok := g.worktreeCache[repoPath]
+	g.cacheMu.RUnlock()
+	if !ok {
+		return nil, false
+	}
+	if time.Since(c.timestamp) > g.cacheTTL {
+		return nil, false
+	}
+	return c.worktrees, true
+}
+
+func (g *GitLocalAdapter) setCachedWorktrees(repoPath string, worktrees []git.Worktree) {
+	g.cacheMu.Lock()
+	g.worktreeCache[repoPath] = cachedWorktrees{worktrees: worktrees, timestamp: time.Now()}
+	g.cacheMu.Unlock()
+}
+
 func (g *GitLocalAdapter) ListWorktrees(repoPath string) ([]git.Worktree, error) {
+	if cached, ok := g.cachedWorktrees(repoPath); ok {
+		return cached, nil
+	}
+
 	cmd := exec.Command("git", "-C", repoPath, "worktree", "list", "--porcelain")
 	output, err := cmd.Output()
 	if err != nil {
@@ -278,9 +356,24 @@ func (g *GitLocalAdapter) ListWorktrees(repoPath string) ([]git.Worktree, error)
 		return nil, err
 	}
 
+	var wg sync.WaitGroup
+	statuses := make([]*git.Status, len(worktrees))
 	for i := range worktrees {
-		status, err := g.GetWorktreeStatus(worktrees[i].Path)
-		if err != nil {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			status, err := g.GetWorktreeStatus(worktrees[idx].Path)
+			if err != nil {
+				return
+			}
+			statuses[idx] = status
+		}(i)
+	}
+	wg.Wait()
+
+	for i := range worktrees {
+		status := statuses[i]
+		if status == nil {
 			continue
 		}
 		worktrees[i].DirtySummary = git.DirtySummary{
@@ -299,6 +392,7 @@ func (g *GitLocalAdapter) ListWorktrees(repoPath string) ([]git.Worktree, error)
 		}
 	}
 
+	g.setCachedWorktrees(repoPath, worktrees)
 	return worktrees, nil
 }
 
@@ -340,6 +434,8 @@ func (g *GitLocalAdapter) CreateWorktree(repoPath string, req git.CreateWorktree
 		return nil, fmt.Errorf("git worktree add failed: %s", detail)
 	}
 
+	g.invalidateWorktreeCache(repoPath)
+
 	worktrees, err := g.ListWorktrees(repoPath)
 	if err != nil {
 		return nil, err
@@ -375,6 +471,8 @@ func (g *GitLocalAdapter) RemoveWorktree(repoPath, worktreePath string, opts git
 		return fmt.Errorf("git worktree remove failed: %s", detail)
 	}
 
+	g.invalidateWorktreeCache(repoPath)
+	g.invalidateStatusCache(worktreePath)
 	return nil
 }
 
@@ -390,6 +488,7 @@ func (g *GitLocalAdapter) PruneWorktrees(repoPath string) error {
 		return fmt.Errorf("git worktree prune failed: %s", detail)
 	}
 
+	g.invalidateWorktreeCache(repoPath)
 	return nil
 }
 

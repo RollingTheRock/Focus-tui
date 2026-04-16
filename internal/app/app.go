@@ -23,6 +23,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -85,6 +86,8 @@ type model struct {
 	pluginRegistry *plugins.Registry
 	adapterManager *adapters.Manager
 	agentRegistry  *agents.Registry
+
+	lastAgentSync time.Time
 }
 
 type editorMetaProvider interface {
@@ -1229,7 +1232,12 @@ func (m *model) syncWorktreeActivities() {
 		return
 	}
 
-	if m.agentRegistry != nil {
+	shouldDiscover := time.Since(m.lastAgentSync) >= time.Second
+	if shouldDiscover {
+		m.lastAgentSync = time.Now()
+	}
+
+	if m.agentRegistry != nil && shouldDiscover {
 		m.agentRegistry.Clear()
 		for _, s := range agents.DiscoverRunningAgents() {
 			m.agentRegistry.Register(&s)

@@ -9,9 +9,9 @@ import (
 	"focus/internal/adapters"
 	"focus/internal/models"
 	editorplugin "focus/internal/plugins/editor"
+	"focus/internal/styles"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 )
 
 var _ models.Panel = (*DiffPane)(nil)
@@ -131,7 +131,7 @@ func (p *DiffPane) View() string {
 	}
 
 	for i := range lines {
-		lines[i] = lipgloss.NewStyle().MaxWidth(width).Render(lines[i])
+		lines[i] = styles.StyleCache.MaxWidth(width).Render(lines[i])
 	}
 
 	return strings.Join(lines, "\n")

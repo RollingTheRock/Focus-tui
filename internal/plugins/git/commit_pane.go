@@ -147,7 +147,7 @@ func (p *CommitPane) View() string {
 	}
 
 	for i := range lines {
-		lines[i] = lipgloss.NewStyle().MaxWidth(width).Render(lines[i])
+		lines[i] = appstyles.StyleCache.MaxWidth(width).Render(lines[i])
 	}
 
 	return strings.Join(lines, "\n")

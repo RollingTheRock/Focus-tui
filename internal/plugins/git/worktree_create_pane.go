@@ -189,7 +189,7 @@ func (p *WorktreeCreatePane) View() string {
 		lines = lines[:p.height]
 	}
 	for i := range lines {
-		lines[i] = lipgloss.NewStyle().MaxWidth(width).Render(lines[i])
+		lines[i] = appstyles.StyleCache.MaxWidth(width).Render(lines[i])
 	}
 	return strings.Join(lines, "\n")
 }

@@ -9,9 +9,9 @@ import (
 
 	"focus/internal/models"
 	editorplugin "focus/internal/plugins/editor"
+	"focus/internal/styles"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -260,7 +260,7 @@ func (p *TreePane) renderNode(index int, node *FileNode, width int) string {
 	if index == p.cursor {
 		return selectedStyle.Width(width).Render(line)
 	}
-	return lipgloss.NewStyle().MaxWidth(width).Render(line)
+	return styles.StyleCache.MaxWidth(width).Render(line)
 }
 
 func (p *TreePane) fitHeight(lines []string, width int) string {
@@ -268,7 +268,7 @@ func (p *TreePane) fitHeight(lines []string, width int) string {
 		lines = lines[:p.height]
 	}
 	for i := range lines {
-		lines[i] = lipgloss.NewStyle().MaxWidth(width).Render(lines[i])
+		lines[i] = styles.StyleCache.MaxWidth(width).Render(lines[i])
 	}
 	return strings.Join(lines, "\n")
 }

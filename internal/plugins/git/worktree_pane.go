@@ -10,6 +10,7 @@ import (
 	gitmodel "focus/internal/git"
 	"focus/internal/models"
 	"focus/internal/render"
+	"focus/internal/styles"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -273,7 +274,7 @@ func (p *WorktreePane) Render(canvas render.Surface, width, height int) {
 	if height > 0 && len(lines) > height {
 		lines = lines[:height]
 	}
-	maxWidthStyle := lipgloss.NewStyle().MaxWidth(width)
+	maxWidthStyle := styles.StyleCache.MaxWidth(width)
 	for y, line := range lines {
 		if y >= height {
 			break

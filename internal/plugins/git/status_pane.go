@@ -8,9 +8,9 @@ import (
 	"focus/internal/adapters"
 	gitmodel "focus/internal/git"
 	"focus/internal/models"
+	"focus/internal/styles"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 )
 
 type StatusPane struct {
@@ -152,7 +152,7 @@ func (p *StatusPane) View() string {
 	}
 
 	for i := range lines {
-		lines[i] = lipgloss.NewStyle().MaxWidth(width).Render(lines[i])
+		lines[i] = styles.StyleCache.MaxWidth(width).Render(lines[i])
 	}
 
 	return strings.Join(lines, "\n")
