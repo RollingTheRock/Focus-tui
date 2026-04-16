@@ -1,6 +1,10 @@
 package agents
 
-import "time"
+import (
+	"time"
+
+	"github.com/google/uuid"
+)
 
 type Provider string
 
@@ -20,13 +24,23 @@ const (
 	SessionUnknown SessionState = "unknown"
 )
 
+const SessionIDEnvVar = "FOCUS_AGENT_SESSION_ID"
+
 type Session struct {
-	ID         string
-	Provider   Provider
-	WorktreeID string
-	PID        int
-	State      SessionState
-	StartedAt  time.Time
+	ID             string
+	Provider       Provider
+	WorktreeID     string
+	RepoID         string
+	BranchSnapshot string
+	PID            int
+	State          SessionState
+	StartedAt      time.Time
+	EndedAt        *time.Time
+	UpdatedAt      time.Time
+}
+
+func NewSessionID() string {
+	return uuid.NewString()
 }
 
 func (s Session) DisplayName() string {

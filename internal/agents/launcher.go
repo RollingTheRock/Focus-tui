@@ -62,6 +62,14 @@ func AutoTypeCommand(provider Provider) string {
 	return cmd
 }
 
+func AutoTypeCommandWithSession(provider Provider, sessionID string) string {
+	cmd := AutoTypeCommand(provider)
+	if cmd == "" || sessionID == "" {
+		return cmd
+	}
+	return SessionIDEnvVar + "=" + sessionID + " " + cmd
+}
+
 type LaunchAgentMsg struct {
 	WorktreeID string
 	Provider   Provider

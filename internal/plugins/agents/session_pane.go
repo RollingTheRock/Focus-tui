@@ -116,7 +116,17 @@ func (p *SessionPane) Render(canvas render.Surface, width, height int) {
 		lines = append(lines, renderedLine{content: "No running agents.", style: &emptyStyle})
 	} else {
 		for i, s := range p.sessions {
-			line := fmt.Sprintf("%s  pid:%d  %s  %s", s.DisplayName(), s.PID, shortenPath(s.WorktreeID), formatDuration(time.Since(s.StartedAt)))
+			state := string(s.State)
+			if state == "" {
+				state = string(agents.SessionUnknown)
+			}
+			line := fmt.Sprintf("%s  [%s]  %s", s.DisplayName(), state, shortenPath(s.WorktreeID))
+			if s.PID > 0 {
+				line += fmt.Sprintf("  pid:%d", s.PID)
+			}
+			if !s.StartedAt.IsZero() {
+				line += "  " + formatDuration(time.Since(s.StartedAt))
+			}
 			style := (*lipgloss.Style)(nil)
 			if i == p.cursor {
 				style = &selectedRowStyle
