@@ -159,13 +159,15 @@ func newWorktreePage(common *models.CommonModel, pluginRegistry *plugins.Registr
 	if repoRoot != "" {
 		if panel, err := pluginRegistry.CreatePane(models.PaneTypeGitStatus, paneGitStatus, gitPaneMeta, *common); err == nil {
 			p.registerPane(paneGitStatus, panel, gitPaneMeta)
-			p.bodyTree = layout.Split(
-				layout.SplitHorizontal,
-				30,
-				layout.Split(layout.SplitVertical, 50, layout.Leaf(paneGitStatus), layout.Leaf(paneFileTree)),
-				layout.Leaf(paneShell),
-			)
 		}
+	}
+	if _, hasGitStatus := p.paneMeta[paneGitStatus]; hasGitStatus {
+		p.bodyTree = layout.Split(
+			layout.SplitHorizontal,
+			30,
+			layout.Split(layout.SplitVertical, 50, layout.Leaf(paneGitStatus), layout.Leaf(paneFileTree)),
+			layout.Leaf(paneShell),
+		)
 	} else {
 		p.bodyTree = layout.Split(
 			layout.SplitHorizontal,
@@ -329,8 +331,8 @@ func (p *page) currentBranchSnapshot() string {
 }
 
 func (p *page) gitRepoPath() string {
-	if meta, ok := p.paneMeta[paneGitStatus]; ok && meta.CWD != "" {
-		return meta.CWD
+	if meta, ok := p.paneMeta[paneGitStatus]; ok && meta.RepoID != "" {
+		return meta.RepoID
 	}
 	return p.currentCWD()
 }
