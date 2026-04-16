@@ -1,207 +1,226 @@
-# Focus TUI 开发实现计划（完整版）
+# Focus TUI 开发实现计划（当前执行版）
 
-> 更新日期: 2026-04-16
-> 当前阶段: Phase 3B - Page-based Worktree Containers（已完成结构迁移，进入实例隔离阶段）
+> 更新日期: 2026-04-17
+> 当前阶段: Phase 4 - Human Context Recovery + Lightweight Task Orchestration
+> 当前执行点: Phase 4 Step 1 - Context Schema & Store Foundation
 > 设计参考: [DESIGN-WORKTREE-CONTAINERS-2026-04.md](./DESIGN-WORKTREE-CONTAINERS-2026-04.md)
 
 ---
 
-## 已完成里程碑
+## 一、当前结论
 
-### Phase A - Domain and Adapter Foundation ✅
+本文件以**当前代码事实**为准，而不是沿用旧的阶段描述。
+
+截至 2026-04-17，以下能力已经在代码中落地并有测试覆盖：
+
+- overview page / per-worktree page 双层 page model
+- `newWorktreePage(...)` 工厂函数
+- `switchToWorktreePage(...)` / `switchToOverviewPage(...)` 真正切换 page 实例
+- worktree-scoped shell / editor / diff / commit pane 作用域隔离
+- editor reuse 按 `WorktreeID` 隔离
+- page snapshot 内存恢复与 SQLite 持久化
+- worktree create / remove / prune 主流程
+- Agent Session pane 基础版（运行中 agent 可见、focus、launch、kill）
+
+因此，旧计划中关于“page 结构只有 skeleton、worktree page 尚未真正切换”的描述已过期，不再作为执行依据。
+
+---
+
+## 二、已完成里程碑（按真实进度重述）
+
+### Phase A - Domain / Adapter / Registry Foundation ✅
+
 - `internal/git/worktree.go` - Worktree 领域模型
-- `internal/adapters/git.go` / `git_local.go` - Git adapter 扩展（List/Create/Remove/Prune）
-- `internal/worktree/registry.go` - Worktree registry 服务
+- `internal/adapters/git.go` / `git_local.go` - Worktree 相关 Git adapter 能力
+- `internal/worktree/registry.go` - Worktree registry 基础服务
 
-### Phase B - Worktree UI and App Integration ✅
-- `PaneTypeWorktree` 注册与 `WorktreePane` 实现
-- Pane meta 扩展 `RepoID` / `WorktreeID` / `BranchSnapshot`
-- Editor reuse 已按 `WorktreeID` 隔离
-- `openWorktreeShell` 已支持按 worktree 路径 spawn shell
+### Phase B - Worktree UI / Identity / Local Shell ✅
+
+- `PaneTypeWorktree` 与 `WorktreePane` 已落地
+- pane meta 已扩展 `RepoID` / `WorktreeID` / `BranchSnapshot`
+- editor reuse 已按 worktree 隔离
+- `openWorktreeShell` 已按目标 worktree 打开 shell
 
 ### Phase C - Worktree Lifecycle Operations ✅
-- Create worktree overlay flow（`WorktreeCreatePane`）
-- Remove / prune worktree 流程（含确认与 pane 清理）
-- `WorktreeCreatedMsg` 自动打开新 worktree 的 shell
 
-### Phase 3B 前半 - Page Model Skeleton ✅（已提交 `9c70557`）
-- `StateOverviewPage` / `StateWorktreePage` 状态定义
-- `page` struct 落地，持有 `panes`、`bodyTree`、`frames`、`focused`、`zoom` 等全部 page-local 状态
-- `model` 改为 `activePage *page` + `pages map[string]*page`
-- `newOverviewPage()` 从 `New()` 中独立出来
-- 所有测试更新并通过 `go test ./...`
+- Create worktree flow 已落地
+- Remove / prune flow 已落地
+- worktree 删除时已清理依赖 pane
 
----
+### Phase D - Page Model / Snapshot / Resume Core ✅
 
-## 当前状态
+- `page` struct 已承载 page-local pane / layout / focus / zoom 状态
+- `model` 已使用 `activePage *page` + `pages map[string]*page`
+- `newOverviewPage()` / `newWorktreePage()` 已落地
+- `PageSnapshot`、`captureSnapshot()`、`restoreSnapshot()` 已落地
+- SQLite page snapshot 持久化已落地
+- `go test ./...` 当前全绿
 
-**代码层面**：page 结构已存在，但当前始终只有一个 `activePage`（overview page）。`switchToWorktreePage` 只是修改了状态字符串，没有真正切换到独立的 page 实例。
+### Agent Session Visibility MVP ✅
 
-**核心差距**：
-1. 没有 `newWorktreePage(worktreeID)` 工厂函数
-2. `pages` map 只有一个 `""`（overview）entry
-3. 所有 editor/diff/shell 仍然创建在 overview page 上
-4. `Ctrl+G` 返回 overview 时，没有保存/恢复 worktree page 的状态
+- `internal/plugins/agents/session_pane.go` 已提供 Agent Session pane
+- 能显示运行中 agent、provider、PID、worktree、运行时长
+- 支持 focus / launch / kill 基础动作
 
 ---
 
-## 剩余实现计划
+## 三、当前执行重点
 
-### Phase 3C - Per-Worktree Page Instance Isolation
+当前真正未完成、且优先级最高的工作已经切换为 **Phase 4**：
 
-**目标**：让 `switchToWorktreePage` 真正创建并切换到一个独立的 worktree workspace page。
+1. **Human Context Recovery**
+2. **Lightweight Task Orchestration**
 
-#### C1. 创建 `newWorktreePage` 工厂函数
-- **文件**: `internal/app/page.go`
-- **任务**:
-  - 实现 `newWorktreePage(common, pluginRegistry, adapterManager, worktreeID, repoRoot) *page`
-  - Body tree 默认布局：左侧 `git-status` + `file-tree` 上下分栏，右侧 `shell`（或全屏 `shell`）
-  - 自动注册一个绑定到该 worktree 的初始 shell pane
-  - 注册 `git-status` pane，CWD 指向 worktree 路径
-  - 注册 `file-tree` pane，CWD 指向 worktree 路径
-  - Focus 默认落在 shell
-- **验收**:
-  - `newWorktreePage` 返回的 page 有独立的 pane 集合和 bodyTree
-  - 该 page 的 paneMeta 全部带有正确的 `WorktreeID`
+以下内容先记录，但**暂不执行**：
 
-#### C2. 让 `openWorktreeShell` 自动进入 worktree page
-- **文件**: `internal/app/app.go`, `internal/app/page.go`
-- **任务**:
-  - 修改 `model.openWorktreeShell`：如果当前不在目标 worktree 的 page，先 `switchToWorktreePage(worktreeID, "")`
-  - 然后在对应的 worktree page 上创建 shell pane（而不是在 overview page 上 split）
-  - 更新 `WorktreeCreatedMsg` 的处理逻辑：创建成功后自动切到 worktree page 并打开 shell
-- **验收**:
-  - 从 worktree pane 按 Enter 进入的是全屏 worktree workspace page
-  - 新 shell 出现在 worktree page 中，不出现在 overview page
-
-#### C3. 实现真正的 page 切换（overview ↔ worktree）
-- **文件**: `internal/app/app.go`, `internal/app/page.go`
-- **任务**:
-  - 修改 `switchToWorktreePage(worktreeID, preferredPane)`：
-    - 如果 `pages[worktreeID]` 不存在，调用 `newWorktreePage` 创建
-    - 设置 `m.activePage = pages[worktreeID]`
-    - 设置 `m.state = StateWorktreePage`
-    - 恢复该 page 的 focus（或设置为 preferredPane）
-    - 触发 `updateSizes`
-  - 修改 `switchToOverviewPage()`：
-    - 设置 `m.activePage = pages[""]`
-    - 设置 `m.state = StateOverviewPage`
-    - 恢复 overview 的 focus（如 `paneWorktree`）
-    - 触发 `updateSizes`
-- **验收**:
-  - 连续切换 overview 和多个 worktree page 时，各自的 layout 和 focus 保持独立
-
-#### C4. 更新测试覆盖 page 切换行为
-- **文件**: `internal/app/app_test.go`
-- **任务**:
-  - 测试 `switchToWorktreePage` 会创建新的 page 实例
-  - 测试在 worktree page 上 split shell 不会影响 overview page 的 bodyTree
-  - 测试 `Ctrl+G` 返回 overview 后，overview 的原始 layout 不变
-  - 测试 `WorktreeCreatedMsg` 后自动进入 worktree page
-- **验收**:
-  - `go test ./...` 全绿
+- hunk-level Git 操作深化
+- branch-aware Git actions
+- editor / review 更深一层交互打磨
+- canvas compositor 转正
+- YAML layout 配置化
+- 多 agent orchestration
 
 ---
 
-### Phase 3D - Worktree Page Content Completeness
+## 四、Phase 4 - Human Context Recovery + Lightweight Task Orchestration
 
-**目标**：让 worktree page 具备与 overview 同等的核心生产力 pane。
+### 目标
 
-#### D1. Worktree page 支持 editor / diff / commit overlay
-- **文件**: `internal/app/page.go`, `internal/app/app.go`
-- **任务**:
-  - 确保 `openEditorPane`、`openDiffPane`、`openCommitPane` 在当前 `activePage` 上执行
-  - 验证 editor reuse key（`filepath + WorktreeID`）在 page 隔离下仍然正确
-  - diff / commit overlay 的 `CWD` 和 `WorktreeID` 指向当前 active worktree
-- **验收**:
-  - 在 worktree page 中打开 editor、diff、commit overlay 正常工作
-  - 同一文件在不同 worktree page 中打开产生独立 editor pane
+让 overview 从“状态确认页”升级为“恢复 + 决策 + 分配”的 orchestration hub。
 
-#### D2. Worktree page 的 git status 与 file tree 联动
-- **文件**: `internal/plugins/git/worktree_pane.go`, `internal/plugins/git/git_status_pane.go`
-- **任务**:
-  - 确保 worktree page 的 `git-status` pane 监听的是当前 worktree 路径的状态
-  - file tree 的根目录绑定到当前 worktree 路径
-  - 从 file tree 打开文件时，editor 创建在正确的 worktree page 上
-- **验收**:
-  - 在 worktree A 的 page 中看到的 git status 是 worktree A 的
-  - 在 worktree B 的 page 中不会看到 worktree A 的改动
+### 需要达成的结果
 
----
+#### 4.1 Step 1 - Context Schema & Store Foundation（当前执行点）
 
-### Phase 3E - Layout Snapshot and Resume
+**文件**:
 
-**目标**：保存和恢复每个 worktree page 的 layout 与最近打开的文件。
+- `internal/store/db.go`
+- `internal/models/ui.go`
+- `internal/store/*.go`
 
-#### E1. Page layout snapshot
-- **文件**: `internal/app/page.go`, `internal/app/state.go`
-- **任务**:
-  - 定义 `PageSnapshot` struct：包含 `BodyTree` 序列化表示、`Focused`、`OpenEditors`（文件路径列表）
-  - 在 `switchToOverviewPage` 离开 worktree page 前，调用 `snapshot := m.activePage.snapshot()` 保存到 `m.pages[worktreeID]` 或持久化层
-  - 在 `switchToWorktreePage` 时，如果存在 snapshot，恢复 `bodyTree` 和 focus
-- **验收**:
-  - 离开并返回 worktree page 时，layout 和 focus 与离开时一致
+**任务**:
 
-#### E2. 持久化 worktree page metadata
-- **文件**: `internal/store/*` 或 `internal/worktree/registry.go`
-- **任务**:
-  - 在 SQLite 或 JSON 文件中存储每个 worktree 的：
-    - 最后活跃时间
-    - layout snapshot
-    - 最近打开的文件列表
-  - App 启动时从持久化层加载 snapshot，预热 `pages` map
-- **验收**:
-  - 重启应用后，进入 worktree page 能恢复上次的 layout 和打开的文件
+- 新增 `task_contexts`
+- 新增 `worktree_contexts`
+- 新增 `task_worktree_links`
+- 新增 `context_notes`
+- 扩展 `agent_sessions` 但保持为轻量 lifecycle summary
+- 将新的 record / store interface 固化到 `models.Store`
 
----
+**验收**:
 
-### Phase 3F - Overview Page Orchestration UX
+- 新 schema 可在现有 SQLite migration 风格下创建成功
+- Store 接口能读写新的 Phase 4 核心实体
+- 不引入 event log、transcript store、process restore 等超范围能力
 
-**目标**：让 overview page 成为真正的 orchestration hub，而不仅仅是旧布局的别名。
+#### 4.2 Step 2 - Resume Summary Pipeline
 
-#### F1. Overview page 的 bodyTree 简化
-- **文件**: `internal/app/page.go`
-- **任务**:
-  - Overview page 的 bodyTree 以 `WorktreePane` 为主，右侧或下方可保留一个全局 shell（可选）
-  - 移除 overview page 中绑定到特定 worktree 的 git-status / file-tree（这些属于 worktree page）
-- **验收**:
-  - Overview page 只显示 worktree 列表和可能的系统级 pane（todo / pomodoro）
+**文件**:
 
-#### F2. Worktree pane 增强导航
-- **文件**: `internal/plugins/git/worktree_pane.go`
-- **任务**:
-  - 在 worktree list 中显示每个 worktree 的最近活跃时间、打开的文件数、是否有运行中的 shell
-  - 支持 `Enter` 打开 worktree page，`d` 删除，`n` 新建，`r` 刷新
-- **验收**:
-  - Worktree pane 提供足够信息帮助用户选择要恢复的任务
+- `internal/app/app.go`
+- `internal/worktree/registry.go`
+- `internal/plugins/git/worktree_pane.go`
 
----
+**任务**:
 
-## 开发顺序建议
+- 生成 `task + worktree + snapshot + agent` 的 resume summary
+- overview 排序转为 resume-first
+- task/worktree 摘要成为 UI 直接消费的数据源
 
-按以下顺序执行，风险最低：
+**验收**:
 
-1. **C1** → `newWorktreePage` 工厂函数
-2. **C2** → `openWorktreeShell` 绑定到 worktree page
-3. **C3** → 真正的 `switchToWorktreePage` / `switchToOverviewPage`
-4. **C4** → 测试覆盖
-5. **D1** → editor/diff/commit 在 worktree page 中正常工作
-6. **D2** → git status / file tree 按 worktree 隔离
-7. **E1** → layout snapshot（内存级别）
-8. **E2** → 持久化
-9. **F1/F2** → overview page UX 优化
+- overview 能判断“该恢复哪个任务 / worktree”
+- render path 不依赖频繁 DB 查询
 
----
+#### 4.3 Step 3 - Resume-First Overview UX
 
-## 关键约束
+**文件**:
 
-- **每次提交前必须 `go test ./...` 全绿**
-- **渐进式演进，不做大规模重构**
-- **所有新增代码需有测试覆盖**
-- **保持现有无 worktree 场景的行为不变（向后兼容）**
+- `internal/app/app_test.go`
+- `internal/plugins/git/worktree_pane_test.go`
+- `internal/plugins/agents/session_pane.go`
+
+**任务**:
+
+- overview 主对象从裸 worktree 升级为 task-in-worktree summary
+- `Enter = resume`
+- UI 显示 `task title / next step / recent signal / recent agent activity`
+
+**验收**:
+
+- 用户能快速决定“继续哪个任务”
+- 恢复路径明确，不再只是打开某个 pane
+
+#### 4.4 Step 4 - Lightweight Task Planning
+
+**任务**:
+
+- 支持创建 / 编辑 task
+- 支持 `title / goal / next_step / state`
+- 支持 follow-up task 派生
+
+**验收**:
+
+- overview 可直接制定下一步任务
+- task 先存在于 context 模型中，不强制立即独立成 worktree
+
+#### 4.5 Step 5 - Task-to-Worktree Allocation
+
+**任务**:
+
+- 支持 task 绑定现有 worktree
+- 支持 task promote 成新 worktree
+- 支持 `primary / secondary / queued / historical` 关系
+
+**验收**:
+
+- 用户能决定“复用当前容器”还是“升格为新 worktree”
 
 ---
 
-## 下一步行动
+## 五、Phase 4 约束（必须保持）
 
-如果你确认这个计划，我将立即开始实现 **Phase 3C**（C1: `newWorktreePage` 工厂函数）。
+### 目标
+
+在扩展 human context 能力的同时，避免系统逐渐变成 project manager、process manager 或 telemetry sink。
+
+### 约束
+
+- 只持久化 **resume summary / lifecycle summary**，不持久化事件流
+- 只在 **launch / exit / reconciliation** 写 agent session，不做 heartbeat 写库
+- render path **零 DB 查询**
+- `dirty / aheadBehind / shellCount / agentCount` 等运行态信息优先派生，不作为持久化真相
+- `page_snapshots` 保持为 layout blob，不增加 shell transcript / pane telemetry
+- task 只做轻量 intent object，不进入复杂项目管理语义
+
+## 六、Backlog（记录但暂不做）
+
+- hunk stage / discard / partial review
+- review auto-refresh 策略继续深化
+- branch / checkout / branch-aware actions
+- editor close/focus fallback 深度打磨
+- canvas compositor 稳定化与默认启用
+- YAML layout 配置化
+- agent output pane
+- multi-agent orchestration / queue / presets
+- transcript / timeline / event sourcing
+
+---
+
+## 七、执行约束
+
+- 每次提交前必须 `go test ./...` 全绿
+- 渐进式演进，不做无关大重构
+- 新增行为必须补测试
+- 文档必须与代码事实同步
+- 新持久化字段必须有明确 UI 消费方，否则不入库
+
+---
+
+## 八、下一步动作
+
+立即开始：
+
+1. 完成 **Context Schema & Store Foundation**
+2. 进入 **Resume Summary Pipeline**
+3. 然后继续到 **Resume-First Overview UX**
