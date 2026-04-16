@@ -75,14 +75,18 @@ func RenderPane(canvas Surface, title, content string, active bool) {
 			pad = 0
 		}
 		canvas.SetString(0, i+1, "│", &bc)
+		canvas.SetString(1, i+1, " ", nil)
 		canvas.SetString(2, i+1, line, nil)
 		canvas.SetString(2+lipgloss.Width(line), i+1, repeatSpace(pad), nil)
+		canvas.SetString(w-2, i+1, " ", nil)
 		canvas.SetString(w-1, i+1, "│", &bc)
 	}
 
 	for i := len(lines); i < contentH; i++ {
 		canvas.SetString(0, i+1, "│", &bc)
+		canvas.SetString(1, i+1, " ", nil)
 		canvas.SetString(2, i+1, repeatSpace(contentW), nil)
+		canvas.SetString(w-2, i+1, " ", nil)
 		canvas.SetString(w-1, i+1, "│", &bc)
 	}
 

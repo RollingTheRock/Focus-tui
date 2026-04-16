@@ -70,7 +70,7 @@ func (c *Canvas) SetString(x, y int, s string, style *lipgloss.Style) {
 		s = ansi.Truncate(s, c.width-x, "")
 	}
 	c.cells[y][x] = s
-	for i := x + 1; i < c.width && i <= x+visWidth; i++ {
+	for i := x + 1; i < c.width && i < x+visWidth; i++ {
 		c.cells[y][i] = ""
 	}
 }
