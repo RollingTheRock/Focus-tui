@@ -9,9 +9,15 @@ import (
 	"focus/internal/agents"
 	gitmodel "focus/internal/git"
 	"focus/internal/models"
+	"focus/internal/render"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+)
+
+var (
+	_ models.Panel    = (*WorktreePane)(nil)
+	_ render.Renderer = (*WorktreePane)(nil)
 )
 
 var _ models.Panel = (*WorktreePane)(nil)
@@ -212,49 +218,78 @@ func (p *WorktreePane) View() string {
 	if width <= 0 {
 		width = 40
 	}
+	height := p.height
+	if height <= 0 {
+		height = 24
+	}
+	canvas := render.NewCanvas(width, height)
+	p.Render(canvas, width, height)
+	return canvas.Render()
+}
 
+func (p *WorktreePane) Render(canvas render.Surface, width, height int) {
 	if p.loading && len(p.worktrees) == 0 && p.err == nil {
-		return loadingStyle.MaxWidth(width).Render("Loading worktrees…")
+		canvas.SetString(0, 0, loadingStyle.Render("Loading worktrees…"), nil)
+		return
 	}
 	if p.err != nil && len(p.worktrees) == 0 {
-		return errorStyle.MaxWidth(width).Render("Unable to load worktrees: " + p.err.Error())
+		canvas.SetString(0, 0, errorStyle.Render("Unable to load worktrees: "+p.err.Error()), nil)
+		return
 	}
 
-	lines := []string{sectionStyle.Render("Worktrees")}
+	var lines []renderedLine
+	lines = append(lines, renderedLine{content: "Worktrees", style: &sectionStyle})
 	if p.repoPath != "" {
-		lines = append(lines, upstreamStyle.Render(shortenWorktreePath(p.repoPath)))
+		lines = append(lines, renderedLine{content: shortenWorktreePath(p.repoPath), style: &upstreamStyle})
 	}
-	lines = append(lines, "")
+	lines = append(lines, renderedLine{content: "", style: nil})
 
 	if len(p.worktrees) == 0 {
-		lines = append(lines, emptyStyle.Render("No worktrees found."))
+		lines = append(lines, renderedLine{content: "No worktrees found.", style: &emptyStyle})
 	} else {
 		for i, wt := range p.worktrees {
 			line := p.renderWorktreeRow(wt)
+			style := (*lipgloss.Style)(nil)
 			if i == p.cursor {
-				line = selectedRowStyle.Render(line)
+				style = &selectedRowStyle
 			}
-			lines = append(lines, line)
+			lines = append(lines, renderedLine{content: line, style: style})
 		}
 	}
 
 	if p.notice != "" {
-		lines = append(lines, "", upstreamStyle.Render(p.notice))
+		lines = append(lines, renderedLine{content: "", style: nil})
+		lines = append(lines, renderedLine{content: p.notice, style: &upstreamStyle})
 	}
 	if p.confirm != nil {
-		lines = append(lines, "", p.renderConfirmPrompt())
+		lines = append(lines, renderedLine{content: "", style: nil})
+		lines = append(lines, renderedLine{content: p.renderConfirmPrompt(), style: nil})
 	}
 	if p.err != nil {
-		lines = append(lines, "", errorStyle.Render(p.err.Error()))
+		lines = append(lines, renderedLine{content: "", style: nil})
+		lines = append(lines, renderedLine{content: p.err.Error(), style: &errorStyle})
 	}
 
-	if p.height > 0 && len(lines) > p.height {
-		lines = lines[:p.height]
+	if height > 0 && len(lines) > height {
+		lines = lines[:height]
 	}
-	for i := range lines {
-		lines[i] = lipgloss.NewStyle().MaxWidth(width).Render(lines[i])
+	maxWidthStyle := lipgloss.NewStyle().MaxWidth(width)
+	for y, line := range lines {
+		if y >= height {
+			break
+		}
+		s := line.style
+		if s == nil {
+			canvas.SetString(0, y, maxWidthStyle.Render(line.content), nil)
+		} else {
+			canvas.SetString(0, y, maxWidthStyle.Render(s.Render(line.content)), nil)
+		}
 	}
-	return strings.Join(lines, "\n")
+}
+
+type renderedLine struct {
+	content string
+	style   *lipgloss.Style
 }
 
 func (p *WorktreePane) SetSize(width, height int) {
