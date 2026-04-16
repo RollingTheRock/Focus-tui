@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"focus/internal/adapters"
+	"focus/internal/agents"
 	"focus/internal/config"
 	"focus/internal/models"
 	"focus/internal/plugins"
@@ -946,6 +947,54 @@ func (p *page) openWorktreeShell(msg gitplugin.OpenWorktreeShellMsg) tea.Cmd {
 	p.setFocus(id)
 	p.updateSizes(p.bodyBoundsSize())
 	return cmd
+}
+
+func (p *page) focusAgentShell(worktreeID string) tea.Cmd {
+	for id, meta := range p.paneMeta {
+		if meta.Type == models.PaneTypeShell && meta.WorktreeID == worktreeID {
+			p.setFocus(id)
+			return nil
+		}
+	}
+	return nil
+}
+
+func (p *page) openAgentShell(worktreeID string, provider agents.Provider) tea.Cmd {
+	for id, meta := range p.paneMeta {
+		if meta.Type == models.PaneTypeShell && meta.WorktreeID == worktreeID {
+			p.setFocus(id)
+			return nil
+		}
+	}
+
+	repoID := p.currentRepoID()
+	if repoID == "" {
+		repoID = p.gitRepoPath()
+	}
+
+	cmdStr := agents.AutoTypeCommand(provider)
+	id := p.nextShellPaneID()
+	panel := shell.NewWithCommand(p.common, id, worktreeID, cmdStr)
+	meta := models.PaneMeta{
+		ID:         id,
+		Name:       fmt.Sprintf("Shell %d", p.nextShell-1),
+		Type:       models.PaneTypeShell,
+		CWD:        worktreeID,
+		RepoID:     repoID,
+		WorktreeID: worktreeID,
+		Status:     models.PaneStatusStarting,
+		Closable:   true,
+	}
+	p.registerPane(id, panel, meta)
+	if frame, ok := p.frames[p.focused]; ok {
+		contentW := max(frame.W-4, 8)
+		contentH := max(frame.H-2, 3)
+		panel.SetSize(contentW, contentH)
+	}
+	p.bodyTree = layout.SplitLeaf(p.bodyTree, p.focused, id, layout.SplitHorizontal, true)
+	p.setFocus(id)
+	p.updateSizes(p.bodyBoundsSize())
+	return panel.Init()
 }
 
 func (p *page) captureSnapshot() *PageSnapshot {

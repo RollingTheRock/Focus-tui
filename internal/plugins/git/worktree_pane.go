@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"focus/internal/adapters"
+	"focus/internal/agents"
 	gitmodel "focus/internal/git"
 	"focus/internal/models"
 
@@ -21,16 +22,17 @@ type WorktreePane struct {
 	common  models.CommonModel
 	adapter adapters.GitAdapter
 
-	repoPath   string
-	worktrees  []gitmodel.Worktree
-	activities map[string]gitmodel.WorktreeActivity
-	cursor     int
-	confirm    *worktreeConfirmState
-	loading    bool
-	width      int
-	height     int
-	err        error
-	notice     string
+	repoPath      string
+	worktrees     []gitmodel.Worktree
+	activities    map[string]gitmodel.WorktreeActivity
+	agentSessions map[string][]agents.Session
+	cursor        int
+	confirm       *worktreeConfirmState
+	loading       bool
+	width         int
+	height        int
+	err           error
+	notice        string
 }
 
 type worktreesLoadedMsg struct {
@@ -164,6 +166,14 @@ func (p *WorktreePane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 					return OpenWorktreeShellMsg{Worktree: wt}
 				}
 			}
+		case "a":
+			if wt, ok := p.selectedWorktree(); ok {
+				provider := agents.DefaultProvider()
+				p.notice = "Launching " + string(provider) + " in " + shortenWorktreePath(wt.Path)
+				return p, func() tea.Msg {
+					return agents.LaunchAgentMsg{WorktreeID: wt.Path, Provider: provider}
+				}
+			}
 		case "x":
 			if wt, ok := p.selectedWorktree(); ok {
 				if wt.IsMain {
@@ -259,6 +269,10 @@ func (p *WorktreePane) SetActivity(worktreeID string, activity gitmodel.Worktree
 	p.activities[worktreeID] = activity
 }
 
+func (p *WorktreePane) SetAgentSessions(sessions map[string][]agents.Session) {
+	p.agentSessions = sessions
+}
+
 func (p *WorktreePane) loadWorktreesCmd() tea.Cmd {
 	return func() tea.Msg {
 		if p.adapter == nil {
@@ -306,6 +320,11 @@ func (p *WorktreePane) renderWorktreeRow(wt gitmodel.Worktree) string {
 	}
 	if activity.OpenEditors > 0 {
 		tags = append(tags, fmt.Sprintf("edits %d", activity.OpenEditors))
+	}
+	if sessions := p.agentSessions[wt.Path]; len(sessions) > 0 {
+		for _, s := range sessions {
+			tags = append(tags, s.DisplayName())
+		}
 	}
 	if wt.AheadBehind.Ahead > 0 {
 		tags = append(tags, aheadStyle.Render(fmt.Sprintf("↑%d", wt.AheadBehind.Ahead)))

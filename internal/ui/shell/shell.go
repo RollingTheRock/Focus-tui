@@ -56,6 +56,8 @@ type Model struct {
 	pendingW       atomic.Int32
 	pendingH       atomic.Int32
 	ptyResizeTimer *time.Timer
+
+	autoType string
 }
 
 // New creates a new shell panel.
@@ -63,7 +65,6 @@ func New(cm *models.CommonModel, id models.PaneID) *Model {
 	return NewWithCWD(cm, id, "")
 }
 
-// NewWithCWD creates a new shell panel scoped to the provided working directory.
 func NewWithCWD(cm *models.CommonModel, id models.PaneID, cwd string) *Model {
 	return &Model{
 		id:     id,
@@ -72,6 +73,12 @@ func NewWithCWD(cm *models.CommonModel, id models.PaneID, cwd string) *Model {
 		height: 24,
 		cwd:    cwd,
 	}
+}
+
+func NewWithCommand(cm *models.CommonModel, id models.PaneID, cwd, command string) *Model {
+	m := NewWithCWD(cm, id, cwd)
+	m.autoType = command
+	return m
 }
 
 // Init implements models.Panel.
@@ -116,6 +123,15 @@ func (m *Model) startShell() tea.Cmd {
 		m.scrollOffset = 0
 		m.viewDirty = true
 		m.cachedView = ""
+
+		if m.autoType != "" {
+			go func() {
+				time.Sleep(200 * time.Millisecond)
+				if m.pty != nil {
+					m.pty.Write([]byte(m.autoType + "\r"))
+				}
+			}()
+		}
 
 		return StartedMsg{PaneID: m.id}
 	}

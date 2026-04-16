@@ -3,6 +3,7 @@ package app
 import (
 	"fmt"
 	"focus/internal/adapters"
+	"focus/internal/agents"
 	"focus/internal/avatar"
 	"focus/internal/config"
 	gitmodel "focus/internal/git"
@@ -83,6 +84,7 @@ type model struct {
 
 	pluginRegistry *plugins.Registry
 	adapterManager *adapters.Manager
+	agentRegistry  *agents.Registry
 }
 
 type editorMetaProvider interface {
@@ -110,6 +112,7 @@ func New(cfg config.Config, store models.Store) tea.Model {
 		vc:             &viewCache{},
 		pluginRegistry: plugins.NewRegistry(),
 		adapterManager: adapters.NewManager(),
+		agentRegistry:  agents.NewRegistry(),
 		pages:          make(map[string]*page),
 	}
 
@@ -210,6 +213,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case gitplugin.OpenWorktreeShellMsg:
 		cmd := m.openWorktreeShell(msg)
+		m.invalidateView()
+		return m, cmd
+
+	case agents.LaunchAgentMsg:
+		cmd := m.launchAgent(msg)
 		m.invalidateView()
 		return m, cmd
 
@@ -564,6 +572,44 @@ func (m *model) openWorktreeShell(msg gitplugin.OpenWorktreeShellMsg) tea.Cmd {
 		return pageCmd
 	}
 	return cmd
+}
+
+func (m *model) launchAgent(msg agents.LaunchAgentMsg) tea.Cmd {
+	worktreeID := msg.WorktreeID
+	provider := msg.Provider
+	if provider == "" {
+		provider = agents.DefaultProvider()
+	}
+
+	if m.agentRegistry != nil && m.agentRegistry.HasRunning(worktreeID, provider) {
+		pageCmd := m.switchToWorktreePage(worktreeID, "")
+		var focusCmd tea.Cmd
+		if m.activePage != nil {
+			focusCmd = m.activePage.focusAgentShell(worktreeID)
+		}
+		m.updateSizes(m.common.Width, m.common.Height)
+		if pageCmd != nil && focusCmd != nil {
+			return tea.Batch(pageCmd, focusCmd)
+		}
+		if pageCmd != nil {
+			return pageCmd
+		}
+		return focusCmd
+	}
+
+	pageCmd := m.switchToWorktreePage(worktreeID, "")
+	var launchCmd tea.Cmd
+	if m.activePage != nil {
+		launchCmd = m.activePage.openAgentShell(worktreeID, provider)
+	}
+	m.updateSizes(m.common.Width, m.common.Height)
+	if pageCmd != nil && launchCmd != nil {
+		return tea.Batch(pageCmd, launchCmd)
+	}
+	if pageCmd != nil {
+		return pageCmd
+	}
+	return launchCmd
 }
 
 func (m *model) currentCWD() string {
@@ -1147,6 +1193,21 @@ func (m *model) syncWorktreeActivities() {
 	if m.pages == nil {
 		return
 	}
+
+	if m.agentRegistry != nil {
+		m.agentRegistry.Clear()
+		for _, s := range agents.DiscoverRunningAgents() {
+			m.agentRegistry.Register(&s)
+		}
+	}
+
+	agentSessions := make(map[string][]agents.Session)
+	if m.agentRegistry != nil {
+		for _, s := range m.agentRegistry.All() {
+			agentSessions[s.WorktreeID] = append(agentSessions[s.WorktreeID], *s)
+		}
+	}
+
 	for worktreeID, p := range m.pages {
 		if worktreeID == "" {
 			continue
@@ -1169,8 +1230,12 @@ func (m *model) syncWorktreeActivities() {
 		} else if p.snapshot != nil && p.snapshot.Focused != "" {
 			activity.LastActive = "recent"
 		}
+		if m.agentRegistry != nil {
+			activity.AgentCount = len(m.agentRegistry.ByWorktree(worktreeID))
+		}
 		if wp, ok := m.pages[""].pane(paneWorktree).(*gitplugin.WorktreePane); ok {
 			wp.SetActivity(worktreeID, activity)
+			wp.SetAgentSessions(agentSessions)
 		}
 	}
 }

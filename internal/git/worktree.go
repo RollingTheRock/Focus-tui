@@ -23,6 +23,7 @@ type Worktree struct {
 type WorktreeActivity struct {
 	OpenEditors int
 	HasShell    bool
+	AgentCount  int
 	LastActive  string
 }
 
