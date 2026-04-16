@@ -3,6 +3,7 @@ package models
 import (
 	"focus/internal/config"
 	"focus/internal/styles"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -27,11 +28,88 @@ type Store interface {
 	LoadPageSnapshot(worktreeID string) ([]byte, error)
 	ListPageSnapshots() ([]PageSnapshotRecord, error)
 	DeletePageSnapshot(worktreeID string) error
+	SaveTaskContext(record TaskContextRecord) error
+	GetTaskContext(id string) (*TaskContextRecord, error)
+	ListTaskContexts(repoID string) ([]TaskContextRecord, error)
+	SaveWorktreeContext(record WorktreeContextRecord) error
+	GetWorktreeContext(worktreeID string) (*WorktreeContextRecord, error)
+	ListWorktreeContexts(repoID string) ([]WorktreeContextRecord, error)
+	DeleteWorktreeContext(worktreeID string) error
+	SaveTaskWorktreeLink(record TaskWorktreeLinkRecord) error
+	ListTaskWorktreeLinks(taskID string) ([]TaskWorktreeLinkRecord, error)
+	ListWorktreeTaskLinks(worktreeID string) ([]TaskWorktreeLinkRecord, error)
+	SaveContextNote(record ContextNoteRecord) error
+	ListContextNotes(taskID string, worktreeID string) ([]ContextNoteRecord, error)
+	SaveAgentSession(record AgentSessionRecord) error
+	ListAgentSessions(worktreeID string) ([]AgentSessionRecord, error)
 }
 
 type PageSnapshotRecord struct {
 	WorktreeID   string
 	SnapshotJSON string
+}
+
+type AgentSessionRecord struct {
+	ID             string
+	Provider       string
+	WorktreeID     string
+	RepoID         string
+	BranchSnapshot string
+	PID            int
+	State          string
+	LaunchSource   string
+	Summary        string
+	StartedAt      time.Time
+	EndedAt        *time.Time
+	LastActivityAt *time.Time
+	UpdatedAt      time.Time
+}
+
+type TaskContextRecord struct {
+	ID                  string
+	RepoID              string
+	Title               string
+	Goal                string
+	NextStep            string
+	State               string
+	Priority            string
+	ParentTaskID        *string
+	PreferredWorktreeID string
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
+}
+
+type WorktreeContextRecord struct {
+	WorktreeID     string
+	RepoID         string
+	PrimaryTaskID  *string
+	TaskMode       string
+	TaskName       string
+	BranchSnapshot string
+	LastActiveAt   time.Time
+	LastOpenedAt   *time.Time
+	LastAgentAt    *time.Time
+	UpdatedAt      time.Time
+}
+
+type TaskWorktreeLinkRecord struct {
+	ID           string
+	TaskID       string
+	WorktreeID   string
+	RelationType string
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+}
+
+type ContextNoteRecord struct {
+	ID         string
+	TaskID     *string
+	WorktreeID string
+	NoteType   string
+	Body       string
+	Pinned     bool
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
 }
 
 // CommonModel holds shared state across all panels.
