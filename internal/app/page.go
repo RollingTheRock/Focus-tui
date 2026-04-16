@@ -12,6 +12,7 @@ import (
 	"focus/internal/plugins"
 	editorplugin "focus/internal/plugins/editor"
 	gitplugin "focus/internal/plugins/git"
+	"focus/internal/render"
 	"focus/internal/store"
 	"focus/internal/ui/footer"
 	"focus/internal/ui/header"
@@ -614,7 +615,8 @@ func (p *page) renderBody(w, h int, overlay OverlayKind) string {
 	if h <= 0 {
 		h = 6
 	}
-	base := blankCanvas(w, h)
+	canvas := render.NewCanvas(w, h)
+	canvas.Clear()
 	for _, id := range layout.LeafOrder(p.bodyTree) {
 		frame, ok := p.frames[id]
 		if !ok {
@@ -622,10 +624,15 @@ func (p *page) renderBody(w, h int, overlay OverlayKind) string {
 		}
 		panel := p.pane(id)
 		active := id == p.focused
-		content := panel.View()
 		title := p.renderPaneTitle(id, p.focused, ModeNormal, max(frame.W-4, 8))
-		panelView := layout.RenderPanel(title, content, max(frame.W-4, 8), max(frame.H-2, 3), active)
-		base = layout.OverlayOnBase(base, panelView, frame.X, frame.Y)
+		sub := canvas.SubCanvas(frame.X, frame.Y, frame.W, frame.H)
+		if renderer, ok := panel.(render.Renderer); ok {
+			renderer.Render(sub, frame.W, frame.H)
+		} else {
+			panel.SetSize(max(frame.W-4, 8), max(frame.H-2, 3))
+			content := panel.View()
+			render.RenderPane(sub, title, content, active)
+		}
 	}
 
 	if overlay == OverlayPicker {
@@ -645,18 +652,18 @@ func (p *page) renderBody(w, h int, overlay OverlayKind) string {
 			if overlayH < 4 {
 				overlayH = 4
 			}
-			overlayView := layout.RenderPanel("SELECT TASK", pomo.PickerView(), overlayW, overlayH, true)
 			x := frame.X + (frame.W-(overlayW+4))/2
 			y := frame.Y + (frame.H-(overlayH+2))/2
-			base = layout.OverlayOnBase(base, overlayView, x, y)
+			overlaySub := canvas.SubCanvas(x, y, overlayW+4, overlayH+2)
+			render.RenderPane(overlaySub, "SELECT TASK", pomo.PickerView(), true)
 		}
 	}
 
 	if overlayID := p.activeOverlayPane(); overlayID != "" {
-		base = p.renderOverlayPane(base, overlayID)
+		p.renderOverlayPaneToCanvas(canvas, overlayID)
 	}
 
-	return base
+	return canvas.Render()
 }
 
 func (p *page) renderPaneTitle(id models.PaneID, focused models.PaneID, mode AppMode, contentWidth int) string {
@@ -704,6 +711,33 @@ func (p *page) renderOverlayPane(base string, id models.PaneID) string {
 		y = bounds.Y
 	}
 	return layout.OverlayOnBase(base, overlayView, x, y)
+}
+
+func (p *page) renderOverlayPaneToCanvas(canvas *render.Canvas, id models.PaneID) {
+	panel := p.pane(id)
+	if panel == nil {
+		return
+	}
+
+	overlayW, overlayH := p.overlayContentSize()
+	bounds := p.bodyBoundsSize()
+	x := bounds.X + (bounds.W-(overlayW+4))/2
+	y := bounds.Y + (bounds.H-(overlayH+2))/2
+	if x < bounds.X {
+		x = bounds.X
+	}
+	if y < bounds.Y {
+		y = bounds.Y
+	}
+
+	sub := canvas.SubCanvas(x, y, overlayW+4, overlayH+2)
+	if renderer, ok := panel.(render.Renderer); ok {
+		renderer.Render(sub, overlayW+4, overlayH+2)
+	} else {
+		panel.SetSize(overlayW, overlayH)
+		content := panel.View()
+		render.RenderPane(sub, p.renderPaneTitle(id, p.focused, ModeNormal, overlayW), content, true)
+	}
 }
 
 func (p *page) openDiffPane(msg gitplugin.OpenDiffMsg) tea.Cmd {

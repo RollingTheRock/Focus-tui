@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 type Cell struct {
@@ -14,7 +15,7 @@ type Cell struct {
 type Canvas struct {
 	width  int
 	height int
-	lines  []string
+	cells  [][]string
 }
 
 func NewCanvas(width, height int) *Canvas {
@@ -24,10 +25,14 @@ func NewCanvas(width, height int) *Canvas {
 	if height < 0 {
 		height = 0
 	}
+	cells := make([][]string, height)
+	for i := range cells {
+		cells[i] = make([]string, width)
+	}
 	return &Canvas{
 		width:  width,
 		height: height,
-		lines:  make([]string, height),
+		cells:  cells,
 	}
 }
 
@@ -47,7 +52,7 @@ func (c *Canvas) SetCell(x, y int, ch rune, style *lipgloss.Style) {
 	if style != nil {
 		content = style.Render(content)
 	}
-	c.setCellContent(x, y, content)
+	c.cells[y][x] = content
 }
 
 func (c *Canvas) SetString(x, y int, s string, style *lipgloss.Style) {
@@ -57,44 +62,33 @@ func (c *Canvas) SetString(x, y int, s string, style *lipgloss.Style) {
 	if x >= c.width {
 		return
 	}
-	if x < 0 {
-		if -x >= len(s) {
-			return
-		}
-		s = s[-x:]
-		x = 0
-	}
-	if x+len(s) > c.width {
-		s = s[:c.width-x]
-	}
 	if style != nil {
 		s = style.Render(s)
 	}
-	c.setCellContent(x, y, s)
-}
-
-func (c *Canvas) setCellContent(x, y int, content string) {
-	line := c.lines[y]
-	if len(line) < x {
-		line += strings.Repeat(" ", x-len(line))
+	visWidth := ansi.StringWidth(s)
+	if x+visWidth > c.width {
+		s = ansi.Truncate(s, c.width-x, "")
 	}
-	before := line[:x]
-	after := ""
-	if x+len(content) < len(line) {
-		after = line[x+len(content):]
+	c.cells[y][x] = s
+	for i := x + 1; i < c.width && i <= x+visWidth; i++ {
+		c.cells[y][i] = ""
 	}
-	c.lines[y] = before + content + after
 }
 
 func (c *Canvas) Clear() {
-	emptyLine := strings.Repeat(" ", c.width)
-	for i := range c.lines {
-		c.lines[i] = emptyLine
+	for y := range c.cells {
+		for x := range c.cells[y] {
+			c.cells[y][x] = " "
+		}
 	}
 }
 
 func (c *Canvas) Render() string {
-	return strings.Join(c.lines, "\n")
+	lines := make([]string, c.height)
+	for y := range c.cells {
+		lines[y] = strings.Join(c.cells[y], "")
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (c *Canvas) SubCanvas(x, y, w, h int) *SubCanvas {
@@ -138,14 +132,12 @@ func (s *SubCanvas) SetString(x, y int, str string, style *lipgloss.Style) {
 		return
 	}
 	if x < 0 {
-		if -x >= len(str) {
+		visWidth := ansi.StringWidth(str)
+		if -x >= visWidth {
 			return
 		}
-		str = str[-x:]
+		str = ansi.Truncate(str, visWidth+x, "")
 		x = 0
-	}
-	if x+len(str) > s.width {
-		str = str[:s.width-x]
 	}
 	s.parent.SetString(s.offsetX+x, s.offsetY+y, str, style)
 }

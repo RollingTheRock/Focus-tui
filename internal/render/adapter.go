@@ -5,6 +5,7 @@ import (
 	"focus/internal/styles"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 type StringAdapter struct {
@@ -68,7 +69,7 @@ func RenderPane(canvas Surface, title, content string, active bool) {
 
 	lines := splitLines(content)
 	for i := 0; i < contentH && i < len(lines); i++ {
-		line := truncateString(lines[i], contentW)
+		line := ansi.Truncate(lines[i], contentW, "")
 		pad := contentW - lipgloss.Width(line)
 		if pad < 0 {
 			pad = 0
@@ -94,8 +95,8 @@ func renderTopBorder(canvas Surface, title string, width int, bc, tc lipgloss.St
 	if maxTitleWidth < 1 {
 		maxTitleWidth = 1
 	}
-	if len(title) > maxTitleWidth {
-		title = title[:maxTitleWidth-1] + "…"
+	if lipgloss.Width(title) > maxTitleWidth {
+		title = ansi.Truncate(title, maxTitleWidth-1, "") + "…"
 	}
 
 	titleRendered := tc.Render(" " + title + " ")
@@ -111,13 +112,6 @@ func renderTopBorder(canvas Surface, title string, width int, bc, tc lipgloss.St
 	canvas.SetString(0, 0, bc.Render(left), nil)
 	canvas.SetString(2, 0, titleRendered, nil)
 	canvas.SetString(2+titleWidth, 0, bc.Render(right), nil)
-}
-
-func truncateString(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	return s[:maxLen]
 }
 
 func repeatString(s string, n int) string {
