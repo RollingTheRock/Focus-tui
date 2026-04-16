@@ -23,6 +23,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -86,9 +87,10 @@ type model struct {
 
 	overlayBaseFocus models.PaneID
 
-	pluginRegistry *plugins.Registry
-	adapterManager *adapters.Manager
-	agentRegistry  *agents.Registry
+	pluginRegistry     *plugins.Registry
+	adapterManager     *adapters.Manager
+	agentRegistry      *agents.Registry
+	resumeSummaryCache map[string]gitmodel.WorktreeResumeSummary
 
 	lastAgentSync time.Time
 }
@@ -111,15 +113,16 @@ func New(cfg config.Config, store models.Store) tea.Model {
 	repoRoot, _ := gitRepoRoot(cwd)
 
 	m := model{
-		common:         cm,
-		state:          StateDashboard,
-		mode:           ModeNormal,
-		overlay:        OverlayNone,
-		vc:             &viewCache{},
-		pluginRegistry: plugins.NewRegistry(),
-		adapterManager: adapters.NewManager(),
-		agentRegistry:  agents.NewRegistry(),
-		pages:          make(map[string]*page),
+		common:             cm,
+		state:              StateDashboard,
+		mode:               ModeNormal,
+		overlay:            OverlayNone,
+		vc:                 &viewCache{},
+		pluginRegistry:     plugins.NewRegistry(),
+		adapterManager:     adapters.NewManager(),
+		agentRegistry:      agents.NewRegistry(),
+		pages:              make(map[string]*page),
+		resumeSummaryCache: make(map[string]gitmodel.WorktreeResumeSummary),
 	}
 
 	gitAdapter := adapters.NewGitLocalAdapter()
@@ -138,6 +141,7 @@ func New(cfg config.Config, store models.Store) tea.Model {
 	m.pages[""] = m.activePage
 
 	m.loadPageSnapshots()
+	m.syncWorktreeActivities()
 
 	return m
 }
@@ -233,6 +237,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.syncWorktreeActivities()
 		m.invalidateView()
 		return m, cmd
+
+	case agents.AgentExitedMsg:
+		m.handleAgentExited(msg)
+		m.syncWorktreeActivities()
+		m.invalidateView()
+		return m, nil
 
 	case agentsplugin.KillSessionMsg:
 		cmd := m.killAgent(msg)
@@ -653,10 +663,16 @@ func (m *model) launchAgent(msg agents.LaunchAgentMsg) tea.Cmd {
 		return focusCmd
 	}
 
+	session := m.newAgentSession(worktreeID, provider)
+	m.saveAgentSession(session)
+	if m.agentRegistry != nil {
+		m.agentRegistry.Register(session)
+	}
+
 	pageCmd := m.switchToWorktreePage(worktreeID, "")
 	var launchCmd tea.Cmd
 	if m.activePage != nil {
-		launchCmd = m.activePage.openAgentShell(worktreeID, provider)
+		launchCmd = m.activePage.openAgentShell(worktreeID, provider, session.ID)
 	}
 	m.updateSizes(m.common.Width, m.common.Height)
 	if pageCmd != nil && launchCmd != nil {
@@ -672,10 +688,36 @@ func (m *model) killAgent(msg agentsplugin.KillSessionMsg) tea.Cmd {
 	if m.agentRegistry != nil {
 		m.agentRegistry.Remove(msg.SessionID)
 	}
+	if msg.SessionID != "" {
+		now := time.Now()
+		record := m.agentSessionRecord(msg.SessionID)
+		record.PID = 0
+		record.State = string(agents.SessionExited)
+		record.EndedAt = &now
+		record.UpdatedAt = now
+		m.saveAgentSessionRecord(record)
+	}
 	if msg.PID > 0 {
 		_ = exec.Command("kill", "-TERM", strconv.Itoa(msg.PID)).Run()
 	}
 	return nil
+}
+
+func (m *model) handleAgentExited(msg agents.AgentExitedMsg) {
+	now := time.Now()
+	for _, record := range m.listAgentSessionRecords(msg.WorktreeID) {
+		if record.Provider != string(msg.Provider) || record.State != string(agents.SessionRunning) {
+			continue
+		}
+		record.PID = 0
+		record.State = string(agents.SessionExited)
+		record.EndedAt = &now
+		record.UpdatedAt = now
+		m.saveAgentSessionRecord(record)
+		if m.agentRegistry != nil {
+			m.agentRegistry.Remove(record.ID)
+		}
+	}
 }
 
 func (m *model) focusAgentSession(msg agentsplugin.FocusAgentSessionMsg) tea.Cmd {
@@ -946,8 +988,8 @@ func (m model) renderHelpLine(w int) string {
 	compact := "[tab]next  [enter]open  [q]uit"
 	switch focusedType {
 	case models.PaneTypeWorktree:
-		left = "[j/k]move  [enter]open shell  [n]ew worktree  [r]efresh  [ctrl+g]overview"
-		compact = "[enter]shell  [n]ew  [r]efresh  [ctrl+g]overview"
+		left = "[j/k]move  [enter]open  [d]el  [n]ew worktree  [r]efresh  [ctrl+g]overview"
+		compact = "[enter]open  [d]el  [n]ew  [r]efresh"
 	case models.PaneTypeGitStatus:
 		if m.state == StateWorktreePage {
 			left = "[j/k]move  [enter]review  [d]iff file  [space]stage  [a]all  [f]etch  [p]ull  [c]ommit  [P]push  [ctrl+n/p]worktree  [ctrl+g]overview"
@@ -1281,23 +1323,29 @@ func (m *model) syncWorktreeActivities() {
 		m.lastAgentSync = time.Now()
 	}
 
-	if m.agentRegistry != nil && shouldDiscover {
-		m.agentRegistry.Clear()
-		for _, s := range agents.DiscoverRunningAgents() {
-			m.agentRegistry.Register(&s)
-		}
+	persisted := m.persistedAgentSessions()
+	if shouldDiscover {
+		persisted = m.reconcileDiscoveredAgentSessions(persisted, agents.DiscoverRunningAgents())
 	}
+	m.refreshResumeSummaryCache(persisted)
 
-	agentSessions := make(map[string][]agents.Session)
+	runningSessions := make(map[string][]agents.Session)
+	visibleSessions := m.sortedAgentSessions(persisted)
 	if m.agentRegistry != nil {
-		for _, s := range m.agentRegistry.All() {
-			agentSessions[s.WorktreeID] = append(agentSessions[s.WorktreeID], *s)
+		m.agentRegistry.Clear()
+		for _, session := range visibleSessions {
+			if session.State != agents.SessionRunning {
+				continue
+			}
+			s := *session
+			m.agentRegistry.Register(&s)
+			runningSessions[session.WorktreeID] = append(runningSessions[session.WorktreeID], s)
 		}
 	}
 
 	for _, p := range m.pages {
 		if ap, ok := p.pane(paneAgentSession).(*agentsplugin.SessionPane); ok {
-			ap.SetSessions(m.agentRegistry.All())
+			ap.SetSessions(visibleSessions)
 		}
 	}
 
@@ -1323,14 +1371,430 @@ func (m *model) syncWorktreeActivities() {
 		} else if p.snapshot != nil && p.snapshot.Focused != "" {
 			activity.LastActive = "recent"
 		}
-		if m.agentRegistry != nil {
-			activity.AgentCount = len(m.agentRegistry.ByWorktree(worktreeID))
-		}
+		activity.AgentCount = len(runningSessions[worktreeID])
 		if wp, ok := m.pages[""].pane(paneWorktree).(*gitplugin.WorktreePane); ok {
 			wp.SetActivity(worktreeID, activity)
-			wp.SetAgentSessions(agentSessions)
+			wp.SetAgentSessions(runningSessions)
+			wp.SetResumeSummaries(m.resumeSummaryCache)
 		}
 	}
+}
+
+func (m *model) refreshResumeSummaryCache(agentSessions map[string]agents.Session) {
+	if m.resumeSummaryCache == nil {
+		m.resumeSummaryCache = make(map[string]gitmodel.WorktreeResumeSummary)
+	}
+	for key := range m.resumeSummaryCache {
+		delete(m.resumeSummaryCache, key)
+	}
+
+	repoID := m.gitRepoPath()
+	if repoID == "" {
+		cwd, _ := os.Getwd()
+		repoID, _ = gitRepoRoot(cwd)
+	}
+	worktreeContexts := m.listWorktreeContexts(repoID)
+	taskContexts := m.listTaskContexts("")
+	tasksByID := make(map[string]models.TaskContextRecord, len(taskContexts))
+	for _, task := range taskContexts {
+		tasksByID[task.ID] = task
+	}
+
+	for _, wc := range worktreeContexts {
+		summary := gitmodel.WorktreeResumeSummary{
+			TaskMode:        wc.TaskMode,
+			TaskTitle:       wc.TaskName,
+			LastActiveLabel: formatRelativeLabel("active", wc.LastActiveAt),
+		}
+		if wc.PrimaryTaskID != nil {
+			summary.TaskID = *wc.PrimaryTaskID
+			if task, ok := tasksByID[*wc.PrimaryTaskID]; ok {
+				summary.TaskTitle = task.Title
+				summary.TaskGoal = task.Goal
+				summary.NextStep = task.NextStep
+				summary.TaskState = task.State
+				summary.TaskPriority = task.Priority
+			}
+		}
+		if summary.TaskTitle == "" {
+			summary.TaskTitle = wc.TaskName
+		}
+		if wc.LastAgentAt != nil {
+			summary.LastAgentLabel = formatRelativeLabel("agent", *wc.LastAgentAt)
+		}
+		if s := mostRelevantAgentSession(wc.WorktreeID, agentSessions); s != nil {
+			summary.LastAgentSummary = formatAgentSummary(*s)
+			if summary.LastAgentLabel == "" {
+				summary.LastAgentLabel = formatRelativeLabel("agent", sessionRelevantTime(*s))
+			}
+		}
+		summary.ResumeReason, summary.ResumeScore = computeResumeReason(summary)
+		summary.LastResumeHint = buildResumeHint(summary)
+		m.resumeSummaryCache[wc.WorktreeID] = summary
+	}
+
+	for worktreeID, page := range m.pages {
+		if worktreeID == "" {
+			continue
+		}
+		if _, ok := m.resumeSummaryCache[worktreeID]; ok {
+			continue
+		}
+		summary := gitmodel.WorktreeResumeSummary{}
+		if page == m.activePage {
+			summary.LastActiveLabel = "active now"
+			summary.ResumeScore += 100
+		} else if page.snapshot != nil {
+			summary.LastActiveLabel = "resume available"
+			summary.ResumeScore += 40
+		}
+		if s := mostRelevantAgentSession(worktreeID, agentSessions); s != nil {
+			summary.LastAgentSummary = formatAgentSummary(*s)
+			summary.LastAgentLabel = formatRelativeLabel("agent", sessionRelevantTime(*s))
+		}
+		summary.ResumeReason, summary.ResumeScore = computeResumeReason(summary)
+		summary.LastResumeHint = buildResumeHint(summary)
+		m.resumeSummaryCache[worktreeID] = summary
+	}
+}
+
+func (m *model) listTaskContexts(repoID string) []models.TaskContextRecord {
+	if m.common == nil || m.common.Store == nil {
+		return nil
+	}
+	records, err := m.common.Store.ListTaskContexts(repoID)
+	if err != nil {
+		return nil
+	}
+	return records
+}
+
+func (m *model) listWorktreeContexts(repoID string) []models.WorktreeContextRecord {
+	if m.common == nil || m.common.Store == nil {
+		return nil
+	}
+	records, err := m.common.Store.ListWorktreeContexts(repoID)
+	if err != nil {
+		return nil
+	}
+	return records
+}
+
+func mostRelevantAgentSession(worktreeID string, sessions map[string]agents.Session) *agents.Session {
+	var best *agents.Session
+	for _, session := range sessions {
+		if session.WorktreeID != worktreeID {
+			continue
+		}
+		s := session
+		if best == nil {
+			best = &s
+			continue
+		}
+		if best.State != s.State {
+			if s.State == agents.SessionRunning {
+				best = &s
+			}
+			continue
+		}
+		if sessionRelevantTime(s).After(sessionRelevantTime(*best)) {
+			best = &s
+		}
+	}
+	return best
+}
+
+func sessionRelevantTime(session agents.Session) time.Time {
+	if session.UpdatedAt.IsZero() {
+		return session.StartedAt
+	}
+	return session.UpdatedAt
+}
+
+func formatRelativeLabel(prefix string, ts time.Time) string {
+	if ts.IsZero() {
+		return ""
+	}
+	age := time.Since(ts)
+	if age < time.Minute {
+		return prefix + " now"
+	}
+	if age < time.Hour {
+		return fmt.Sprintf("%s %dm ago", prefix, int(age.Minutes()))
+	}
+	if age < 24*time.Hour {
+		return fmt.Sprintf("%s %dh ago", prefix, int(age.Hours()))
+	}
+	return fmt.Sprintf("%s %dd ago", prefix, int(age.Hours()/24))
+}
+
+func formatAgentSummary(session agents.Session) string {
+	label := string(session.Provider)
+	if session.State == agents.SessionRunning {
+		return label + " running"
+	}
+	if session.EndedAt != nil {
+		return label + " finished"
+	}
+	return label + " recent"
+}
+
+func computeResumeReason(summary gitmodel.WorktreeResumeSummary) (string, int) {
+	score := 0
+	parts := []string{}
+	if summary.TaskState == "active" {
+		score += 50
+		parts = append(parts, "active task")
+	}
+	if summary.NextStep != "" {
+		score += 20
+		parts = append(parts, "next step ready")
+	}
+	if summary.LastAgentSummary != "" {
+		score += 15
+		parts = append(parts, summary.LastAgentSummary)
+	}
+	if summary.LastActiveLabel != "" {
+		score += 10
+	}
+	return strings.Join(parts, " · "), score
+}
+
+func buildResumeHint(summary gitmodel.WorktreeResumeSummary) string {
+	if summary.NextStep != "" {
+		return "Continue: " + summary.NextStep
+	}
+	if summary.TaskGoal != "" {
+		return "Goal: " + summary.TaskGoal
+	}
+	if summary.LastAgentSummary != "" {
+		return summary.LastAgentSummary
+	}
+	return ""
+}
+
+func (m *model) touchActiveWorktreeContext() {
+	for worktreeID, page := range m.pages {
+		if worktreeID == "" || page != m.activePage {
+			continue
+		}
+		m.touchWorktreeContext(worktreeID)
+		return
+	}
+}
+
+func (m *model) touchWorktreeContext(worktreeID string) {
+	if worktreeID == "" || m.common == nil || m.common.Store == nil {
+		return
+	}
+	repoID := ""
+	branchSnapshot := ""
+	taskName := filepath.Base(worktreeID)
+	if page, ok := m.pages[worktreeID]; ok && page != nil {
+		repoID = page.currentRepoID()
+		branchSnapshot = page.currentBranchSnapshot()
+		if branchSnapshot != "" {
+			taskName = branchSnapshot
+		}
+	}
+	if repoID == "" {
+		repoID, _ = gitRepoRoot(worktreeID)
+	}
+	if branchSnapshot == "" && m.adapterManager != nil && m.adapterManager.Git() != nil {
+		if status, err := m.adapterManager.Git().GetWorktreeStatus(worktreeID); err == nil && status != nil {
+			branchSnapshot = status.Branch
+			if taskName == filepath.Base(worktreeID) && status.Branch != "" {
+				taskName = status.Branch
+			}
+		}
+	}
+	existing, _ := m.common.Store.GetWorktreeContext(worktreeID)
+	record := models.WorktreeContextRecord{
+		WorktreeID:     worktreeID,
+		RepoID:         repoID,
+		TaskMode:       "single",
+		TaskName:       taskName,
+		BranchSnapshot: branchSnapshot,
+		LastActiveAt:   time.Now(),
+	}
+	if existing != nil {
+		record.PrimaryTaskID = existing.PrimaryTaskID
+		record.TaskMode = existing.TaskMode
+		if existing.TaskName != "" {
+			record.TaskName = existing.TaskName
+		}
+		if existing.BranchSnapshot != "" {
+			record.BranchSnapshot = existing.BranchSnapshot
+		}
+		if existing.LastOpenedAt != nil {
+			record.LastOpenedAt = existing.LastOpenedAt
+		}
+		if existing.LastAgentAt != nil {
+			record.LastAgentAt = existing.LastAgentAt
+		}
+	}
+	_ = m.common.Store.SaveWorktreeContext(record)
+}
+
+func (m *model) persistedAgentSessions() map[string]agents.Session {
+	records := m.listAgentSessionRecords("")
+	sessions := make(map[string]agents.Session, len(records))
+	for _, record := range records {
+		sessions[record.ID] = agents.Session{
+			ID:             record.ID,
+			Provider:       agents.Provider(record.Provider),
+			WorktreeID:     record.WorktreeID,
+			RepoID:         record.RepoID,
+			BranchSnapshot: record.BranchSnapshot,
+			PID:            record.PID,
+			State:          agents.SessionState(record.State),
+			StartedAt:      record.StartedAt,
+			EndedAt:        record.EndedAt,
+			UpdatedAt:      record.UpdatedAt,
+		}
+	}
+	return sessions
+}
+
+func (m *model) reconcileDiscoveredAgentSessions(existing map[string]agents.Session, discovered []agents.Session) map[string]agents.Session {
+	now := time.Now()
+	seen := make(map[string]struct{}, len(discovered))
+	for _, session := range discovered {
+		record, ok := existing[session.ID]
+		if !ok {
+			record = session
+			record.StartedAt = now
+		} else if record.StartedAt.IsZero() {
+			record.StartedAt = now
+		}
+		record.Provider = session.Provider
+		record.WorktreeID = session.WorktreeID
+		record.PID = session.PID
+		record.State = agents.SessionRunning
+		record.EndedAt = nil
+		record.UpdatedAt = now
+		if record.RepoID == "" {
+			record.RepoID, _ = gitRepoRoot(session.WorktreeID)
+		}
+		if record.BranchSnapshot == "" && m.adapterManager != nil && m.adapterManager.Git() != nil {
+			if status, err := m.adapterManager.Git().GetWorktreeStatus(session.WorktreeID); err == nil && status != nil {
+				record.BranchSnapshot = status.Branch
+			}
+		}
+		existing[record.ID] = record
+		seen[record.ID] = struct{}{}
+		m.saveAgentSession(&record)
+	}
+
+	for id, session := range existing {
+		if session.State != agents.SessionRunning {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		if session.PID == 0 && now.Sub(session.StartedAt) < 5*time.Second {
+			continue
+		}
+		session.State = agents.SessionExited
+		session.PID = 0
+		session.UpdatedAt = now
+		if session.EndedAt == nil {
+			endedAt := now
+			session.EndedAt = &endedAt
+		}
+		existing[id] = session
+		m.saveAgentSession(&session)
+	}
+
+	return existing
+}
+
+func (m *model) sortedAgentSessions(sessionMap map[string]agents.Session) []*agents.Session {
+	list := make([]*agents.Session, 0, len(sessionMap))
+	for _, session := range sessionMap {
+		s := session
+		list = append(list, &s)
+	}
+	sort.Slice(list, func(i, j int) bool {
+		if list[i].State != list[j].State {
+			return list[i].State == agents.SessionRunning
+		}
+		return list[i].UpdatedAt.After(list[j].UpdatedAt)
+	})
+	return list
+}
+
+func (m *model) newAgentSession(worktreeID string, provider agents.Provider) *agents.Session {
+	now := time.Now()
+	repoID := ""
+	if m.activePage != nil {
+		repoID = m.activePage.currentRepoID()
+	}
+	if repoID == "" {
+		repoID, _ = gitRepoRoot(worktreeID)
+	}
+	branchSnapshot := ""
+	if m.adapterManager != nil && m.adapterManager.Git() != nil {
+		if status, err := m.adapterManager.Git().GetWorktreeStatus(worktreeID); err == nil && status != nil {
+			branchSnapshot = status.Branch
+		}
+	}
+	return &agents.Session{
+		ID:             agents.NewSessionID(),
+		Provider:       provider,
+		WorktreeID:     worktreeID,
+		RepoID:         repoID,
+		BranchSnapshot: branchSnapshot,
+		State:          agents.SessionRunning,
+		StartedAt:      now,
+		UpdatedAt:      now,
+	}
+}
+
+func (m *model) saveAgentSession(session *agents.Session) {
+	if session == nil {
+		return
+	}
+	m.saveAgentSessionRecord(models.AgentSessionRecord{
+		ID:             session.ID,
+		Provider:       string(session.Provider),
+		WorktreeID:     session.WorktreeID,
+		RepoID:         session.RepoID,
+		BranchSnapshot: session.BranchSnapshot,
+		PID:            session.PID,
+		State:          string(session.State),
+		StartedAt:      session.StartedAt,
+		EndedAt:        session.EndedAt,
+		UpdatedAt:      session.UpdatedAt,
+	})
+}
+
+func (m *model) saveAgentSessionRecord(record models.AgentSessionRecord) {
+	if m.common == nil || m.common.Store == nil {
+		return
+	}
+	_ = m.common.Store.SaveAgentSession(record)
+}
+
+func (m *model) listAgentSessionRecords(worktreeID string) []models.AgentSessionRecord {
+	if m.common == nil || m.common.Store == nil {
+		return nil
+	}
+	records, err := m.common.Store.ListAgentSessions(worktreeID)
+	if err != nil {
+		return nil
+	}
+	return records
+}
+
+func (m *model) agentSessionRecord(sessionID string) models.AgentSessionRecord {
+	for _, record := range m.listAgentSessionRecords("") {
+		if record.ID == sessionID {
+			return record
+		}
+	}
+	return models.AgentSessionRecord{ID: sessionID}
 }
 
 func shortenPath(path, home string) string {

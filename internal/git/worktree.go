@@ -27,6 +27,22 @@ type WorktreeActivity struct {
 	LastActive  string
 }
 
+type WorktreeResumeSummary struct {
+	TaskID           string
+	TaskTitle        string
+	TaskGoal         string
+	NextStep         string
+	TaskState        string
+	TaskPriority     string
+	TaskMode         string
+	LastResumeHint   string
+	LastActiveLabel  string
+	LastAgentLabel   string
+	LastAgentSummary string
+	ResumeReason     string
+	ResumeScore      int
+}
+
 // DisplayName returns a short label suitable for UI display.
 func (w Worktree) DisplayName() string {
 	base := filepath.Base(w.Path)

@@ -103,22 +103,12 @@ func newOverviewPage(common *models.CommonModel, pluginRegistry *plugins.Registr
 	p := newPage(common, pluginRegistry, adapterManager)
 
 	worktreePaneMeta := models.PaneMeta{ID: paneWorktree, Name: "Worktrees", Type: models.PaneTypeWorktree, CWD: cwd, RepoID: cwd, WorktreeID: cwd, Status: models.PaneStatusIdle, Closable: false}
-	fileTreeMeta := models.PaneMeta{ID: paneFileTree, Name: "File Tree", Type: models.PaneTypeFileTree, CWD: cwd, RepoID: cwd, WorktreeID: cwd, Status: models.PaneStatusIdle, Closable: false}
-	agentSessionMeta := models.PaneMeta{ID: paneAgentSession, Name: "Agents", Type: models.PaneTypeAgentSession, CWD: cwd, RepoID: cwd, WorktreeID: cwd, Status: models.PaneStatusIdle, Closable: false}
 
 	p.registerPane(paneHeader, header.New(cfg, common.Theme, store), models.PaneMeta{ID: paneHeader, Name: "Header", Type: models.PaneTypeHeader, Status: models.PaneStatusPassive, Closable: false})
 	p.registerPane(paneShell, shell.New(common, paneShell), models.PaneMeta{ID: paneShell, Name: "Shell", Type: models.PaneTypeShell, CWD: cwd, RepoID: cwd, WorktreeID: cwd, Status: models.PaneStatusStarting, Closable: true})
 	p.registerPane(paneTodo, todo.New(common), models.PaneMeta{ID: paneTodo, Name: "Todo", Type: models.PaneTypeTodo, Status: models.PaneStatusIdle, Closable: false})
 	p.registerPane(panePomodoro, pomodoro.New(common), models.PaneMeta{ID: panePomodoro, Name: "Pomodoro", Type: models.PaneTypePomodoro, Status: models.PaneStatusIdle, Closable: false})
 	p.registerPane(paneFooter, footer.New(common), models.PaneMeta{ID: paneFooter, Name: "Footer", Type: models.PaneTypeFooter, Status: models.PaneStatusPassive, Closable: false})
-
-	if panel, err := pluginRegistry.CreatePane(models.PaneTypeFileTree, paneFileTree, fileTreeMeta, *common); err == nil {
-		p.registerPane(paneFileTree, panel, fileTreeMeta)
-	}
-
-	if panel, err := pluginRegistry.CreatePane(models.PaneTypeAgentSession, paneAgentSession, agentSessionMeta, *common); err == nil {
-		p.registerPane(paneAgentSession, panel, agentSessionMeta)
-	}
 
 	if repoRoot != "" {
 		worktreePaneMeta.CWD = repoRoot
@@ -131,17 +121,16 @@ func newOverviewPage(common *models.CommonModel, pluginRegistry *plugins.Registr
 			layout.SplitHorizontal,
 			30,
 			layout.Leaf(paneWorktree),
-			layout.Split(layout.SplitVertical, 50, layout.Leaf(paneAgentSession), layout.Leaf(paneShell)),
+			layout.Leaf(paneShell),
 		)
 	} else {
-		p.bodyTree = layout.Split(
-			layout.SplitHorizontal,
-			30,
-			layout.Leaf(paneFileTree),
-			layout.Split(layout.SplitVertical, 50, layout.Leaf(paneAgentSession), layout.Leaf(paneShell)),
-		)
+		p.bodyTree = layout.Leaf(paneShell)
 	}
-	p.focused = paneWorktree
+	if _, ok := p.paneMeta[paneWorktree]; ok {
+		p.focused = paneWorktree
+	} else {
+		p.focused = paneShell
+	}
 	p.refreshPaneStatuses()
 	return p
 }
@@ -1057,20 +1046,13 @@ func (p *page) focusAgentShell(worktreeID string) tea.Cmd {
 	return nil
 }
 
-func (p *page) openAgentShell(worktreeID string, provider agents.Provider) tea.Cmd {
-	for id, meta := range p.paneMeta {
-		if meta.Type == models.PaneTypeShell && meta.WorktreeID == worktreeID {
-			p.setFocus(id)
-			return nil
-		}
-	}
-
+func (p *page) openAgentShell(worktreeID string, provider agents.Provider, sessionID string) tea.Cmd {
 	repoID := p.currentRepoID()
 	if repoID == "" {
 		repoID = p.gitRepoPath()
 	}
 
-	cmdStr := agents.AutoTypeCommand(provider)
+	cmdStr := agents.AutoTypeCommandWithSession(provider, sessionID)
 	id := p.nextShellPaneID()
 	panel := shell.NewWithCommand(p.common, id, worktreeID, cmdStr)
 	meta := models.PaneMeta{
@@ -1193,6 +1175,7 @@ func (m *model) persistActivePageSnapshot() {
 
 func (m *model) switchToOverviewPage() {
 	m.persistActivePageSnapshot()
+	m.touchActiveWorktreeContext()
 	if m.activePage != nil {
 		m.activePage.snapshot = m.activePage.captureSnapshot()
 	}
@@ -1227,6 +1210,7 @@ func (m *model) switchToWorktreePage(worktreeID, preferredPane string) tea.Cmd {
 		return nil
 	}
 	m.persistActivePageSnapshot()
+	m.touchActiveWorktreeContext()
 	if m.activePage != nil {
 		m.activePage.snapshot = m.activePage.captureSnapshot()
 	}
@@ -1253,6 +1237,7 @@ func (m *model) switchToWorktreePage(worktreeID, preferredPane string) tea.Cmd {
 			}
 		}
 	}
+	m.touchWorktreeContext(worktreeID)
 	if m.activePage.snapshot != nil {
 		m.activePage.restoreSnapshot()
 	}

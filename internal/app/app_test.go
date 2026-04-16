@@ -2,9 +2,12 @@ package app
 
 import (
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
+	"time"
 
+	"focus/internal/agents"
 	"focus/internal/config"
 	gitmodel "focus/internal/git"
 	"focus/internal/models"
@@ -149,10 +152,24 @@ func TestRenderHelpLineForWorktreePaneIncludesRefreshShortcut(t *testing.T) {
 	m.activePage.focused = paneWorktree
 
 	help := m.renderHelpLine(120)
-	for _, want := range []string{"[j/k]move", "[r]efresh"} {
+	for _, want := range []string{"[j/k]move", "[enter]open", "[d]el", "[r]efresh"} {
 		if !strings.Contains(help, want) {
 			t.Fatalf("expected help line to contain %q, got %q", want, help)
 		}
+	}
+}
+
+func TestOverviewPageBodyTreeIsOrchestrationHub(t *testing.T) {
+	cfg := config.DefaultConfig()
+	st, _ := store.New(":memory:")
+	m := New(cfg, st).(model)
+
+	leaves := layout.LeafOrder(m.activePage.bodyTree)
+	if len(leaves) != 2 {
+		t.Fatalf("expected overview page to have 2 leaves, got %d", len(leaves))
+	}
+	if leaves[0] != paneWorktree || leaves[1] != paneShell {
+		t.Fatalf("expected overview leaves [worktree shell], got %v", leaves)
 	}
 }
 
@@ -234,8 +251,8 @@ func TestWorktreePageSplitDoesNotAffectOverview(t *testing.T) {
 	}
 	m.switchToOverviewPage()
 	overviewLeaves := len(layout.LeafOrder(m.activePage.bodyTree))
-	if overviewLeaves != 3 {
-		t.Fatalf("expected overview page to have 3 leaves, got %d", overviewLeaves)
+	if overviewLeaves != 2 {
+		t.Fatalf("expected overview page to have 2 leaves, got %d", overviewLeaves)
 	}
 }
 
@@ -339,8 +356,8 @@ func TestSplitFocusedHorizontal(t *testing.T) {
 	m := New(cfg, st).(model)
 
 	initialOrder := layout.LeafOrder(m.activePage.bodyTree)
-	if len(initialOrder) != 3 {
-		t.Fatalf("expected 3 panes initially (worktree + agent-session + shell), got %d", len(initialOrder))
+	if len(initialOrder) != 2 {
+		t.Fatalf("expected 2 panes initially (worktree + shell), got %d", len(initialOrder))
 	}
 
 	m.setFocus(paneShell)
@@ -351,13 +368,13 @@ func TestSplitFocusedHorizontal(t *testing.T) {
 	m = newM.(model)
 
 	newOrder := layout.LeafOrder(m.activePage.bodyTree)
-	if len(newOrder) != 4 {
-		t.Fatalf("expected 4 panes after split, got %d", len(newOrder))
+	if len(newOrder) != 3 {
+		t.Fatalf("expected 3 panes after split, got %d", len(newOrder))
 	}
 
 	foundNewPane := false
 	for _, id := range newOrder {
-		if string(id) != string(paneShell) && string(id) != string(paneWorktree) && string(id) != string(paneAgentSession) {
+		if string(id) != string(paneShell) && string(id) != string(paneWorktree) {
 			foundNewPane = true
 			if m.activePage.focused != id {
 				t.Fatalf("expected focus on new pane %s, got %s", id, m.activePage.focused)
@@ -371,6 +388,109 @@ func TestSplitFocusedHorizontal(t *testing.T) {
 	if !foundNewPane {
 		t.Fatal("new pane not found after split")
 	}
+}
+
+func TestLaunchAgentPersistsSessionAndInjectsStableID(t *testing.T) {
+	cfg := config.DefaultConfig()
+	st, _ := store.New(":memory:")
+	m := New(cfg, st).(model)
+
+	cmd := m.launchAgent(agents.LaunchAgentMsg{WorktreeID: "/repo/feature-a", Provider: agents.ProviderOpenCode})
+	if cmd == nil {
+		t.Fatal("expected launch command")
+	}
+
+	records, err := st.ListAgentSessions("/repo/feature-a")
+	if err != nil {
+		t.Fatalf("list agent sessions: %v", err)
+	}
+	if len(records) != 1 {
+		t.Fatalf("expected 1 persisted session, got %d", len(records))
+	}
+	if records[0].Provider != string(agents.ProviderOpenCode) {
+		t.Fatalf("expected opencode session, got %+v", records[0])
+	}
+
+	focused := m.activePage.focused
+	sh, ok := m.activePage.pane(focused).(*shell.Model)
+	if !ok {
+		t.Fatalf("expected focused pane to be shell, got %T", m.activePage.pane(focused))
+	}
+	if !strings.Contains(shAutoType(sh), agents.SessionIDEnvVar+"=") {
+		t.Fatalf("expected auto-typed command to inject session id, got %q", shAutoType(sh))
+	}
+}
+
+func TestSwitchToWorktreePagePersistsWorktreeContext(t *testing.T) {
+	cfg := config.DefaultConfig()
+	st, _ := store.New(":memory:")
+	m := New(cfg, st).(model)
+
+	m.switchToWorktreePage("/repo/feature-a", string(paneShell))
+
+	record, err := st.GetWorktreeContext("/repo/feature-a")
+	if err != nil {
+		t.Fatalf("get worktree context: %v", err)
+	}
+	if record == nil {
+		t.Fatal("expected worktree context to be persisted")
+	}
+	if record.TaskMode != "single" {
+		t.Fatalf("expected single task mode, got %+v", record)
+	}
+	if record.TaskName == "" {
+		t.Fatalf("expected task name to be inferred, got %+v", record)
+	}
+}
+
+func TestSyncWorktreeActivitiesBuildsResumeSummaryCache(t *testing.T) {
+	cfg := config.DefaultConfig()
+	st, _ := store.New(":memory:")
+	m := New(cfg, st).(model)
+
+	if err := st.SaveTaskContext(models.TaskContextRecord{
+		ID:       "task-1",
+		RepoID:   "/repo/main",
+		Title:    "Tighten resume pipeline",
+		Goal:     "Show useful overview context",
+		NextStep: "Render task summary in worktree pane",
+		State:    "active",
+		Priority: "high",
+	}); err != nil {
+		t.Fatalf("save task context: %v", err)
+	}
+	if err := st.SaveWorktreeContext(models.WorktreeContextRecord{
+		WorktreeID:    "/repo/feature-a",
+		RepoID:        "/repo/main",
+		PrimaryTaskID: stringPtr("task-1"),
+		TaskMode:      "single",
+		TaskName:      "feature-a",
+		LastActiveAt:  time.Now(),
+	}); err != nil {
+		t.Fatalf("save worktree context: %v", err)
+	}
+	m.switchToWorktreePage("/repo/feature-a", string(paneShell))
+	m.switchToOverviewPage()
+	m.syncWorktreeActivities()
+
+	summary, ok := m.resumeSummaryCache["/repo/feature-a"]
+	if !ok {
+		t.Fatal("expected resume summary cache for worktree")
+	}
+	if summary.TaskTitle != "Tighten resume pipeline" {
+		t.Fatalf("expected task title from task context, got %+v", summary)
+	}
+	if summary.NextStep != "Render task summary in worktree pane" {
+		t.Fatalf("expected next step in summary, got %+v", summary)
+	}
+}
+
+func shAutoType(m *shell.Model) string {
+	return reflect.ValueOf(m).Elem().FieldByName("autoType").String()
+}
+
+func stringPtr(value string) *string {
+	return &value
 }
 
 func TestZoomToggle(t *testing.T) {
@@ -515,14 +635,14 @@ func TestClosePaneRestoresFocusToEditorOpener(t *testing.T) {
 	m := New(cfg, st).(model)
 
 	path := filepath.Join(t.TempDir(), "main.go")
-	m.setFocus(paneFileTree)
+	m.setFocus(paneWorktree)
 	m.openEditorPane(editorplugin.OpenEditorMsg{FilePath: path, Behavior: editorplugin.OpenBehaviorDefault})
 	editorID := m.activePage.focused
 
 	m.closePane(editorID)
 
-	if m.activePage.focused != paneFileTree {
-		t.Fatalf("expected focus to return to file tree, got %s", m.activePage.focused)
+	if m.activePage.focused != paneWorktree {
+		t.Fatalf("expected focus to return to worktree pane, got %s", m.activePage.focused)
 	}
 	if _, ok := m.activePage.paneMeta[editorID]; ok {
 		t.Fatalf("expected editor pane %s to be removed", editorID)

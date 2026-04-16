@@ -132,6 +132,52 @@ func TestWorktreePaneRemoveCleanWorktreeRequiresConfirmation(t *testing.T) {
 	}
 }
 
+func TestWorktreePaneDeleteKeyUsesD(t *testing.T) {
+	adapter := &fakeGitAdapter{worktrees: []gitmodel.Worktree{{Path: "/repo/main", Branch: "main", IsMain: true}, {Path: "/repo/feature-a", Branch: "feature-a"}}}
+	pane := NewWorktreePane("worktree-1", models.PaneMeta{ID: "worktree-1", Type: models.PaneTypeWorktree, CWD: "/repo/main"}, models.CommonModel{}, adapter)
+	updated, _ := pane.Update(worktreesLoadedMsg{worktrees: adapter.worktrees})
+	pane = updated.(*WorktreePane)
+	updated, _ = pane.Update(tea.KeyMsg{Type: tea.KeyDown})
+	pane = updated.(*WorktreePane)
+
+	updated, _ = pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
+	pane = updated.(*WorktreePane)
+	if pane.confirm == nil || pane.confirm.kind != "remove" || pane.confirm.force {
+		t.Fatalf("expected non-force remove confirmation, got %+v", pane.confirm)
+	}
+}
+
+func TestWorktreePaneRendersResumeSummaryAndOrdersByScore(t *testing.T) {
+	adapter := &fakeGitAdapter{
+		worktrees: []gitmodel.Worktree{
+			{Path: "/repo/main", Branch: "main", IsMain: true},
+			{Path: "/repo/feature-a", Branch: "feature-a"},
+			{Path: "/repo/feature-b", Branch: "feature-b"},
+		},
+	}
+	pane := NewWorktreePane("worktree-1", models.PaneMeta{ID: "worktree-1", Type: models.PaneTypeWorktree, CWD: "/repo/main"}, models.CommonModel{}, adapter)
+	pane.SetSize(160, 20)
+	updated, _ := pane.Update(worktreesLoadedMsg{worktrees: adapter.worktrees})
+	pane = updated.(*WorktreePane)
+	pane.SetResumeSummaries(map[string]gitmodel.WorktreeResumeSummary{
+		"/repo/feature-a": {TaskTitle: "Fix resume pipeline", NextStep: "Wire overview summaries", ResumeScore: 90, ResumeReason: "active task"},
+		"/repo/feature-b": {TaskTitle: "Later task", NextStep: "Leave for tomorrow", ResumeScore: 10},
+	})
+
+	view := pane.View()
+	for _, want := range []string{"Fix resume pipeline", "next: Wire overview summaries", "active task"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("expected view to contain %q, got:\n%s", want, view)
+		}
+	}
+
+	featureA := strings.Index(view, "Fix resume pipeline")
+	featureB := strings.Index(view, "Later task")
+	if featureA == -1 || featureB == -1 || featureA > featureB {
+		t.Fatalf("expected higher resume score task to render first, got:\n%s", view)
+	}
+}
+
 func TestWorktreePaneForceRemoveDirtyWorktree(t *testing.T) {
 	adapter := &fakeGitAdapter{worktrees: []gitmodel.Worktree{{Path: "/repo/main", Branch: "main", IsMain: true}, {Path: "/repo/feature-a", Branch: "feature-a", DirtySummary: gitmodel.DirtySummary{Unstaged: 1}}}}
 	pane := NewWorktreePane("worktree-1", models.PaneMeta{ID: "worktree-1", Type: models.PaneTypeWorktree, CWD: "/repo/main"}, models.CommonModel{}, adapter)

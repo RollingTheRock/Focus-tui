@@ -3,6 +3,7 @@ package git
 import (
 	"fmt"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"focus/internal/adapters"
@@ -32,6 +33,7 @@ type WorktreePane struct {
 	repoPath      string
 	worktrees     []gitmodel.Worktree
 	activities    map[string]gitmodel.WorktreeActivity
+	summaries     map[string]gitmodel.WorktreeResumeSummary
 	agentSessions map[string][]agents.Session
 	cursor        int
 	confirm       *worktreeConfirmState
@@ -90,6 +92,7 @@ func NewWorktreePane(id models.PaneID, meta models.PaneMeta, common models.Commo
 		adapter:    adapter,
 		repoPath:   repoPath,
 		activities: make(map[string]gitmodel.WorktreeActivity),
+		summaries:  make(map[string]gitmodel.WorktreeResumeSummary),
 		loading:    true,
 	}
 }
@@ -181,7 +184,7 @@ func (p *WorktreePane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 					return agents.LaunchAgentMsg{WorktreeID: wt.Path, Provider: provider}
 				}
 			}
-		case "x":
+		case "d", "x":
 			if wt, ok := p.selectedWorktree(); ok {
 				if wt.IsMain {
 					p.err = fmt.Errorf("cannot remove the main worktree")
@@ -248,7 +251,7 @@ func (p *WorktreePane) Render(canvas render.Surface, width, height int) {
 	if len(p.worktrees) == 0 {
 		lines = append(lines, renderedLine{content: "No worktrees found.", style: &emptyStyle})
 	} else {
-		for i, wt := range p.worktrees {
+		for i, wt := range p.orderedWorktrees() {
 			line := p.renderWorktreeRow(wt)
 			style := (*lipgloss.Style)(nil)
 			if i == p.cursor {
@@ -309,6 +312,10 @@ func (p *WorktreePane) SetAgentSessions(sessions map[string][]agents.Session) {
 	p.agentSessions = sessions
 }
 
+func (p *WorktreePane) SetResumeSummaries(summaries map[string]gitmodel.WorktreeResumeSummary) {
+	p.summaries = summaries
+}
+
 func (p *WorktreePane) loadWorktreesCmd() tea.Cmd {
 	return func() tea.Msg {
 		if p.adapter == nil {
@@ -351,6 +358,7 @@ func (p *WorktreePane) renderWorktreeRow(wt gitmodel.Worktree) string {
 		tags = append(tags, strings.Join(parts, " "))
 	}
 	activity := p.activities[wt.Path]
+	summary := p.summaries[wt.Path]
 	if activity.HasShell {
 		tags = append(tags, "shell")
 	}
@@ -370,15 +378,40 @@ func (p *WorktreePane) renderWorktreeRow(wt gitmodel.Worktree) string {
 	}
 
 	label := wt.DisplayName()
+	if summary.TaskTitle != "" {
+		label = summary.TaskTitle
+	}
 	if wt.Branch != "" {
-		label = branchStyle.Render(wt.Branch)
+		branchLabel := branchStyle.Render(wt.Branch)
+		if summary.TaskTitle != "" {
+			label = label + "  " + branchLabel
+		} else {
+			label = branchLabel
+		}
 	} else if wt.HeadOID != "" {
 		label = upstreamStyle.Render(wt.HeadOID[:7])
 	}
 	pathLine := emptyStyle.Render(shortenWorktreePath(wt.Path))
+	if summary.NextStep != "" {
+		pathLine += "  " + upstreamStyle.Render("next: "+summary.NextStep)
+	}
 	activityLine := ""
-	if activity.LastActive != "" {
+	if summary.LastActiveLabel != "" {
+		activityLine = upstreamStyle.Render(summary.LastActiveLabel)
+	} else if activity.LastActive != "" {
 		activityLine = upstreamStyle.Render("active " + activity.LastActive)
+	}
+	if summary.LastAgentLabel != "" {
+		if activityLine != "" {
+			activityLine += "  "
+		}
+		activityLine += upstreamStyle.Render(summary.LastAgentLabel)
+	}
+	if summary.ResumeReason != "" {
+		if activityLine != "" {
+			activityLine += "  "
+		}
+		activityLine += upstreamStyle.Render(summary.ResumeReason)
 	}
 	if wt.Upstream != "" {
 		if activityLine != "" {
@@ -400,10 +433,29 @@ func (p *WorktreePane) renderWorktreeRow(wt gitmodel.Worktree) string {
 }
 
 func (p *WorktreePane) selectedWorktree() (gitmodel.Worktree, bool) {
-	if p.cursor < 0 || p.cursor >= len(p.worktrees) {
+	ordered := p.orderedWorktrees()
+	if p.cursor < 0 || p.cursor >= len(ordered) {
 		return gitmodel.Worktree{}, false
 	}
-	return p.worktrees[p.cursor], true
+	return ordered[p.cursor], true
+}
+
+func (p *WorktreePane) orderedWorktrees() []gitmodel.Worktree {
+	ordered := append([]gitmodel.Worktree(nil), p.worktrees...)
+	sort.SliceStable(ordered, func(i, j int) bool {
+		left := p.summaries[ordered[i].Path]
+		right := p.summaries[ordered[j].Path]
+		if left.ResumeScore != right.ResumeScore {
+			return left.ResumeScore > right.ResumeScore
+		}
+		leftActivity := p.activities[ordered[i].Path]
+		rightActivity := p.activities[ordered[j].Path]
+		if leftActivity.LastActive != rightActivity.LastActive {
+			return leftActivity.LastActive > rightActivity.LastActive
+		}
+		return false
+	})
+	return ordered
 }
 
 func (p *WorktreePane) confirmAction() (models.Panel, tea.Cmd) {
