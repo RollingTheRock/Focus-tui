@@ -507,6 +507,8 @@ func (f *fakeGitAdapter) WatchStatus(repoPath string) (<-chan adapters.StatusEve
 	return f.watchCh, nil
 }
 
+func (f *fakeGitAdapter) StopWatch(repoPath string) {}
+
 func (f *fakeGitAdapter) StageFile(repoPath string, path string) error {
 	f.stageCalled = true
 	f.stagedPath = path

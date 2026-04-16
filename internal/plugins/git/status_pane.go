@@ -479,6 +479,12 @@ func (p *StatusPane) watchStatusCmd() tea.Cmd {
 	}
 }
 
+func (p *StatusPane) StopWatch() {
+	if p.adapter != nil {
+		p.adapter.StopWatch(p.repoPath)
+	}
+}
+
 func notifyStatsRefreshCmd() tea.Cmd {
 	return func() tea.Msg { return models.StatsRefreshMsg{} }
 }

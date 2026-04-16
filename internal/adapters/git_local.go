@@ -4,6 +4,7 @@ package adapters
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"fmt"
 	"os/exec"
 	"path/filepath"
@@ -14,6 +15,7 @@ import (
 
 	"focus/internal/git"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/fsnotify/fsnotify"
 )
 
 const defaultCacheTTL = time.Second
@@ -28,10 +30,17 @@ type cachedWorktrees struct {
 	timestamp time.Time
 }
 
+type watchEntry struct {
+	ch     chan StatusEvent
+	cancel context.CancelFunc
+	refs   int
+}
+
 // GitLocalAdapter implements GitAdapter using local git CLI.
 type GitLocalAdapter struct {
 	name          string
-	watches       map[string]chan StatusEvent
+	watches       map[string]*watchEntry
+	watchMu       sync.Mutex
 	cacheTTL      time.Duration
 	statusCache   map[string]cachedStatus
 	worktreeCache map[string]cachedWorktrees
@@ -42,7 +51,7 @@ type GitLocalAdapter struct {
 func NewGitLocalAdapter() *GitLocalAdapter {
 	return &GitLocalAdapter{
 		name:          "git-local",
-		watches:       make(map[string]chan StatusEvent),
+		watches:       make(map[string]*watchEntry),
 		cacheTTL:      defaultCacheTTL,
 		statusCache:   make(map[string]cachedStatus),
 		worktreeCache: make(map[string]cachedWorktrees),
@@ -66,11 +75,15 @@ func (g *GitLocalAdapter) Init() error {
 
 // Destroy cleans up the adapter.
 func (g *GitLocalAdapter) Destroy() error {
-	// Close all watch channels
-	for path, ch := range g.watches {
-		close(ch)
+	g.watchMu.Lock()
+	for path, entry := range g.watches {
+		if entry.cancel != nil {
+			entry.cancel()
+		}
+		close(entry.ch)
 		delete(g.watches, path)
 	}
+	g.watchMu.Unlock()
 	return nil
 }
 
@@ -672,57 +685,117 @@ func (g *GitLocalAdapter) statusLine(repoPath string, path string) (string, erro
 // WatchStatus starts watching a repository for status changes.
 // Returns a channel that receives status updates.
 func (g *GitLocalAdapter) WatchStatus(repoPath string) (<-chan StatusEvent, error) {
-	// Resolve to absolute path
 	absPath, err := filepath.Abs(repoPath)
 	if err != nil {
 		return nil, err
 	}
 
-	// Check if already watching
-	if ch, exists := g.watches[absPath]; exists {
-		return ch, nil
+	g.watchMu.Lock()
+	defer g.watchMu.Unlock()
+
+	if entry, exists := g.watches[absPath]; exists {
+		entry.refs++
+		return entry.ch, nil
 	}
 
-	// Create channel
+	ctx, cancel := context.WithCancel(context.Background())
 	ch := make(chan StatusEvent, 1)
-	g.watches[absPath] = ch
+	entry := &watchEntry{ch: ch, cancel: cancel, refs: 1}
+	g.watches[absPath] = entry
 
-	// Start background watcher
-	go g.watchLoop(absPath, ch)
+	go g.watchLoop(ctx, absPath, ch)
 
 	return ch, nil
 }
 
-// watchLoop runs in a goroutine and periodically checks for status changes.
-func (g *GitLocalAdapter) watchLoop(repoPath string, ch chan StatusEvent) {
-	ticker := time.NewTicker(2 * time.Second)
-	defer ticker.Stop()
+func (g *GitLocalAdapter) StopWatch(repoPath string) {
+	absPath, err := filepath.Abs(repoPath)
+	if err != nil {
+		return
+	}
+
+	g.watchMu.Lock()
+	defer g.watchMu.Unlock()
+
+	entry, exists := g.watches[absPath]
+	if !exists {
+		return
+	}
+
+	entry.refs--
+	if entry.refs <= 0 {
+		if entry.cancel != nil {
+			entry.cancel()
+		}
+		close(entry.ch)
+		delete(g.watches, absPath)
+	}
+}
+
+func (g *GitLocalAdapter) gitDir(repoPath string) (string, error) {
+	cmd := exec.Command("git", "-C", repoPath, "rev-parse", "--git-dir")
+	out, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	gitDir := strings.TrimSpace(string(out))
+	if !filepath.IsAbs(gitDir) {
+		gitDir = filepath.Join(repoPath, gitDir)
+	}
+	return filepath.Abs(gitDir)
+}
+
+func (g *GitLocalAdapter) watchLoop(ctx context.Context, repoPath string, ch chan StatusEvent) {
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		select {
+		case ch <- StatusEvent{RepoPath: repoPath, Error: err}:
+		default:
+		}
+		return
+	}
+	defer watcher.Close()
+
+	gitDir, err := g.gitDir(repoPath)
+	if err == nil {
+		_ = watcher.Add(filepath.Join(gitDir, "index"))
+		_ = watcher.Add(filepath.Join(gitDir, "HEAD"))
+		_ = watcher.Add(filepath.Join(gitDir, "refs", "heads"))
+		_ = watcher.Add(filepath.Join(gitDir, "refs", "remotes"))
+	}
+
+	fallbackTicker := time.NewTicker(10 * time.Second)
+	defer fallbackTicker.Stop()
 
 	var lastStatus *git.Status
-
-	for range ticker.C {
+	sendStatus := func() {
 		status, err := g.GetStatus(repoPath)
 		if err != nil {
 			select {
-			case ch <- StatusEvent{
-				RepoPath: repoPath,
-				Error:    err,
-			}:
+			case ch <- StatusEvent{RepoPath: repoPath, Error: err}:
 			default:
 			}
-			continue
+			return
 		}
-
-		// Only send if status changed
 		if !g.statusEqual(lastStatus, status) {
 			select {
-			case ch <- StatusEvent{
-				RepoPath: repoPath,
-				Status:   status,
-			}:
+			case ch <- StatusEvent{RepoPath: repoPath, Status: status}:
 			default:
 			}
 			lastStatus = status
+		}
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-watcher.Events:
+			sendStatus()
+		case err := <-watcher.Errors:
+			_ = err
+		case <-fallbackTicker.C:
+			sendStatus()
 		}
 	}
 }

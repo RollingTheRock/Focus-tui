@@ -17,6 +17,7 @@ type GitAdapter interface {
 	Pull(repoPath string) error
 	Push(repoPath string) error
 	WatchStatus(repoPath string) (<-chan StatusEvent, error)
+	StopWatch(repoPath string)
 
 	StageFile(repoPath string, path string) error
 	StageAll(repoPath string) error

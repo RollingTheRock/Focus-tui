@@ -228,6 +228,8 @@ func (f *fakeCommitAdapter) WatchStatus(repoPath string) (<-chan adapters.Status
 	return f.watchCh, nil
 }
 
+func (f *fakeCommitAdapter) StopWatch(repoPath string) {}
+
 func (f *fakeCommitAdapter) StageFile(repoPath string, path string) error { return nil }
 
 func (f *fakeCommitAdapter) StageAll(repoPath string) error { return nil }

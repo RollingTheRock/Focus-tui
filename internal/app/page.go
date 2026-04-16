@@ -852,6 +852,9 @@ func (p *page) closePane(id models.PaneID) {
 	if sh, ok := p.pane(id).(*shell.Model); ok {
 		_ = sh.Close()
 	}
+	if st, ok := p.pane(id).(*gitplugin.StatusPane); ok {
+		st.StopWatch()
+	}
 
 	wasFocused := p.focused == id
 	preferred := p.returnFocus[id]
