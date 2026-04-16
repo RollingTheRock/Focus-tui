@@ -2,11 +2,6 @@ package app
 
 import (
 	"fmt"
-	"os"
-	"os/exec"
-	"path/filepath"
-	"strings"
-
 	"focus/internal/adapters"
 	"focus/internal/avatar"
 	"focus/internal/config"
@@ -23,6 +18,10 @@ import (
 	"focus/internal/ui/pomodoro"
 	"focus/internal/ui/shell"
 	"focus/internal/ui/todo"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -761,6 +760,7 @@ func (m model) buildView(dims layout.Dimensions, w, h int) string {
 	if bodyHeight < 0 {
 		bodyHeight = 0
 	}
+	m.syncWorktreeActivities()
 	bodyView := m.renderBody(w, bodyHeight)
 	if windowTooSmall(w, h) {
 		bodyView = renderWindowTooSmallBody(w, bodyHeight)
@@ -1141,6 +1141,38 @@ func (m *model) switchToAdjacentWorktreePage(delta int) tea.Cmd {
 	}
 	nextIdx := (idx + delta + len(wts)) % len(wts)
 	return m.switchToWorktreePage(wts[nextIdx].Path, "")
+}
+
+func (m *model) syncWorktreeActivities() {
+	if m.pages == nil {
+		return
+	}
+	for worktreeID, p := range m.pages {
+		if worktreeID == "" {
+			continue
+		}
+		activity := gitmodel.WorktreeActivity{}
+		for id, meta := range p.paneMeta {
+			if meta.Type == models.PaneTypeEditor {
+				activity.OpenEditors++
+			}
+			if meta.Type == models.PaneTypeShell {
+				if sh, ok := p.pane(id).(*shell.Model); ok {
+					if sh.SessionStatus() == models.PaneStatusReady || sh.SessionStatus() == models.PaneStatusStarting {
+						activity.HasShell = true
+					}
+				}
+			}
+		}
+		if p == m.activePage {
+			activity.LastActive = "now"
+		} else if p.snapshot != nil && p.snapshot.Focused != "" {
+			activity.LastActive = "recent"
+		}
+		if wp, ok := m.pages[""].pane(paneWorktree).(*gitplugin.WorktreePane); ok {
+			wp.SetActivity(worktreeID, activity)
+		}
+	}
 }
 
 func shortenPath(path, home string) string {

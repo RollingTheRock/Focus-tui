@@ -41,7 +41,7 @@ func TestWorktreePaneInitLoadsAndRendersWorktrees(t *testing.T) {
 	pane = updated.(*WorktreePane)
 
 	view := pane.View()
-	for _, want := range []string{"Worktrees", "main", "feature-a", "dirty 2"} {
+	for _, want := range []string{"Worktrees", "main", "feature-a", "~2"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("expected view to contain %q, got:\n%s", want, view)
 		}

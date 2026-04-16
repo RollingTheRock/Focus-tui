@@ -16,6 +16,7 @@ type Worktree struct {
 	IsBare         bool
 	DirtySummary   DirtySummary
 	AheadBehind    AheadBehind
+	Upstream       string
 	Activity       WorktreeActivity
 }
 

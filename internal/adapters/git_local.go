@@ -293,6 +293,7 @@ func (g *GitLocalAdapter) ListWorktrees(repoPath string) ([]git.Worktree, error)
 			Ahead:  status.Ahead,
 			Behind: status.Behind,
 		}
+		worktrees[i].Upstream = status.Upstream
 		if status.Branch != "" && worktrees[i].Branch == "" {
 			worktrees[i].Branch = status.Branch
 		}

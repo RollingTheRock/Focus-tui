@@ -21,15 +21,16 @@ type WorktreePane struct {
 	common  models.CommonModel
 	adapter adapters.GitAdapter
 
-	repoPath  string
-	worktrees []gitmodel.Worktree
-	cursor    int
-	confirm   *worktreeConfirmState
-	loading   bool
-	width     int
-	height    int
-	err       error
-	notice    string
+	repoPath   string
+	worktrees  []gitmodel.Worktree
+	activities map[string]gitmodel.WorktreeActivity
+	cursor     int
+	confirm    *worktreeConfirmState
+	loading    bool
+	width      int
+	height     int
+	err        error
+	notice     string
 }
 
 type worktreesLoadedMsg struct {
@@ -74,12 +75,13 @@ func NewWorktreePane(id models.PaneID, meta models.PaneMeta, common models.Commo
 		repoPath = "."
 	}
 	return &WorktreePane{
-		id:       id,
-		meta:     meta,
-		common:   common,
-		adapter:  adapter,
-		repoPath: repoPath,
-		loading:  true,
+		id:         id,
+		meta:       meta,
+		common:     common,
+		adapter:    adapter,
+		repoPath:   repoPath,
+		activities: make(map[string]gitmodel.WorktreeActivity),
+		loading:    true,
 	}
 }
 
@@ -250,6 +252,13 @@ func (p *WorktreePane) SetSize(width, height int) {
 	p.height = height
 }
 
+func (p *WorktreePane) SetActivity(worktreeID string, activity gitmodel.WorktreeActivity) {
+	if p.activities == nil {
+		p.activities = make(map[string]gitmodel.WorktreeActivity)
+	}
+	p.activities[worktreeID] = activity
+}
+
 func (p *WorktreePane) loadWorktreesCmd() tea.Cmd {
 	return func() tea.Msg {
 		if p.adapter == nil {
@@ -274,14 +283,29 @@ func (p *WorktreePane) renderWorktreeRow(wt gitmodel.Worktree) string {
 	if wt.IsPrunable {
 		tags = append(tags, "prunable")
 	}
-	if wt.DirtySummary.IsDirty() {
-		tags = append(tags, fmt.Sprintf("dirty %d", wt.DirtySummary.Staged+wt.DirtySummary.Unstaged+wt.DirtySummary.Untracked+wt.DirtySummary.Conflicted))
+	ds := wt.DirtySummary
+	if ds.IsDirty() {
+		var parts []string
+		if ds.Staged > 0 {
+			parts = append(parts, fmt.Sprintf("+%d", ds.Staged))
+		}
+		if ds.Unstaged > 0 {
+			parts = append(parts, fmt.Sprintf("~%d", ds.Unstaged))
+		}
+		if ds.Untracked > 0 {
+			parts = append(parts, fmt.Sprintf("?%d", ds.Untracked))
+		}
+		if ds.Conflicted > 0 {
+			parts = append(parts, fmt.Sprintf("!%d", ds.Conflicted))
+		}
+		tags = append(tags, strings.Join(parts, " "))
 	}
-	if wt.Activity.HasShell {
+	activity := p.activities[wt.Path]
+	if activity.HasShell {
 		tags = append(tags, "shell")
 	}
-	if wt.Activity.OpenEditors > 0 {
-		tags = append(tags, fmt.Sprintf("edits %d", wt.Activity.OpenEditors))
+	if activity.OpenEditors > 0 {
+		tags = append(tags, fmt.Sprintf("edits %d", activity.OpenEditors))
 	}
 	if wt.AheadBehind.Ahead > 0 {
 		tags = append(tags, aheadStyle.Render(fmt.Sprintf("↑%d", wt.AheadBehind.Ahead)))
@@ -298,8 +322,14 @@ func (p *WorktreePane) renderWorktreeRow(wt gitmodel.Worktree) string {
 	}
 	pathLine := emptyStyle.Render(shortenWorktreePath(wt.Path))
 	activityLine := ""
-	if wt.Activity.LastActive != "" {
-		activityLine = upstreamStyle.Render("active " + wt.Activity.LastActive)
+	if activity.LastActive != "" {
+		activityLine = upstreamStyle.Render("active " + activity.LastActive)
+	}
+	if wt.Upstream != "" {
+		if activityLine != "" {
+			activityLine += "  "
+		}
+		activityLine += upstreamStyle.Render("-> " + wt.Upstream)
 	}
 	if len(tags) == 0 {
 		if activityLine != "" {
