@@ -72,7 +72,7 @@ func TestWorktreePaneKeyboardHandling(t *testing.T) {
 	}
 }
 
-func TestWorktreePaneOpenShellMessageUsesSelectedWorktree(t *testing.T) {
+func TestWorktreePaneResumeMessageUsesSelectedWorktree(t *testing.T) {
 	adapter := &fakeGitAdapter{
 		worktrees: []gitmodel.Worktree{
 			{Path: "/repo/main", Branch: "main", IsMain: true},
@@ -88,6 +88,37 @@ func TestWorktreePaneOpenShellMessageUsesSelectedWorktree(t *testing.T) {
 	updated, cmd := pane.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	pane = updated.(*WorktreePane)
 	if cmd == nil {
+		t.Fatalf("expected resume command")
+	}
+	msg := runCmd(t, cmd)
+	resumeMsg, ok := msg.(ResumeWorktreeMsg)
+	if !ok {
+		t.Fatalf("expected ResumeWorktreeMsg, got %T", msg)
+	}
+	if resumeMsg.Worktree.Path != "/repo/feature-a" {
+		t.Fatalf("expected selected worktree path, got %q", resumeMsg.Worktree.Path)
+	}
+	if !strings.Contains(pane.notice, "Resuming") {
+		t.Fatalf("expected resume notice, got %q", pane.notice)
+	}
+}
+
+func TestWorktreePaneOpenShellMessageUsesSelectedWorktree(t *testing.T) {
+	adapter := &fakeGitAdapter{
+		worktrees: []gitmodel.Worktree{
+			{Path: "/repo/main", Branch: "main", IsMain: true},
+			{Path: "/repo/feature-a", Branch: "feature-a"},
+		},
+	}
+	pane := NewWorktreePane("worktree-1", models.PaneMeta{ID: "worktree-1", Type: models.PaneTypeWorktree, CWD: "/repo/main"}, models.CommonModel{}, adapter)
+	updated, _ := pane.Update(worktreesLoadedMsg{worktrees: adapter.worktrees})
+	pane = updated.(*WorktreePane)
+	updated, _ = pane.Update(tea.KeyMsg{Type: tea.KeyDown})
+	pane = updated.(*WorktreePane)
+
+	updated, cmd := pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'o'}})
+	pane = updated.(*WorktreePane)
+	if cmd == nil {
 		t.Fatalf("expected open-shell command")
 	}
 	msg := runCmd(t, cmd)
@@ -98,8 +129,34 @@ func TestWorktreePaneOpenShellMessageUsesSelectedWorktree(t *testing.T) {
 	if openMsg.Worktree.Path != "/repo/feature-a" {
 		t.Fatalf("expected selected worktree path, got %q", openMsg.Worktree.Path)
 	}
-	if !strings.Contains(pane.notice, "feature-a") {
-		t.Fatalf("expected notice to mention selected worktree, got %q", pane.notice)
+}
+
+func TestWorktreePaneEditTaskMessageUsesSelectedWorktree(t *testing.T) {
+	adapter := &fakeGitAdapter{
+		worktrees: []gitmodel.Worktree{
+			{Path: "/repo/main", Branch: "main", IsMain: true},
+			{Path: "/repo/feature-a", Branch: "feature-a"},
+		},
+	}
+	pane := NewWorktreePane("worktree-1", models.PaneMeta{ID: "worktree-1", Type: models.PaneTypeWorktree, CWD: "/repo/main"}, models.CommonModel{}, adapter)
+	updated, _ := pane.Update(worktreesLoadedMsg{worktrees: adapter.worktrees})
+	pane = updated.(*WorktreePane)
+	pane.SetResumeSummaries(map[string]gitmodel.WorktreeResumeSummary{
+		"/repo/feature-a": {TaskID: "task-1", TaskTitle: "Fix resume pipeline", ResumeScore: 90},
+	})
+
+	updated, cmd := pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}})
+	pane = updated.(*WorktreePane)
+	if cmd == nil {
+		t.Fatalf("expected edit-task command")
+	}
+	msg := runCmd(t, cmd)
+	openMsg, ok := msg.(OpenTaskEditMsg)
+	if !ok {
+		t.Fatalf("expected OpenTaskEditMsg, got %T", msg)
+	}
+	if openMsg.WorktreeID != "/repo/feature-a" || openMsg.TaskID != "task-1" {
+		t.Fatalf("unexpected task edit message %+v", openMsg)
 	}
 }
 
@@ -160,12 +217,12 @@ func TestWorktreePaneRendersResumeSummaryAndOrdersByScore(t *testing.T) {
 	updated, _ := pane.Update(worktreesLoadedMsg{worktrees: adapter.worktrees})
 	pane = updated.(*WorktreePane)
 	pane.SetResumeSummaries(map[string]gitmodel.WorktreeResumeSummary{
-		"/repo/feature-a": {TaskTitle: "Fix resume pipeline", NextStep: "Wire overview summaries", ResumeScore: 90, ResumeReason: "active task"},
+		"/repo/feature-a": {TaskTitle: "Fix resume pipeline", NextStep: "Wire overview summaries", ResumeScore: 90, ResumeReason: "active task", LastResumeHint: "Continue: Wire overview summaries", TaskState: "active"},
 		"/repo/feature-b": {TaskTitle: "Later task", NextStep: "Leave for tomorrow", ResumeScore: 10},
 	})
 
 	view := pane.View()
-	for _, want := range []string{"Fix resume pipeline", "next: Wire overview summaries", "active task"} {
+	for _, want := range []string{"Fix resume pipeline", "next: Wire overview summaries", "active", "Resume: Continue: Wire overview summaries"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("expected view to contain %q, got:\n%s", want, view)
 		}

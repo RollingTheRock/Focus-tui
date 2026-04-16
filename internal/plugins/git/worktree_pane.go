@@ -53,6 +53,16 @@ type OpenWorktreeShellMsg struct {
 	Worktree gitmodel.Worktree
 }
 
+type ResumeWorktreeMsg struct {
+	Worktree gitmodel.Worktree
+}
+
+type OpenTaskEditMsg struct {
+	TaskID     string
+	WorktreeID string
+	RepoID     string
+}
+
 type RequestRemoveWorktreeMsg struct {
 	Worktree gitmodel.Worktree
 	Force    bool
@@ -169,7 +179,14 @@ func (p *WorktreePane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 			return p, func() tea.Msg {
 				return OpenCreateWorktreeMsg{RepoPath: p.repoPath, BaseRef: baseRef}
 			}
-		case "enter", "o":
+		case "enter":
+			if wt, ok := p.selectedWorktree(); ok {
+				p.notice = "Resuming " + shortenWorktreePath(wt.Path)
+				return p, func() tea.Msg {
+					return ResumeWorktreeMsg{Worktree: wt}
+				}
+			}
+		case "o":
 			if wt, ok := p.selectedWorktree(); ok {
 				p.notice = "Opening shell in " + shortenWorktreePath(wt.Path)
 				return p, func() tea.Msg {
@@ -182,6 +199,14 @@ func (p *WorktreePane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 				p.notice = "Launching " + string(provider) + " in " + shortenWorktreePath(wt.Path)
 				return p, func() tea.Msg {
 					return agents.LaunchAgentMsg{WorktreeID: wt.Path, Provider: provider}
+				}
+			}
+		case "e":
+			if wt, ok := p.selectedWorktree(); ok {
+				summary := p.summaries[wt.Path]
+				p.notice = "Editing task for " + shortenWorktreePath(wt.Path)
+				return p, func() tea.Msg {
+					return OpenTaskEditMsg{TaskID: summary.TaskID, WorktreeID: wt.Path, RepoID: p.repoPath}
 				}
 			}
 		case "d", "x":
@@ -264,6 +289,13 @@ func (p *WorktreePane) Render(canvas render.Surface, width, height int) {
 	if p.notice != "" {
 		lines = append(lines, renderedLine{content: "", style: nil})
 		lines = append(lines, renderedLine{content: p.notice, style: &upstreamStyle})
+	}
+	if selected, ok := p.selectedWorktree(); ok {
+		summary := p.summaries[selected.Path]
+		if summary.LastResumeHint != "" {
+			lines = append(lines, renderedLine{content: "", style: nil})
+			lines = append(lines, renderedLine{content: "Resume: " + summary.LastResumeHint, style: &upstreamStyle})
+		}
 	}
 	if p.confirm != nil {
 		lines = append(lines, renderedLine{content: "", style: nil})
@@ -359,6 +391,12 @@ func (p *WorktreePane) renderWorktreeRow(wt gitmodel.Worktree) string {
 	}
 	activity := p.activities[wt.Path]
 	summary := p.summaries[wt.Path]
+	if summary.TaskState != "" {
+		tags = append(tags, summary.TaskState)
+	}
+	if summary.TaskPriority == "high" {
+		tags = append(tags, "high")
+	}
 	if activity.HasShell {
 		tags = append(tags, "shell")
 	}
