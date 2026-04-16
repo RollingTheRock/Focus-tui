@@ -15,7 +15,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-const shellRefreshInterval = 33 * time.Millisecond
+const shellRefreshInterval = 100 * time.Millisecond
 
 // Messages for the Bubbletea event loop.
 type StartedMsg struct{ PaneID models.PaneID }

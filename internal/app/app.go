@@ -198,61 +198,73 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case gitplugin.OpenDiffMsg:
 		cmd := m.openDiffPane(msg)
+		m.syncWorktreeActivities()
 		m.invalidateView()
 		return m, cmd
 
 	case gitplugin.OpenCommitMsg:
 		cmd := m.openCommitPane(msg)
+		m.syncWorktreeActivities()
 		m.invalidateView()
 		return m, cmd
 
 	case gitplugin.OpenCreateWorktreeMsg:
 		cmd := m.openCreateWorktreePane(msg)
+		m.syncWorktreeActivities()
 		m.invalidateView()
 		return m, cmd
 
 	case gitplugin.OpenWorktreeShellMsg:
 		cmd := m.openWorktreeShell(msg)
+		m.syncWorktreeActivities()
 		m.invalidateView()
 		return m, cmd
 
 	case agents.LaunchAgentMsg:
 		cmd := m.launchAgent(msg)
+		m.syncWorktreeActivities()
 		m.invalidateView()
 		return m, cmd
 
 	case editorplugin.OpenEditorMsg:
 		cmd := m.openEditorPane(msg)
+		m.syncWorktreeActivities()
 		m.invalidateView()
 		return m, cmd
 
 	case editorplugin.CloseEditorMsg:
 		m.closePane(msg.ID)
+		m.syncWorktreeActivities()
 		m.invalidateView()
 		return m, nil
 
 	case editorplugin.SaveCompletedMsg:
 		m.syncPaneMeta(msg.ID)
+		m.syncWorktreeActivities()
 		m.invalidateView()
 		return m, nil
 
 	case gitplugin.CloseDiffMsg:
 		m.closePane(msg.ID)
+		m.syncWorktreeActivities()
 		m.invalidateView()
 		return m, nil
 
 	case gitplugin.CloseCommitMsg:
 		m.closePane(msg.ID)
+		m.syncWorktreeActivities()
 		m.invalidateView()
 		return m, nil
 
 	case gitplugin.CloseCreateWorktreeMsg:
 		m.closePane(msg.ID)
+		m.syncWorktreeActivities()
 		m.invalidateView()
 		return m, nil
 
 	case gitplugin.CommitCompletedMsg:
 		m.closePane(msg.ID)
+		m.syncWorktreeActivities()
 		m.invalidateView()
 		if _, ok := m.activePage.paneMeta[paneGitStatus]; ok {
 			return m, m.routeToPane(paneGitStatus, msg)
@@ -271,21 +283,25 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if cmd := m.openWorktreeShell(gitplugin.OpenWorktreeShellMsg{Worktree: msg.Worktree}); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
+		m.syncWorktreeActivities()
 		m.invalidateView()
-		return m, tea.Batch(cmds...)
+		return m, batchCmds(cmds)
 
 	case gitplugin.RequestRemoveWorktreeMsg:
 		cmd := m.removeWorktree(msg)
+		m.syncWorktreeActivities()
 		m.invalidateView()
 		return m, cmd
 
 	case gitplugin.RequestPruneWorktreesMsg:
 		cmd := m.pruneWorktrees(msg)
+		m.syncWorktreeActivities()
 		m.invalidateView()
 		return m, cmd
 
 	case gitplugin.WorktreeRemovedMsg:
 		m.closePanesForWorktree(msg.Path)
+		m.syncWorktreeActivities()
 		m.invalidateView()
 		if _, ok := m.activePage.paneMeta[paneWorktree]; ok {
 			return m, m.routeToPane(paneWorktree, msg)
@@ -293,6 +309,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case gitplugin.WorktreesPrunedMsg, gitplugin.WorktreeActionFailedMsg:
+		m.syncWorktreeActivities()
 		m.invalidateView()
 		if _, ok := m.activePage.paneMeta[paneWorktree]; ok {
 			return m, m.routeToPane(paneWorktree, msg)
@@ -316,6 +333,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case shell.StartedMsg:
+		m.syncWorktreeActivities()
 		m.invalidateView()
 		return m, m.routeToPane(msg.PaneID, msg)
 
@@ -324,10 +342,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.routeToPane(msg.PaneID, msg)
 
 	case shell.ExitedMsg:
+		m.syncWorktreeActivities()
 		m.invalidateView()
 		return m, m.routeToPane(msg.PaneID, msg)
 
 	case adapters.StatusEvent:
+		m.syncWorktreeActivities()
 		m.invalidateView()
 		var cmds []tea.Cmd
 		for _, id := range m.activePage.paneOrder {
@@ -341,7 +361,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		m.refreshPaneStatuses()
-		return m, tea.Batch(cmds...)
+		return m, batchCmds(cmds)
 
 	case tea.WindowSizeMsg:
 		m.common.Width = msg.Width
@@ -350,17 +370,33 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.invalidateView()
 	}
 
-	m.invalidateView()
 	var cmds []tea.Cmd
+	var dirty bool
 	for _, id := range m.activePage.paneOrder {
 		newPanel, cmd := m.pane(id).Update(msg)
-		m.setPane(id, newPanel)
+		if newPanel != m.pane(id) {
+			dirty = true
+			m.setPane(id, newPanel)
+		}
 		if cmd != nil {
 			cmds = append(cmds, cmd)
 		}
 	}
+	if dirty {
+		m.invalidateView()
+	}
 	m.refreshPaneStatuses()
-	return m, tea.Batch(cmds...)
+	return m, batchCmds(cmds)
+}
+
+func batchCmds(cmds []tea.Cmd) tea.Cmd {
+	if len(cmds) == 0 {
+		return nil
+	}
+	if len(cmds) == 1 {
+		return cmds[0]
+	}
+	return tea.Batch(cmds...)
 }
 
 func (m model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
@@ -806,7 +842,6 @@ func (m model) buildView(dims layout.Dimensions, w, h int) string {
 	if bodyHeight < 0 {
 		bodyHeight = 0
 	}
-	m.syncWorktreeActivities()
 	bodyView := m.renderBody(w, bodyHeight)
 	if windowTooSmall(w, h) {
 		bodyView = renderWindowTooSmallBody(w, bodyHeight)
