@@ -105,6 +105,7 @@ func newOverviewPage(common *models.CommonModel, pluginRegistry *plugins.Registr
 	worktreePaneMeta := models.PaneMeta{ID: paneWorktree, Name: "Worktrees", Type: models.PaneTypeWorktree, CWD: cwd, RepoID: cwd, WorktreeID: cwd, Status: models.PaneStatusIdle, Closable: false}
 	overviewSummaryMeta := models.PaneMeta{ID: paneOverviewSummary, Name: "Overview Summary", Type: paneTypeOverviewSummary, CWD: cwd, RepoID: cwd, WorktreeID: cwd, Status: models.PaneStatusIdle, Closable: false}
 	overviewDetailMeta := models.PaneMeta{ID: paneOverviewDetail, Name: "Context Detail", Type: paneTypeOverviewDetail, CWD: cwd, RepoID: cwd, WorktreeID: cwd, Status: models.PaneStatusIdle, Closable: false}
+	agentSessionMeta := models.PaneMeta{ID: paneAgentSession, Name: "Agents", Type: models.PaneTypeAgentSession, CWD: cwd, RepoID: cwd, WorktreeID: cwd, Status: models.PaneStatusIdle, Closable: false}
 
 	p.registerPane(paneHeader, header.New(cfg, common.Theme, store), models.PaneMeta{ID: paneHeader, Name: "Header", Type: models.PaneTypeHeader, Status: models.PaneStatusPassive, Closable: false})
 	p.registerPane(paneShell, shell.New(common, paneShell), models.PaneMeta{ID: paneShell, Name: "Shell", Type: models.PaneTypeShell, CWD: cwd, RepoID: cwd, WorktreeID: cwd, Status: models.PaneStatusStarting, Closable: true})
@@ -122,8 +123,14 @@ func newOverviewPage(common *models.CommonModel, pluginRegistry *plugins.Registr
 		overviewDetailMeta.CWD = repoRoot
 		overviewDetailMeta.RepoID = repoRoot
 		overviewDetailMeta.WorktreeID = repoRoot
+		agentSessionMeta.CWD = repoRoot
+		agentSessionMeta.RepoID = repoRoot
+		agentSessionMeta.WorktreeID = repoRoot
 		if panel, err := pluginRegistry.CreatePane(models.PaneTypeWorktree, paneWorktree, worktreePaneMeta, *common); err == nil {
 			p.registerPane(paneWorktree, panel, worktreePaneMeta)
+		}
+		if panel, err := pluginRegistry.CreatePane(models.PaneTypeAgentSession, paneAgentSession, agentSessionMeta, *common); err == nil {
+			p.registerPane(paneAgentSession, panel, agentSessionMeta)
 		}
 		p.registerPane(paneOverviewSummary, newOverviewSummaryPane(paneOverviewSummary, overviewSummaryMeta, func() workbenchOverviewContext {
 			if wp, ok := p.pane(paneWorktree).(*gitplugin.WorktreePane); ok {
@@ -142,7 +149,10 @@ func newOverviewPage(common *models.CommonModel, pluginRegistry *plugins.Registr
 			74,
 			layout.Split(layout.SplitVertical, 20,
 				layout.Leaf(paneOverviewSummary),
-				layout.Split(layout.SplitHorizontal, 52, layout.Leaf(paneWorktree), layout.Leaf(paneOverviewDetail)),
+				layout.Split(layout.SplitHorizontal, 40,
+					layout.Leaf(paneWorktree),
+					layout.Split(layout.SplitHorizontal, 58, layout.Leaf(paneOverviewDetail), layout.Leaf(paneAgentSession)),
+				),
 			),
 			layout.Leaf(paneShell),
 		)

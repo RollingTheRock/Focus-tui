@@ -1088,6 +1088,9 @@ func (m model) renderHelpLine(w int) string {
 	case paneTypeOverviewDetail:
 		left = "[tab]next  [1-4]/[]tabs  [enter]resume  [e]edit task  [f]follow-up  [s]cycle state"
 		compact = "[tab]next  [1-4]tabs  [enter]resume"
+	case models.PaneTypeAgentSession:
+		left = "[j/k]move  [enter]focus worktree  [a]relaunch  [x]kill  [r]refresh"
+		compact = "[enter]focus  [a]relaunch  [x]kill"
 	}
 	if w < simplifiedHelpMaxWidth {
 		return renderCompactHelpLine(helpStyle, compact, w)
@@ -2023,8 +2026,11 @@ func (m *model) persistedAgentSessions() map[string]agents.Session {
 			BranchSnapshot: record.BranchSnapshot,
 			PID:            record.PID,
 			State:          agents.SessionState(record.State),
+			LaunchSource:   record.LaunchSource,
+			Summary:        record.Summary,
 			StartedAt:      record.StartedAt,
 			EndedAt:        record.EndedAt,
+			LastActivityAt: record.LastActivityAt,
 			UpdatedAt:      record.UpdatedAt,
 		}
 	}
@@ -2046,7 +2052,12 @@ func (m *model) reconcileDiscoveredAgentSessions(existing map[string]agents.Sess
 		record.WorktreeID = session.WorktreeID
 		record.PID = session.PID
 		record.State = agents.SessionRunning
+		record.LaunchSource = session.LaunchSource
+		if record.LaunchSource == "" {
+			record.LaunchSource = "discovered"
+		}
 		record.EndedAt = nil
+		record.LastActivityAt = &now
 		record.UpdatedAt = now
 		if record.RepoID == "" {
 			record.RepoID, _ = gitRepoRoot(session.WorktreeID)
@@ -2121,8 +2132,10 @@ func (m *model) newAgentSession(worktreeID string, provider agents.Provider) *ag
 		WorktreeID:     worktreeID,
 		RepoID:         repoID,
 		BranchSnapshot: branchSnapshot,
-		State:          agents.SessionRunning,
+		State:          agents.SessionWaiting,
+		LaunchSource:   "focus",
 		StartedAt:      now,
+		LastActivityAt: &now,
 		UpdatedAt:      now,
 	}
 }
@@ -2139,8 +2152,11 @@ func (m *model) saveAgentSession(session *agents.Session) {
 		BranchSnapshot: session.BranchSnapshot,
 		PID:            session.PID,
 		State:          string(session.State),
+		LaunchSource:   session.LaunchSource,
+		Summary:        session.Summary,
 		StartedAt:      session.StartedAt,
 		EndedAt:        session.EndedAt,
+		LastActivityAt: session.LastActivityAt,
 		UpdatedAt:      session.UpdatedAt,
 	})
 }

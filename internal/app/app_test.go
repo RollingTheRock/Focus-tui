@@ -171,11 +171,11 @@ func TestOverviewPageBodyTreeIsOrchestrationHub(t *testing.T) {
 		t.Fatalf("expected overview shell to be demoted to a small lower section, got ratio %d", m.activePage.bodyTree.Ratio)
 	}
 	leaves := layout.LeafOrder(m.activePage.bodyTree)
-	if len(leaves) != 4 {
-		t.Fatalf("expected overview page to have 4 leaves, got %d", len(leaves))
+	if len(leaves) != 5 {
+		t.Fatalf("expected overview page to have 5 leaves, got %d", len(leaves))
 	}
-	if leaves[0] != paneOverviewSummary || leaves[1] != paneWorktree || leaves[2] != paneOverviewDetail || leaves[3] != paneShell {
-		t.Fatalf("expected overview leaves [summary worktree detail shell], got %v", leaves)
+	if leaves[0] != paneOverviewSummary || leaves[1] != paneWorktree || leaves[2] != paneOverviewDetail || leaves[3] != paneAgentSession || leaves[4] != paneShell {
+		t.Fatalf("expected overview leaves [summary worktree detail agent shell], got %v", leaves)
 	}
 }
 
@@ -188,6 +188,7 @@ func TestOverviewLayoutPrioritizesWorktreeOverShellHeight(t *testing.T) {
 	summaryFrame := frames[paneOverviewSummary]
 	worktreeFrame := frames[paneWorktree]
 	detailFrame := frames[paneOverviewDetail]
+	agentFrame := frames[paneAgentSession]
 	shellFrame := frames[paneShell]
 	if summaryFrame.W <= 0 || summaryFrame.H <= 0 {
 		t.Fatalf("expected overview summary pane frame to exist, got %+v", summaryFrame)
@@ -200,6 +201,9 @@ func TestOverviewLayoutPrioritizesWorktreeOverShellHeight(t *testing.T) {
 	}
 	if detailFrame.W <= 0 || detailFrame.H <= 0 {
 		t.Fatalf("expected overview detail pane frame to exist, got %+v", detailFrame)
+	}
+	if agentFrame.W <= 0 || agentFrame.H <= 0 {
+		t.Fatalf("expected overview agent pane frame to exist, got %+v", agentFrame)
 	}
 	if summaryFrame.H >= worktreeFrame.H {
 		t.Fatalf("expected summary pane to be a compact band above the main workbench, got summary=%d worktree=%d", summaryFrame.H, worktreeFrame.H)
@@ -307,8 +311,8 @@ func TestWorktreePageSplitDoesNotAffectOverview(t *testing.T) {
 	}
 	m.switchToOverviewPage()
 	overviewLeaves := len(layout.LeafOrder(m.activePage.bodyTree))
-	if overviewLeaves != 4 {
-		t.Fatalf("expected overview page to have 4 leaves, got %d", overviewLeaves)
+	if overviewLeaves != 5 {
+		t.Fatalf("expected overview page to have 5 leaves, got %d", overviewLeaves)
 	}
 }
 
@@ -412,8 +416,8 @@ func TestSplitFocusedHorizontal(t *testing.T) {
 	m := New(cfg, st).(model)
 
 	initialOrder := layout.LeafOrder(m.activePage.bodyTree)
-	if len(initialOrder) != 4 {
-		t.Fatalf("expected 4 panes initially (summary + worktree + detail + shell), got %d", len(initialOrder))
+	if len(initialOrder) != 5 {
+		t.Fatalf("expected 5 panes initially (summary + worktree + detail + agents + shell), got %d", len(initialOrder))
 	}
 
 	m.setFocus(paneShell)
@@ -424,13 +428,13 @@ func TestSplitFocusedHorizontal(t *testing.T) {
 	m = newM.(model)
 
 	newOrder := layout.LeafOrder(m.activePage.bodyTree)
-	if len(newOrder) != 5 {
-		t.Fatalf("expected 5 panes after split, got %d", len(newOrder))
+	if len(newOrder) != 6 {
+		t.Fatalf("expected 6 panes after split, got %d", len(newOrder))
 	}
 
 	foundNewPane := false
 	for _, id := range newOrder {
-		if string(id) != string(paneShell) && string(id) != string(paneWorktree) && string(id) != string(paneOverviewDetail) && string(id) != string(paneOverviewSummary) {
+		if string(id) != string(paneShell) && string(id) != string(paneWorktree) && string(id) != string(paneOverviewDetail) && string(id) != string(paneOverviewSummary) && string(id) != string(paneAgentSession) {
 			foundNewPane = true
 			if m.activePage.focused != id {
 				t.Fatalf("expected focus on new pane %s, got %s", id, m.activePage.focused)
