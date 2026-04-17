@@ -115,31 +115,49 @@ func (p *SessionPane) Render(canvas render.Surface, width, height int) {
 	if len(p.sessions) == 0 {
 		lines = append(lines, renderedLine{content: "No running agents.", style: &emptyStyle})
 	} else {
-		running, recent := p.partitionSessions()
+		running, attention, recent := p.partitionSessions()
 		if len(running) > 0 {
 			lines = append(lines, renderedLine{content: "Running", style: &sectionStyle})
-			for i, s := range running {
-				line := p.renderSessionLine(s)
-				style := (*lipgloss.Style)(nil)
-				if p.sessionIndex(s.ID) == p.cursor {
-					style = &selectedRowStyle
+			for _, group := range p.groupSessionsByWorktree(running) {
+				lines = append(lines, renderedLine{content: group.label, style: &hintStyle})
+				for _, s := range group.sessions {
+					line := p.renderSessionLine(s)
+					style := (*lipgloss.Style)(nil)
+					if p.sessionIndex(s.ID) == p.cursor {
+						style = &selectedRowStyle
+					}
+					lines = append(lines, renderedLine{content: line, style: style})
 				}
-				if i == len(running)-1 && len(recent) > 0 {
-					line += ""
+			}
+		}
+		if len(attention) > 0 {
+			lines = append(lines, renderedLine{content: "", style: nil})
+			lines = append(lines, renderedLine{content: "Attention", style: &sectionStyle})
+			for _, group := range p.groupSessionsByWorktree(attention) {
+				lines = append(lines, renderedLine{content: group.label, style: &hintStyle})
+				for _, s := range group.sessions {
+					line := p.renderSessionLine(s)
+					style := (*lipgloss.Style)(nil)
+					if p.sessionIndex(s.ID) == p.cursor {
+						style = &selectedRowStyle
+					}
+					lines = append(lines, renderedLine{content: line, style: style})
 				}
-				lines = append(lines, renderedLine{content: line, style: style})
 			}
 		}
 		if len(recent) > 0 {
 			lines = append(lines, renderedLine{content: "", style: nil})
 			lines = append(lines, renderedLine{content: "Recent", style: &sectionStyle})
-			for _, s := range recent {
-				line := p.renderSessionLine(s)
-				style := (*lipgloss.Style)(nil)
-				if p.sessionIndex(s.ID) == p.cursor {
-					style = &selectedRowStyle
+			for _, group := range p.groupSessionsByWorktree(recent) {
+				lines = append(lines, renderedLine{content: group.label, style: &hintStyle})
+				for _, s := range group.sessions {
+					line := p.renderSessionLine(s)
+					style := (*lipgloss.Style)(nil)
+					if p.sessionIndex(s.ID) == p.cursor {
+						style = &selectedRowStyle
+					}
+					lines = append(lines, renderedLine{content: line, style: style})
 				}
-				lines = append(lines, renderedLine{content: line, style: style})
 			}
 		}
 		if len(running) == 0 && len(recent) == 0 {
@@ -215,18 +233,20 @@ func (p *SessionPane) selectedSession() (*agents.Session, bool) {
 	return p.sessions[p.cursor], true
 }
 
-func (p *SessionPane) partitionSessions() (running []*agents.Session, recent []*agents.Session) {
+func (p *SessionPane) partitionSessions() (running []*agents.Session, attention []*agents.Session, recent []*agents.Session) {
 	for _, s := range p.sessions {
 		if s == nil {
 			continue
 		}
-		if s.State == agents.SessionRunning || s.State == agents.SessionWaiting {
+		if s.State == agents.SessionRunning {
 			running = append(running, s)
+		} else if s.State == agents.SessionWaiting || s.State == agents.SessionFailed {
+			attention = append(attention, s)
 		} else {
 			recent = append(recent, s)
 		}
 	}
-	return running, recent
+	return running, attention, recent
 }
 
 func (p *SessionPane) renderSessionLine(s *agents.Session) string {
@@ -235,11 +255,23 @@ func (p *SessionPane) renderSessionLine(s *agents.Session) string {
 		state = string(agents.SessionUnknown)
 	}
 	line := fmt.Sprintf("%s  [%s]  %s", s.DisplayName(), state, shortenPath(s.WorktreeID))
+	if s.BranchSnapshot != "" {
+		line += "  " + s.BranchSnapshot
+	}
 	if s.PID > 0 {
 		line += fmt.Sprintf("  pid:%d", s.PID)
 	}
+	if s.LaunchSource != "" {
+		line += "  src:" + s.LaunchSource
+	}
 	if !s.StartedAt.IsZero() {
 		line += "  " + formatDuration(time.Since(s.StartedAt))
+	}
+	if s.LastActivityAt != nil && !s.LastActivityAt.IsZero() {
+		line += "  last:" + formatSince(*s.LastActivityAt)
+	}
+	if s.Summary != "" {
+		line += "  — " + s.Summary
 	}
 	return line
 }
@@ -251,6 +283,26 @@ func (p *SessionPane) sessionIndex(id string) int {
 		}
 	}
 	return -1
+}
+
+type sessionGroup struct {
+	label    string
+	sessions []*agents.Session
+}
+
+func (p *SessionPane) groupSessionsByWorktree(sessions []*agents.Session) []sessionGroup {
+	groups := []sessionGroup{}
+	seen := map[string]int{}
+	for _, s := range sessions {
+		label := shortenPath(s.WorktreeID)
+		if idx, ok := seen[label]; ok {
+			groups[idx].sessions = append(groups[idx].sessions, s)
+			continue
+		}
+		seen[label] = len(groups)
+		groups = append(groups, sessionGroup{label: label, sessions: []*agents.Session{s}})
+	}
+	return groups
 }
 
 type renderedLine struct {
@@ -271,6 +323,17 @@ func shortenPath(path string) string {
 }
 
 func formatDuration(d time.Duration) string {
+	if d < time.Minute {
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	}
+	if d < time.Hour {
+		return fmt.Sprintf("%dm", int(d.Minutes()))
+	}
+	return fmt.Sprintf("%dh", int(d.Hours()))
+}
+
+func formatSince(ts time.Time) string {
+	d := time.Since(ts)
 	if d < time.Minute {
 		return fmt.Sprintf("%ds", int(d.Seconds()))
 	}

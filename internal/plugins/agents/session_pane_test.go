@@ -176,19 +176,27 @@ func TestSessionPaneEmptyState(t *testing.T) {
 func TestSessionPaneShowsRunningAndRecentSections(t *testing.T) {
 	common := models.CommonModel{Width: 100, Height: 24, Theme: styles.DefaultTheme()}
 	pane := NewSessionPane("agent-session", models.PaneMeta{ID: "agent-session", Name: "Agents", Type: models.PaneTypeAgentSession}, common)
-	pane.SetSize(100, 12)
+	pane.SetSize(120, 18)
 	now := time.Now()
 	pane.SetSessions([]*agents.Session{
-		{ID: "s1", Provider: agents.ProviderOpenCode, PID: 1, WorktreeID: "/tmp/wt1", State: agents.SessionRunning, StartedAt: now.Add(-2 * time.Minute)},
-		{ID: "s2", Provider: agents.ProviderClaude, PID: 0, WorktreeID: "/tmp/wt2", State: agents.SessionExited, StartedAt: now.Add(-5 * time.Minute)},
+		{ID: "s1", Provider: agents.ProviderOpenCode, PID: 1, WorktreeID: "/tmp/wt1", State: agents.SessionRunning, StartedAt: now.Add(-2 * time.Minute), LastActivityAt: timePtr(now.Add(-30 * time.Second)), Summary: "syncing context"},
+		{ID: "s2", Provider: agents.ProviderClaude, PID: 0, WorktreeID: "/tmp/wt2", State: agents.SessionFailed, StartedAt: now.Add(-5 * time.Minute), LastActivityAt: timePtr(now.Add(-time.Minute)), Summary: "tool call failed"},
+		{ID: "s3", Provider: agents.ProviderKimi, PID: 0, WorktreeID: "/tmp/wt3", State: agents.SessionExited, StartedAt: now.Add(-10 * time.Minute), LastActivityAt: timePtr(now.Add(-2 * time.Minute)), Summary: "completed review"},
 	})
 	view := pane.View()
-	for _, want := range []string{"Running", "Recent", "opencode  [running]", "claude  [exited]"} {
+	for _, want := range []string{"Running", "Attention", "Recent", "opencode  [running]", "claude  [failed]", "kimi  [exited]", "last:", "tool call failed"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("expected view to contain %q, got:\n%s", want, view)
 		}
 	}
+	for _, want := range []string{"tmp/wt1", "tmp/wt2", "tmp/wt3"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("expected grouped worktree label %q, got:\n%s", want, view)
+		}
+	}
 }
+
+func timePtr(t time.Time) *time.Time { return &t }
 
 func TestShortenPath(t *testing.T) {
 	if got := shortenPath("/home/user/project"); got != "user/project" {

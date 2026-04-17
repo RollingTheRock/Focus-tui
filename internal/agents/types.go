@@ -36,8 +36,11 @@ type Session struct {
 	BranchSnapshot string
 	PID            int
 	State          SessionState
+	LaunchSource   string
+	Summary        string
 	StartedAt      time.Time
 	EndedAt        *time.Time
+	LastActivityAt *time.Time
 	UpdatedAt      time.Time
 }
 
