@@ -35,6 +35,7 @@ type WorktreePane struct {
 	activities    map[string]gitmodel.WorktreeActivity
 	summaries     map[string]gitmodel.WorktreeResumeSummary
 	agentSessions map[string][]agents.Session
+	activeTab     worktreeTab
 	cursor        int
 	confirm       *worktreeConfirmState
 	loading       bool
@@ -44,10 +45,25 @@ type WorktreePane struct {
 	notice        string
 }
 
+type WorktreeContextView struct {
+	Worktree gitmodel.Worktree
+	Summary  gitmodel.WorktreeResumeSummary
+	Activity gitmodel.WorktreeActivity
+}
+
 type worktreesLoadedMsg struct {
 	worktrees []gitmodel.Worktree
 	err       error
 }
+
+type worktreeTab string
+
+const (
+	worktreeTabAll    worktreeTab = "all"
+	worktreeTabActive worktreeTab = "active"
+	worktreeTabFocus  worktreeTab = "focus"
+	worktreeTabQueued worktreeTab = "queued"
+)
 
 type OpenWorktreeShellMsg struct {
 	Worktree gitmodel.Worktree
@@ -58,9 +74,17 @@ type ResumeWorktreeMsg struct {
 }
 
 type OpenTaskEditMsg struct {
-	TaskID     string
-	WorktreeID string
-	RepoID     string
+	TaskID       string
+	WorktreeID   string
+	RepoID       string
+	RelationType string
+	ParentTaskID string
+}
+
+type CycleTaskStateMsg struct {
+	TaskID       string
+	WorktreeID   string
+	CurrentState string
 }
 
 type RequestRemoveWorktreeMsg struct {
@@ -103,6 +127,7 @@ func NewWorktreePane(id models.PaneID, meta models.PaneMeta, common models.Commo
 		repoPath:   repoPath,
 		activities: make(map[string]gitmodel.WorktreeActivity),
 		summaries:  make(map[string]gitmodel.WorktreeResumeSummary),
+		activeTab:  worktreeTabAll,
 		loading:    true,
 	}
 }
@@ -160,13 +185,25 @@ func (p *WorktreePane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 		}
 		switch msg.String() {
 		case "j", "down":
-			if p.cursor < len(p.worktrees)-1 {
+			if p.cursor < len(p.visibleWorktrees())-1 {
 				p.cursor++
 			}
 		case "k", "up":
 			if p.cursor > 0 {
 				p.cursor--
 			}
+		case "1":
+			p.setActiveTab(worktreeTabAll)
+		case "2":
+			p.setActiveTab(worktreeTabActive)
+		case "3":
+			p.setActiveTab(worktreeTabFocus)
+		case "4":
+			p.setActiveTab(worktreeTabQueued)
+		case "[":
+			p.cycleTab(-1)
+		case "]":
+			p.cycleTab(1)
 		case "r":
 			p.loading = true
 			p.notice = ""
@@ -206,7 +243,27 @@ func (p *WorktreePane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 				summary := p.summaries[wt.Path]
 				p.notice = "Editing task for " + shortenWorktreePath(wt.Path)
 				return p, func() tea.Msg {
-					return OpenTaskEditMsg{TaskID: summary.TaskID, WorktreeID: wt.Path, RepoID: p.repoPath}
+					return OpenTaskEditMsg{TaskID: summary.TaskID, WorktreeID: wt.Path, RepoID: p.repoPath, RelationType: "primary"}
+				}
+			}
+		case "f":
+			if wt, ok := p.selectedWorktree(); ok {
+				summary := p.summaries[wt.Path]
+				p.notice = "Adding follow-up for " + shortenWorktreePath(wt.Path)
+				return p, func() tea.Msg {
+					return OpenTaskEditMsg{WorktreeID: wt.Path, RepoID: p.repoPath, RelationType: "queued", ParentTaskID: summary.TaskID}
+				}
+			}
+		case "s":
+			if wt, ok := p.selectedWorktree(); ok {
+				summary := p.summaries[wt.Path]
+				if summary.TaskID == "" {
+					p.err = fmt.Errorf("create or attach a primary task before cycling state")
+					return p, nil
+				}
+				p.notice = "Cycling task state for " + shortenWorktreePath(wt.Path)
+				return p, func() tea.Msg {
+					return CycleTaskStateMsg{TaskID: summary.TaskID, WorktreeID: wt.Path, CurrentState: summary.TaskState}
 				}
 			}
 		case "d", "x":
@@ -271,12 +328,14 @@ func (p *WorktreePane) Render(canvas render.Surface, width, height int) {
 	if p.repoPath != "" {
 		lines = append(lines, renderedLine{content: shortenWorktreePath(p.repoPath), style: &upstreamStyle})
 	}
+	lines = append(lines, renderedLine{content: p.renderTabs(), style: nil})
 	lines = append(lines, renderedLine{content: "", style: nil})
 
-	if len(p.worktrees) == 0 {
+	visible := p.visibleWorktrees()
+	if len(visible) == 0 {
 		lines = append(lines, renderedLine{content: "No worktrees found.", style: &emptyStyle})
 	} else {
-		for i, wt := range p.orderedWorktrees() {
+		for i, wt := range visible {
 			line := p.renderWorktreeRow(wt)
 			style := (*lipgloss.Style)(nil)
 			if i == p.cursor {
@@ -291,10 +350,8 @@ func (p *WorktreePane) Render(canvas render.Surface, width, height int) {
 		lines = append(lines, renderedLine{content: p.notice, style: &upstreamStyle})
 	}
 	if selected, ok := p.selectedWorktree(); ok {
-		summary := p.summaries[selected.Path]
-		if summary.LastResumeHint != "" {
-			lines = append(lines, renderedLine{content: "", style: nil})
-			lines = append(lines, renderedLine{content: "Resume: " + summary.LastResumeHint, style: &upstreamStyle})
+		for _, detail := range p.renderSelectedDetails(selected) {
+			lines = append(lines, renderedLine{content: detail, style: &upstreamStyle})
 		}
 	}
 	if p.confirm != nil {
@@ -359,18 +416,20 @@ func (p *WorktreePane) loadWorktreesCmd() tea.Cmd {
 }
 
 func (p *WorktreePane) renderWorktreeRow(wt gitmodel.Worktree) string {
-	var tags []string
+	var titleTags []string
+	var statusParts []string
+	var runtimeParts []string
 	if wt.IsMain {
-		tags = append(tags, "main")
+		titleTags = append(titleTags, "main")
 	}
 	if wt.IsDetached {
-		tags = append(tags, "detached")
+		titleTags = append(titleTags, "detached")
 	}
 	if wt.IsLocked {
-		tags = append(tags, "locked")
+		titleTags = append(titleTags, "locked")
 	}
 	if wt.IsPrunable {
-		tags = append(tags, "prunable")
+		titleTags = append(titleTags, "prunable")
 	}
 	ds := wt.DirtySummary
 	if ds.IsDirty() {
@@ -387,87 +446,178 @@ func (p *WorktreePane) renderWorktreeRow(wt gitmodel.Worktree) string {
 		if ds.Conflicted > 0 {
 			parts = append(parts, fmt.Sprintf("!%d", ds.Conflicted))
 		}
-		tags = append(tags, strings.Join(parts, " "))
+		statusParts = append(statusParts, "git "+strings.Join(parts, " "))
 	}
 	activity := p.activities[wt.Path]
 	summary := p.summaries[wt.Path]
 	if summary.TaskState != "" {
-		tags = append(tags, summary.TaskState)
+		statusParts = append(statusParts, summary.TaskState)
 	}
 	if summary.TaskPriority == "high" {
-		tags = append(tags, "high")
+		statusParts = append(statusParts, "high")
+	}
+	if summary.TaskMode != "" && summary.TaskMode != "single" {
+		statusParts = append(statusParts, summary.TaskMode)
 	}
 	if activity.HasShell {
-		tags = append(tags, "shell")
+		runtimeParts = append(runtimeParts, "shell")
 	}
 	if activity.OpenEditors > 0 {
-		tags = append(tags, fmt.Sprintf("edits %d", activity.OpenEditors))
+		runtimeParts = append(runtimeParts, fmt.Sprintf("edits %d", activity.OpenEditors))
+	}
+	if activity.AgentCount > 0 {
+		runtimeParts = append(runtimeParts, fmt.Sprintf("agents %d", activity.AgentCount))
 	}
 	if sessions := p.agentSessions[wt.Path]; len(sessions) > 0 {
 		for _, s := range sessions {
-			tags = append(tags, s.DisplayName())
+			runtimeParts = append(runtimeParts, s.DisplayName())
 		}
 	}
 	if wt.AheadBehind.Ahead > 0 {
-		tags = append(tags, aheadStyle.Render(fmt.Sprintf("↑%d", wt.AheadBehind.Ahead)))
+		statusParts = append(statusParts, fmt.Sprintf("↑%d", wt.AheadBehind.Ahead))
 	}
 	if wt.AheadBehind.Behind > 0 {
-		tags = append(tags, behindStyle.Render(fmt.Sprintf("↓%d", wt.AheadBehind.Behind)))
+		statusParts = append(statusParts, fmt.Sprintf("↓%d", wt.AheadBehind.Behind))
 	}
 
-	label := wt.DisplayName()
+	title := wt.DisplayName()
 	if summary.TaskTitle != "" {
-		label = summary.TaskTitle
+		title = summary.TaskTitle
 	}
+	branchText := wt.Branch
 	if wt.Branch != "" {
-		branchLabel := branchStyle.Render(wt.Branch)
-		if summary.TaskTitle != "" {
-			label = label + "  " + branchLabel
-		} else {
-			label = branchLabel
-		}
+		branchText = wt.Branch
 	} else if wt.HeadOID != "" {
-		label = upstreamStyle.Render(wt.HeadOID[:7])
+		branchText = wt.HeadOID[:7]
 	}
+	titleLine := title
+	if branchText != "" {
+		titleLine += "  " + branchStyle.Render(branchText)
+	}
+	if len(titleTags) > 0 {
+		titleLine += "  " + upstreamStyle.Render("["+strings.Join(titleTags, ", ")+"]")
+	}
+
+	statusLineParts := []string{}
+	if len(statusParts) > 0 {
+		statusLineParts = append(statusLineParts, strings.Join(statusParts, " · "))
+	}
+	if len(runtimeParts) > 0 {
+		statusLineParts = append(statusLineParts, strings.Join(runtimeParts, " · "))
+	}
+	if summary.LastActiveLabel != "" {
+		statusLineParts = append(statusLineParts, summary.LastActiveLabel)
+	} else if activity.LastActive != "" {
+		statusLineParts = append(statusLineParts, "active "+activity.LastActive)
+	}
+	if summary.LastAgentLabel != "" {
+		statusLineParts = append(statusLineParts, summary.LastAgentLabel)
+	}
+	if wt.Upstream != "" {
+		statusLineParts = append(statusLineParts, "-> "+wt.Upstream)
+	}
+	statusLine := emptyStyle.Render(strings.Join(statusLineParts, "  "))
+
 	pathLine := emptyStyle.Render(shortenWorktreePath(wt.Path))
 	if summary.NextStep != "" {
 		pathLine += "  " + upstreamStyle.Render("next: "+summary.NextStep)
 	}
-	activityLine := ""
-	if summary.LastActiveLabel != "" {
-		activityLine = upstreamStyle.Render(summary.LastActiveLabel)
-	} else if activity.LastActive != "" {
-		activityLine = upstreamStyle.Render("active " + activity.LastActive)
-	}
-	if summary.LastAgentLabel != "" {
-		if activityLine != "" {
-			activityLine += "  "
+	if summary.QueuedTaskTitle != "" {
+		queued := "queued: " + summary.QueuedTaskTitle
+		if summary.QueuedTaskCount > 1 {
+			queued += fmt.Sprintf(" (+%d)", summary.QueuedTaskCount-1)
 		}
-		activityLine += upstreamStyle.Render(summary.LastAgentLabel)
+		pathLine += "  " + upstreamStyle.Render(queued)
 	}
 	if summary.ResumeReason != "" {
-		if activityLine != "" {
-			activityLine += "  "
+		pathLine += "  " + upstreamStyle.Render(summary.ResumeReason)
+	}
+	if strings.TrimSpace(statusLine) == "" {
+		return titleLine + "\n" + pathLine
+	}
+	return titleLine + "\n" + statusLine + "\n" + pathLine
+}
+
+func (p *WorktreePane) renderSelectedDetails(wt gitmodel.Worktree) []string {
+	summary := p.summaries[wt.Path]
+	activity := p.activities[wt.Path]
+	var lines []string
+	if summary.LastResumeHint == "" && summary.TaskGoal == "" && summary.ResumeReason == "" && !wt.DirtySummary.IsDirty() && summary.LastAgentSummary == "" && summary.QueuedTaskTitle == "" {
+		return lines
+	}
+	lines = append(lines, "")
+	lines = append(lines, "Selected: "+wt.DisplayName())
+	if summary.TaskGoal != "" {
+		lines = append(lines, "Goal: "+summary.TaskGoal)
+	}
+	if summary.LastResumeHint != "" {
+		lines = append(lines, "Next: "+summary.LastResumeHint)
+	}
+	if summary.ResumeReason != "" {
+		lines = append(lines, "Why now: "+summary.ResumeReason)
+	}
+	if summary.LastAgentSummary != "" {
+		lines = append(lines, "Agent: "+summary.LastAgentSummary)
+	}
+	if summary.QueuedTaskTitle != "" {
+		queued := "Queued: " + summary.QueuedTaskTitle
+		if summary.QueuedTaskCount > 1 {
+			queued += fmt.Sprintf(" (+%d more)", summary.QueuedTaskCount-1)
 		}
-		activityLine += upstreamStyle.Render(summary.ResumeReason)
+		lines = append(lines, queued)
 	}
-	if wt.Upstream != "" {
-		if activityLine != "" {
-			activityLine += "  "
-		}
-		activityLine += upstreamStyle.Render("-> " + wt.Upstream)
+	if wt.DirtySummary.IsDirty() {
+		lines = append(lines, "Git: "+formatDirtySummary(wt.DirtySummary))
 	}
-	if len(tags) == 0 {
-		if activityLine != "" {
-			return label + "\n" + pathLine + "  " + activityLine
-		}
-		return label + "\n" + pathLine
+	if wt.AheadBehind.Ahead > 0 || wt.AheadBehind.Behind > 0 {
+		lines = append(lines, fmt.Sprintf("Upstream: ↑%d ↓%d", wt.AheadBehind.Ahead, wt.AheadBehind.Behind))
 	}
-	row := label + "  " + upstreamStyle.Render("["+strings.Join(tags, ", ")+"]") + "\n" + pathLine
-	if activityLine != "" {
-		row += "  " + activityLine
+	if activity.HasShell || activity.OpenEditors > 0 || activity.AgentCount > 0 {
+		lines = append(lines, fmt.Sprintf("Runtime: shell=%t edits=%d agents=%d", activity.HasShell, activity.OpenEditors, activity.AgentCount))
 	}
-	return row
+	return lines
+}
+
+func formatDirtySummary(ds gitmodel.DirtySummary) string {
+	parts := []string{}
+	if ds.Staged > 0 {
+		parts = append(parts, fmt.Sprintf("+%d staged", ds.Staged))
+	}
+	if ds.Unstaged > 0 {
+		parts = append(parts, fmt.Sprintf("~%d unstaged", ds.Unstaged))
+	}
+	if ds.Untracked > 0 {
+		parts = append(parts, fmt.Sprintf("?%d untracked", ds.Untracked))
+	}
+	if ds.Conflicted > 0 {
+		parts = append(parts, fmt.Sprintf("!%d conflicted", ds.Conflicted))
+	}
+	return strings.Join(parts, " · ")
+}
+
+func FormatDirtySummaryForUI(ds gitmodel.DirtySummary) string {
+	return formatDirtySummary(ds)
+}
+
+func (p *WorktreePane) SelectedContext() (gitmodel.Worktree, gitmodel.WorktreeResumeSummary, gitmodel.WorktreeActivity, bool) {
+	wt, ok := p.selectedWorktree()
+	if !ok {
+		return gitmodel.Worktree{}, gitmodel.WorktreeResumeSummary{}, gitmodel.WorktreeActivity{}, false
+	}
+	return wt, p.summaries[wt.Path], p.activities[wt.Path], true
+}
+
+func (p *WorktreePane) OrderedContexts() []WorktreeContextView {
+	ordered := p.orderedWorktrees()
+	items := make([]WorktreeContextView, 0, len(ordered))
+	for _, wt := range ordered {
+		items = append(items, WorktreeContextView{
+			Worktree: wt,
+			Summary:  p.summaries[wt.Path],
+			Activity: p.activities[wt.Path],
+		})
+	}
+	return items
 }
 
 func (p *WorktreePane) selectedWorktree() (gitmodel.Worktree, bool) {
@@ -475,7 +625,11 @@ func (p *WorktreePane) selectedWorktree() (gitmodel.Worktree, bool) {
 	if p.cursor < 0 || p.cursor >= len(ordered) {
 		return gitmodel.Worktree{}, false
 	}
-	return ordered[p.cursor], true
+	visible := p.visibleWorktrees()
+	if p.cursor < 0 || p.cursor >= len(visible) {
+		return gitmodel.Worktree{}, false
+	}
+	return visible[p.cursor], true
 }
 
 func (p *WorktreePane) orderedWorktrees() []gitmodel.Worktree {
@@ -494,6 +648,93 @@ func (p *WorktreePane) orderedWorktrees() []gitmodel.Worktree {
 		return false
 	})
 	return ordered
+}
+
+func (p *WorktreePane) visibleWorktrees() []gitmodel.Worktree {
+	ordered := p.orderedWorktrees()
+	visible := make([]gitmodel.Worktree, 0, len(ordered))
+	for _, wt := range ordered {
+		summary := p.summaries[wt.Path]
+		switch p.activeTab {
+		case worktreeTabActive:
+			if summary.TaskState != "active" {
+				continue
+			}
+		case worktreeTabFocus:
+			if !wt.DirtySummary.IsDirty() && summary.LastAgentSummary == "" && summary.ResumeScore < 60 {
+				continue
+			}
+		case worktreeTabQueued:
+			if summary.QueuedTaskCount == 0 {
+				continue
+			}
+		}
+		visible = append(visible, wt)
+	}
+	if p.cursor >= len(visible) {
+		p.cursor = max(0, len(visible)-1)
+	}
+	return visible
+}
+
+func (p *WorktreePane) setActiveTab(tab worktreeTab) {
+	p.activeTab = tab
+	p.cursor = 0
+	p.notice = "Tab: " + strings.ToUpper(string(tab))
+}
+
+func (p *WorktreePane) cycleTab(delta int) {
+	tabs := []worktreeTab{worktreeTabAll, worktreeTabActive, worktreeTabFocus, worktreeTabQueued}
+	idx := 0
+	for i, tab := range tabs {
+		if tab == p.activeTab {
+			idx = i
+			break
+		}
+	}
+	idx = (idx + delta + len(tabs)) % len(tabs)
+	p.setActiveTab(tabs[idx])
+}
+
+func (p *WorktreePane) renderTabs() string {
+	visibleCounts := map[worktreeTab]int{
+		worktreeTabAll:    len(p.orderedWorktrees()),
+		worktreeTabActive: 0,
+		worktreeTabFocus:  0,
+		worktreeTabQueued: 0,
+	}
+	for _, wt := range p.orderedWorktrees() {
+		summary := p.summaries[wt.Path]
+		if summary.TaskState == "active" {
+			visibleCounts[worktreeTabActive]++
+		}
+		if wt.DirtySummary.IsDirty() || summary.LastAgentSummary != "" || summary.ResumeScore >= 60 {
+			visibleCounts[worktreeTabFocus]++
+		}
+		if summary.QueuedTaskCount > 0 {
+			visibleCounts[worktreeTabQueued]++
+		}
+	}
+	tabs := []struct {
+		key   string
+		tab   worktreeTab
+		label string
+	}{
+		{"1", worktreeTabAll, "ALL"},
+		{"2", worktreeTabActive, "ACTIVE"},
+		{"3", worktreeTabFocus, "FOCUS"},
+		{"4", worktreeTabQueued, "QUEUED"},
+	}
+	parts := make([]string, 0, len(tabs))
+	for _, item := range tabs {
+		text := fmt.Sprintf("%s %s(%d)", item.key, item.label, visibleCounts[item.tab])
+		if item.tab == p.activeTab {
+			parts = append(parts, sectionStyle.Render("["+text+"]"))
+		} else {
+			parts = append(parts, upstreamStyle.Render(text))
+		}
+	}
+	return strings.Join(parts, "  ")
 }
 
 func (p *WorktreePane) confirmAction() (models.Panel, tea.Cmd) {

@@ -72,6 +72,47 @@ func TestWorktreePaneKeyboardHandling(t *testing.T) {
 	}
 }
 
+func TestWorktreePaneTabFilteringAndCycling(t *testing.T) {
+	adapter := &fakeGitAdapter{
+		worktrees: []gitmodel.Worktree{
+			{Path: "/repo/main", Branch: "main", IsMain: true},
+			{Path: "/repo/feature-a", Branch: "feature-a", DirtySummary: gitmodel.DirtySummary{Unstaged: 1}},
+			{Path: "/repo/feature-b", Branch: "feature-b"},
+		},
+	}
+	pane := NewWorktreePane("worktree-1", models.PaneMeta{ID: "worktree-1", Type: models.PaneTypeWorktree, CWD: "/repo/main"}, models.CommonModel{}, adapter)
+	pane.SetSize(220, 24)
+	updated, _ := pane.Update(worktreesLoadedMsg{worktrees: adapter.worktrees})
+	pane = updated.(*WorktreePane)
+	pane.SetResumeSummaries(map[string]gitmodel.WorktreeResumeSummary{
+		"/repo/feature-a": {TaskTitle: "Active task", TaskState: "active", ResumeScore: 80},
+		"/repo/feature-b": {TaskTitle: "Queued task", TaskState: "paused", ResumeScore: 30, QueuedTaskTitle: "Follow-up cleanup", QueuedTaskCount: 1},
+	})
+
+	view := pane.View()
+	for _, want := range []string{"1 ALL(3)", "2 ACTIVE(1)", "3 FOCUS(1)", "4 QUEUED(1)"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("expected tabs to contain %q, got:\n%s", want, view)
+		}
+	}
+
+	updated, _ = pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'2'}})
+	pane = updated.(*WorktreePane)
+	view = pane.View()
+	if !strings.Contains(view, "Active task") || strings.Contains(view, "Queued task") {
+		t.Fatalf("expected ACTIVE tab to filter rows, got:\n%s", view)
+	}
+
+	updated, _ = pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{']'}})
+	pane = updated.(*WorktreePane)
+	updated, _ = pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{']'}})
+	pane = updated.(*WorktreePane)
+	view = pane.View()
+	if !strings.Contains(view, "4 QUEUED(1)") || !strings.Contains(view, "Queued task") {
+		t.Fatalf("expected cycling tabs to reach queued view, got:\n%s", view)
+	}
+}
+
 func TestWorktreePaneResumeMessageUsesSelectedWorktree(t *testing.T) {
 	adapter := &fakeGitAdapter{
 		worktrees: []gitmodel.Worktree{
@@ -155,8 +196,66 @@ func TestWorktreePaneEditTaskMessageUsesSelectedWorktree(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected OpenTaskEditMsg, got %T", msg)
 	}
-	if openMsg.WorktreeID != "/repo/feature-a" || openMsg.TaskID != "task-1" {
+	if openMsg.WorktreeID != "/repo/feature-a" || openMsg.TaskID != "task-1" || openMsg.RelationType != "primary" {
 		t.Fatalf("unexpected task edit message %+v", openMsg)
+	}
+}
+
+func TestWorktreePaneFollowUpTaskMessageUsesSelectedWorktree(t *testing.T) {
+	adapter := &fakeGitAdapter{
+		worktrees: []gitmodel.Worktree{
+			{Path: "/repo/main", Branch: "main", IsMain: true},
+			{Path: "/repo/feature-a", Branch: "feature-a"},
+		},
+	}
+	pane := NewWorktreePane("worktree-1", models.PaneMeta{ID: "worktree-1", Type: models.PaneTypeWorktree, CWD: "/repo/main"}, models.CommonModel{}, adapter)
+	updated, _ := pane.Update(worktreesLoadedMsg{worktrees: adapter.worktrees})
+	pane = updated.(*WorktreePane)
+	pane.SetResumeSummaries(map[string]gitmodel.WorktreeResumeSummary{
+		"/repo/feature-a": {TaskID: "task-1", TaskTitle: "Fix resume pipeline", ResumeScore: 90},
+	})
+
+	updated, cmd := pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'f'}})
+	pane = updated.(*WorktreePane)
+	if cmd == nil {
+		t.Fatalf("expected follow-up command")
+	}
+	msg := runCmd(t, cmd)
+	openMsg, ok := msg.(OpenTaskEditMsg)
+	if !ok {
+		t.Fatalf("expected OpenTaskEditMsg, got %T", msg)
+	}
+	if openMsg.WorktreeID != "/repo/feature-a" || openMsg.RelationType != "queued" || openMsg.ParentTaskID != "task-1" {
+		t.Fatalf("unexpected follow-up task edit message %+v", openMsg)
+	}
+}
+
+func TestWorktreePaneCycleTaskStateMessageUsesSelectedWorktree(t *testing.T) {
+	adapter := &fakeGitAdapter{
+		worktrees: []gitmodel.Worktree{
+			{Path: "/repo/main", Branch: "main", IsMain: true},
+			{Path: "/repo/feature-a", Branch: "feature-a"},
+		},
+	}
+	pane := NewWorktreePane("worktree-1", models.PaneMeta{ID: "worktree-1", Type: models.PaneTypeWorktree, CWD: "/repo/main"}, models.CommonModel{}, adapter)
+	updated, _ := pane.Update(worktreesLoadedMsg{worktrees: adapter.worktrees})
+	pane = updated.(*WorktreePane)
+	pane.SetResumeSummaries(map[string]gitmodel.WorktreeResumeSummary{
+		"/repo/feature-a": {TaskID: "task-1", TaskTitle: "Fix resume pipeline", TaskState: "active", ResumeScore: 90},
+	})
+
+	updated, cmd := pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
+	pane = updated.(*WorktreePane)
+	if cmd == nil {
+		t.Fatalf("expected cycle-state command")
+	}
+	msg := runCmd(t, cmd)
+	cycleMsg, ok := msg.(CycleTaskStateMsg)
+	if !ok {
+		t.Fatalf("expected CycleTaskStateMsg, got %T", msg)
+	}
+	if cycleMsg.TaskID != "task-1" || cycleMsg.WorktreeID != "/repo/feature-a" || cycleMsg.CurrentState != "active" {
+		t.Fatalf("unexpected cycle task state message %+v", cycleMsg)
 	}
 }
 
@@ -213,16 +312,31 @@ func TestWorktreePaneRendersResumeSummaryAndOrdersByScore(t *testing.T) {
 		},
 	}
 	pane := NewWorktreePane("worktree-1", models.PaneMeta{ID: "worktree-1", Type: models.PaneTypeWorktree, CWD: "/repo/main"}, models.CommonModel{}, adapter)
-	pane.SetSize(160, 20)
+	pane.SetSize(320, 24)
 	updated, _ := pane.Update(worktreesLoadedMsg{worktrees: adapter.worktrees})
 	pane = updated.(*WorktreePane)
 	pane.SetResumeSummaries(map[string]gitmodel.WorktreeResumeSummary{
-		"/repo/feature-a": {TaskTitle: "Fix resume pipeline", NextStep: "Wire overview summaries", ResumeScore: 90, ResumeReason: "active task", LastResumeHint: "Continue: Wire overview summaries", TaskState: "active"},
+		"/repo/feature-a": {TaskTitle: "Fix resume pipeline", TaskGoal: "Make overview dense and useful", NextStep: "Wire overview summaries", ResumeScore: 90, ResumeReason: "active task", LastResumeHint: "Continue: Wire overview summaries", TaskState: "active", TaskPriority: "high", QueuedTaskTitle: "Follow-up cleanup", QueuedTaskCount: 2, LastAgentSummary: "opencode running"},
 		"/repo/feature-b": {TaskTitle: "Later task", NextStep: "Leave for tomorrow", ResumeScore: 10},
 	})
+	pane.SetActivity("/repo/feature-a", gitmodel.WorktreeActivity{OpenEditors: 2, HasShell: true, AgentCount: 1, LastActive: "2m ago"})
+	pane.SetActivity("/repo/feature-b", gitmodel.WorktreeActivity{LastActive: "10m ago"})
 
 	view := pane.View()
-	for _, want := range []string{"Fix resume pipeline", "next: Wire overview summaries", "active", "Resume: Continue: Wire overview summaries"} {
+	for _, want := range []string{
+		"Fix resume pipeline",
+		"feature-a",
+		"active · high",
+		"shell · edits 2 · agents 1",
+		"next: Wire overview summaries",
+		"queued: Follow-up cleanup (+1)",
+		"Selected: feature-a",
+		"Goal: Make overview dense and useful",
+		"Next: Continue: Wire overview summaries",
+		"Why now: active task",
+		"Agent: opencode running",
+		"Runtime: shell=true edits=2 agents=1",
+	} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("expected view to contain %q, got:\n%s", want, view)
 		}

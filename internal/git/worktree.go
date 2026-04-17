@@ -35,6 +35,12 @@ type WorktreeResumeSummary struct {
 	TaskState        string
 	TaskPriority     string
 	TaskMode         string
+	QueuedTaskTitle  string
+	QueuedTaskCount  int
+	AttentionAnchor  string
+	RecentArtifact   string
+	PinnedNote       string
+	BlockerNote      string
 	LastResumeHint   string
 	LastActiveLabel  string
 	LastAgentLabel   string
