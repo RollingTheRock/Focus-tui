@@ -14,16 +14,18 @@ type workbenchContextSource interface {
 }
 
 type workbenchQueueItem struct {
-	Worktree         gitmodel.Worktree
-	Summary          gitmodel.WorktreeResumeSummary
-	Activity         gitmodel.WorktreeActivity
-	GitSummary       string
-	QueuedSummary    string
-	AgentSummary     string
-	RuntimeSummary   string
-	UpstreamSummary  string
-	AttentionSummary string
-	NoteSummary      string
+	Worktree           gitmodel.Worktree
+	Summary            gitmodel.WorktreeResumeSummary
+	Activity           gitmodel.WorktreeActivity
+	GitSummary         string
+	GitPressureSummary string
+	QueuedSummary      string
+	AgentSummary       string
+	RuntimeSummary     string
+	UpstreamSummary    string
+	AttentionSummary   string
+	NoteSummary        string
+	HandoffSummary     string
 }
 
 type workbenchOverviewContext struct {
@@ -84,11 +86,13 @@ func buildWorkbenchOverviewContext(source workbenchContextSource) workbenchOverv
 			AgentSummary:   selected.AgentSummary,
 			QueuedSummary:  selected.QueuedSummary,
 			GitSummary:     selected.GitSummary,
+			GitPressure:    selected.GitPressureSummary,
 			RuntimeSummary: selected.RuntimeSummary,
 			Upstream:       selected.UpstreamSummary,
 			Attention:      selected.AttentionSummary,
 			PinnedNote:     selected.NoteSummary,
 			BlockerNote:    summary.BlockerNote,
+			HandoffNote:    summary.HandoffNote,
 			RecentArtifact: summary.RecentArtifact,
 			HasSelection:   true,
 		}
@@ -104,6 +108,9 @@ func buildWorkbenchQueueItem(wt gitmodel.Worktree, summary gitmodel.WorktreeResu
 	}
 	if wt.DirtySummary.IsDirty() {
 		item.GitSummary = "git: " + gitplugin.FormatDirtySummaryForUI(wt.DirtySummary)
+	}
+	if summary.GitPressure != "" {
+		item.GitPressureSummary = "git pressure: " + summary.GitPressure
 	}
 	if summary.LastAgentSummary != "" {
 		item.AgentSummary = "agent: " + summary.LastAgentSummary
@@ -126,6 +133,9 @@ func buildWorkbenchQueueItem(wt gitmodel.Worktree, summary gitmodel.WorktreeResu
 			item.NoteSummary += " · "
 		}
 		item.NoteSummary += "blocker: " + summary.BlockerNote
+	}
+	if summary.HandoffNote != "" {
+		item.HandoffSummary = "handoff: " + summary.HandoffNote
 	}
 	item.RuntimeSummary = fmt.Sprintf("runtime: shell=%t edits=%d agents=%d", activity.HasShell, activity.OpenEditors, activity.AgentCount)
 	if wt.AheadBehind.Ahead > 0 || wt.AheadBehind.Behind > 0 || wt.Upstream != "" {

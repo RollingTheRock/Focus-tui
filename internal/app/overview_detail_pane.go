@@ -24,10 +24,12 @@ type overviewDetailSelection struct {
 	AgentSummary   string
 	QueuedSummary  string
 	GitSummary     string
+	GitPressure    string
 	RuntimeSummary string
 	Upstream       string
 	PinnedNote     string
 	BlockerNote    string
+	HandoffNote    string
 	HasSelection   bool
 }
 
@@ -98,12 +100,12 @@ func (p *overviewDetailPane) View() string {
 		"",
 		overviewDetailSectionStyle.Render("Signals"),
 	)
-	for _, item := range []string{selection.GitSummary, selection.RuntimeSummary, selection.AgentSummary, selection.QueuedSummary, selection.Upstream} {
+	for _, item := range []string{selection.GitSummary, selection.GitPressure, selection.RuntimeSummary, selection.AgentSummary, selection.QueuedSummary, selection.Upstream} {
 		if strings.TrimSpace(item) != "" {
 			lines = append(lines, overviewDetailBodyStyle.Render(item))
 		}
 	}
-	if selection.PinnedNote != "" || selection.BlockerNote != "" {
+	if selection.PinnedNote != "" || selection.BlockerNote != "" || selection.HandoffNote != "" {
 		lines = append(lines,
 			"",
 			overviewDetailSectionStyle.Render("Notes"),
@@ -113,6 +115,9 @@ func (p *overviewDetailPane) View() string {
 		}
 		if selection.BlockerNote != "" {
 			lines = append(lines, overviewDetailBodyStyle.Render("blocker: "+selection.BlockerNote))
+		}
+		if selection.HandoffNote != "" {
+			lines = append(lines, overviewDetailBodyStyle.Render("handoff: "+selection.HandoffNote))
 		}
 	}
 	lines = append(lines,
