@@ -103,6 +103,8 @@ func newOverviewPage(common *models.CommonModel, pluginRegistry *plugins.Registr
 	p := newPage(common, pluginRegistry, adapterManager)
 
 	worktreePaneMeta := models.PaneMeta{ID: paneWorktree, Name: "Worktrees", Type: models.PaneTypeWorktree, CWD: cwd, RepoID: cwd, WorktreeID: cwd, Status: models.PaneStatusIdle, Closable: false}
+	overviewSummaryMeta := models.PaneMeta{ID: paneOverviewSummary, Name: "Overview Summary", Type: paneTypeOverviewSummary, CWD: cwd, RepoID: cwd, WorktreeID: cwd, Status: models.PaneStatusIdle, Closable: false}
+	overviewDetailMeta := models.PaneMeta{ID: paneOverviewDetail, Name: "Context Detail", Type: paneTypeOverviewDetail, CWD: cwd, RepoID: cwd, WorktreeID: cwd, Status: models.PaneStatusIdle, Closable: false}
 
 	p.registerPane(paneHeader, header.New(cfg, common.Theme, store), models.PaneMeta{ID: paneHeader, Name: "Header", Type: models.PaneTypeHeader, Status: models.PaneStatusPassive, Closable: false})
 	p.registerPane(paneShell, shell.New(common, paneShell), models.PaneMeta{ID: paneShell, Name: "Shell", Type: models.PaneTypeShell, CWD: cwd, RepoID: cwd, WorktreeID: cwd, Status: models.PaneStatusStarting, Closable: true})
@@ -114,13 +116,34 @@ func newOverviewPage(common *models.CommonModel, pluginRegistry *plugins.Registr
 		worktreePaneMeta.CWD = repoRoot
 		worktreePaneMeta.RepoID = repoRoot
 		worktreePaneMeta.WorktreeID = repoRoot
+		overviewSummaryMeta.CWD = repoRoot
+		overviewSummaryMeta.RepoID = repoRoot
+		overviewSummaryMeta.WorktreeID = repoRoot
+		overviewDetailMeta.CWD = repoRoot
+		overviewDetailMeta.RepoID = repoRoot
+		overviewDetailMeta.WorktreeID = repoRoot
 		if panel, err := pluginRegistry.CreatePane(models.PaneTypeWorktree, paneWorktree, worktreePaneMeta, *common); err == nil {
 			p.registerPane(paneWorktree, panel, worktreePaneMeta)
 		}
+		p.registerPane(paneOverviewSummary, newOverviewSummaryPane(paneOverviewSummary, overviewSummaryMeta, func() workbenchOverviewContext {
+			if wp, ok := p.pane(paneWorktree).(*gitplugin.WorktreePane); ok {
+				return buildWorkbenchOverviewContext(wp)
+			}
+			return workbenchOverviewContext{}
+		}), overviewSummaryMeta)
+		p.registerPane(paneOverviewDetail, newOverviewDetailPane(paneOverviewDetail, overviewDetailMeta, func() workbenchOverviewContext {
+			if wp, ok := p.pane(paneWorktree).(*gitplugin.WorktreePane); ok {
+				return buildWorkbenchOverviewContext(wp)
+			}
+			return workbenchOverviewContext{}
+		}), overviewDetailMeta)
 		p.bodyTree = layout.Split(
-			layout.SplitHorizontal,
-			30,
-			layout.Leaf(paneWorktree),
+			layout.SplitVertical,
+			74,
+			layout.Split(layout.SplitVertical, 20,
+				layout.Leaf(paneOverviewSummary),
+				layout.Split(layout.SplitHorizontal, 52, layout.Leaf(paneWorktree), layout.Leaf(paneOverviewDetail)),
+			),
 			layout.Leaf(paneShell),
 		)
 	} else {
@@ -903,6 +926,10 @@ func (p *page) openCreateWorktreePane(msg gitplugin.OpenCreateWorktreeMsg) tea.C
 	}
 	panel := gitplugin.NewWorktreeCreatePane(meta.ID, meta, *p.common, p.adapterManager.Git(), msg)
 	p.registerPane(meta.ID, panel, meta)
+	if p.returnFocus == nil {
+		p.returnFocus = make(map[models.PaneID]models.PaneID)
+	}
+	p.returnFocus[meta.ID] = baseFocus
 	p.setFocus(meta.ID)
 	p.updateSizes(p.bodyBoundsSize())
 	return panel.Init()
@@ -910,6 +937,11 @@ func (p *page) openCreateWorktreePane(msg gitplugin.OpenCreateWorktreeMsg) tea.C
 
 func (p *page) openTaskEditPane(seed taskEditorSeed) tea.Cmd {
 	p.closePane(paneTaskEdit)
+
+	baseFocus := p.focused
+	if baseFocus == "" {
+		baseFocus = paneWorktree
+	}
 
 	meta := models.PaneMeta{
 		ID:             paneTaskEdit,
@@ -924,6 +956,10 @@ func (p *page) openTaskEditPane(seed taskEditorSeed) tea.Cmd {
 	}
 	panel := NewTaskEditPane(meta.ID, meta, *p.common, seed)
 	p.registerPane(meta.ID, panel, meta)
+	if p.returnFocus == nil {
+		p.returnFocus = make(map[models.PaneID]models.PaneID)
+	}
+	p.returnFocus[meta.ID] = baseFocus
 	p.setFocus(meta.ID)
 	p.updateSizes(p.bodyBoundsSize())
 	return panel.Init()
