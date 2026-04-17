@@ -35,23 +35,27 @@ import (
 )
 
 const (
-	paneHeader         models.PaneID = "header"
-	paneShell          models.PaneID = "shell-main"
-	paneWorktree       models.PaneID = "worktree-main"
-	paneGitStatus      models.PaneID = "git-status-main"
-	paneGitDiff        models.PaneID = "git-diff-pane"
-	paneGitCommit      models.PaneID = "git-commit-overlay"
-	paneWorktreeCreate models.PaneID = "worktree-create-overlay"
-	paneTaskEdit       models.PaneID = "task-edit-overlay"
-	paneTodo           models.PaneID = "todo-main"
-	paneFileTree       models.PaneID = "file-tree-main"
-	panePomodoro       models.PaneID = "pomodoro-main"
-	paneAgentSession   models.PaneID = "agent-session-main"
-	paneFooter         models.PaneID = "footer"
+	paneHeader          models.PaneID = "header"
+	paneShell           models.PaneID = "shell-main"
+	paneWorktree        models.PaneID = "worktree-main"
+	paneOverviewSummary models.PaneID = "overview-summary-main"
+	paneOverviewDetail  models.PaneID = "overview-detail-main"
+	paneGitStatus       models.PaneID = "git-status-main"
+	paneGitDiff         models.PaneID = "git-diff-pane"
+	paneGitCommit       models.PaneID = "git-commit-overlay"
+	paneWorktreeCreate  models.PaneID = "worktree-create-overlay"
+	paneTaskEdit        models.PaneID = "task-edit-overlay"
+	paneTodo            models.PaneID = "todo-main"
+	paneFileTree        models.PaneID = "file-tree-main"
+	panePomodoro        models.PaneID = "pomodoro-main"
+	paneAgentSession    models.PaneID = "agent-session-main"
+	paneFooter          models.PaneID = "footer"
 
-	paneTypeGitCommit      models.PaneType = "git-commit"
-	paneTypeWorktreeCreate models.PaneType = "worktree-create"
-	paneTypeTaskEdit       models.PaneType = "task-edit"
+	paneTypeGitCommit       models.PaneType = "git-commit"
+	paneTypeWorktreeCreate  models.PaneType = "worktree-create"
+	paneTypeTaskEdit        models.PaneType = "task-edit"
+	paneTypeOverviewSummary models.PaneType = "overview-summary"
+	paneTypeOverviewDetail  models.PaneType = "overview-detail"
 
 	splitRatioStep = 5
 
@@ -246,6 +250,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.syncWorktreeActivities()
 		m.invalidateView()
 		return m, cmd
+
+	case gitplugin.CycleTaskStateMsg:
+		m.cycleTaskState(msg)
+		m.syncWorktreeActivities()
+		m.invalidateView()
+		return m, nil
 
 	case CloseTaskEditorMsg:
 		m.closePane(msg.ID)
@@ -1028,8 +1038,8 @@ func (m model) renderHelpLine(w int) string {
 	compact := "[tab]next  [enter]open  [q]uit"
 	switch focusedType {
 	case models.PaneTypeWorktree:
-		left = "[j/k]move  [enter]resume  [o]shell  [e]task  [d]el  [n]ew worktree  [r]efresh  [ctrl+g]overview"
-		compact = "[enter]resume  [o]shell  [e]task  [d]el"
+		left = "[1-4]/[]tabs  [j/k]move  [enter]resume  [o]shell  [e]task  [f]ollow-up  [s]tate  [d]el  [n]ew worktree  [r]efresh  [ctrl+g]overview"
+		compact = "[1-4]tabs  [enter]resume  [e]task  [f]ollow-up"
 	case models.PaneTypeGitStatus:
 		if m.state == StateWorktreePage {
 			left = "[j/k]move  [enter]review  [d]iff file  [space]stage  [a]all  [f]etch  [p]ull  [c]ommit  [P]push  [ctrl+n/p]worktree  [ctrl+g]overview"
@@ -1075,6 +1085,9 @@ func (m model) renderHelpLine(w int) string {
 	case models.PaneTypeDiffView:
 		left = "[enter]open file  [s]toggle staged  [[]/[]]files  [j/k]scroll  [wheel]scroll  [q/esc]close review"
 		compact = "[enter]open  [s]toggle  [wheel]scroll"
+	case paneTypeOverviewDetail:
+		left = "[tab]next  [1-4]/[]tabs  [enter]resume  [e]edit task  [f]follow-up  [s]cycle state"
+		compact = "[tab]next  [1-4]tabs  [enter]resume"
 	}
 	if w < simplifiedHelpMaxWidth {
 		return renderCompactHelpLine(helpStyle, compact, w)
@@ -1173,16 +1186,24 @@ func (m *model) openCreateWorktreePane(msg gitplugin.OpenCreateWorktreeMsg) tea.
 }
 
 func (m *model) openTaskEditPane(msg gitplugin.OpenTaskEditMsg) tea.Cmd {
-	seed := taskEditorSeed{WorktreeID: msg.WorktreeID, State: "active"}
+	seed := taskEditorSeed{WorktreeID: msg.WorktreeID, State: "active", Priority: "medium", RelationType: msg.RelationType, ParentTaskID: msg.ParentTaskID}
 	if m.common != nil && m.common.Store != nil {
 		if wc, _ := m.common.Store.GetWorktreeContext(msg.WorktreeID); wc != nil {
-			seed.Title = wc.TaskName
-			if wc.PrimaryTaskID != nil {
-				if task, _ := m.common.Store.GetTaskContext(*wc.PrimaryTaskID); task != nil {
+			if msg.RelationType != "queued" {
+				seed.Title = wc.TaskName
+			}
+			targetTaskID := msg.TaskID
+			if targetTaskID == "" && msg.RelationType != "queued" && wc.PrimaryTaskID != nil {
+				targetTaskID = *wc.PrimaryTaskID
+			}
+			if targetTaskID != "" {
+				if task, _ := m.common.Store.GetTaskContext(targetTaskID); task != nil {
+					seed.TaskID = task.ID
 					seed.Title = task.Title
 					seed.Goal = task.Goal
 					seed.NextStep = task.NextStep
 					seed.State = task.State
+					seed.Priority = task.Priority
 				}
 			}
 		}
@@ -1204,8 +1225,15 @@ func (m *model) saveTaskEditor(msg TaskEditorSavedMsg) tea.Cmd {
 		repoID = msg.WorktreeID
 	}
 	worktreeContext, _ := m.common.Store.GetWorktreeContext(msg.WorktreeID)
-	taskID := uuid.NewString()
-	if worktreeContext != nil && worktreeContext.PrimaryTaskID != nil && *worktreeContext.PrimaryTaskID != "" {
+	relationType := msg.RelationType
+	if relationType == "" {
+		relationType = "primary"
+	}
+	taskID := msg.TaskID
+	if taskID == "" {
+		taskID = uuid.NewString()
+	}
+	if relationType == "primary" && taskID == "" && worktreeContext != nil && worktreeContext.PrimaryTaskID != nil && *worktreeContext.PrimaryTaskID != "" {
 		taskID = *worktreeContext.PrimaryTaskID
 	}
 	now := time.Now()
@@ -1216,31 +1244,78 @@ func (m *model) saveTaskEditor(msg TaskEditorSavedMsg) tea.Cmd {
 		Goal:                msg.Goal,
 		NextStep:            msg.NextStep,
 		State:               msg.State,
-		Priority:            "medium",
+		Priority:            msg.Priority,
+		ParentTaskID:        stringPtrOrNil(msg.ParentTaskID),
 		PreferredWorktreeID: msg.WorktreeID,
 	})
 	branchSnapshot := ""
 	if worktreeContext != nil {
 		branchSnapshot = worktreeContext.BranchSnapshot
 	}
+	primaryTaskID := (*string)(nil)
+	taskMode := "single"
+	taskName := msg.Title
+	if worktreeContext != nil {
+		primaryTaskID = worktreeContext.PrimaryTaskID
+		taskMode = worktreeContext.TaskMode
+		if worktreeContext.TaskName != "" {
+			taskName = worktreeContext.TaskName
+		}
+	}
+	if relationType == "primary" {
+		primaryTaskID = &taskID
+		taskMode = "single"
+		taskName = msg.Title
+	} else {
+		if primaryTaskID != nil && *primaryTaskID != "" {
+			taskMode = "mixed"
+		}
+	}
 	_ = m.common.Store.SaveWorktreeContext(models.WorktreeContextRecord{
 		WorktreeID:     msg.WorktreeID,
 		RepoID:         repoID,
-		PrimaryTaskID:  &taskID,
-		TaskMode:       "single",
-		TaskName:       msg.Title,
+		PrimaryTaskID:  primaryTaskID,
+		TaskMode:       taskMode,
+		TaskName:       taskName,
 		BranchSnapshot: branchSnapshot,
 		LastActiveAt:   now,
 		LastOpenedAt:   &now,
 		LastAgentAt:    lastAgentAtForWorktree(m.listAgentSessionRecords(msg.WorktreeID)),
 	})
 	_ = m.common.Store.SaveTaskWorktreeLink(models.TaskWorktreeLinkRecord{
-		ID:           taskID + "::" + msg.WorktreeID + "::primary",
+		ID:           taskID + "::" + msg.WorktreeID + "::" + relationType,
 		TaskID:       taskID,
 		WorktreeID:   msg.WorktreeID,
-		RelationType: "primary",
+		RelationType: relationType,
 	})
 	return nil
+}
+
+func (m *model) cycleTaskState(msg gitplugin.CycleTaskStateMsg) {
+	if m.common == nil || m.common.Store == nil || msg.TaskID == "" {
+		return
+	}
+	task, err := m.common.Store.GetTaskContext(msg.TaskID)
+	if err != nil || task == nil {
+		return
+	}
+	task.State = nextTaskState(task.State)
+	_ = m.common.Store.SaveTaskContext(*task)
+}
+
+func nextTaskState(state string) string {
+	switch state {
+	case "active":
+		return "paused"
+	case "paused":
+		return "blocked"
+	case "blocked":
+		return "done"
+	case "done":
+		return "active"
+	default:
+		return "active"
+	}
 }
 
 func (m *model) removeWorktree(msg gitplugin.RequestRemoveWorktreeMsg) tea.Cmd {
@@ -1533,6 +1608,21 @@ func (m *model) refreshResumeSummaryCache(agentSessions map[string]agents.Sessio
 		if wc.LastAgentAt != nil {
 			summary.LastAgentLabel = formatRelativeLabel("agent", *wc.LastAgentAt)
 		}
+		summary.AttentionAnchor, summary.RecentArtifact = m.deriveWorktreeSignals(wc.WorktreeID)
+		summary.PinnedNote, summary.BlockerNote = m.deriveWorktreeNotes(summary.TaskID, wc.WorktreeID)
+		for _, link := range m.listWorktreeTaskLinks(wc.WorktreeID) {
+			if link.RelationType != "queued" {
+				continue
+			}
+			queuedTask, ok := tasksByID[link.TaskID]
+			if !ok {
+				continue
+			}
+			summary.QueuedTaskCount++
+			if summary.QueuedTaskTitle == "" {
+				summary.QueuedTaskTitle = queuedTask.Title
+			}
+		}
 		if s := mostRelevantAgentSession(wc.WorktreeID, agentSessions); s != nil {
 			summary.LastAgentSummary = formatAgentSummary(*s)
 			if summary.LastAgentLabel == "" {
@@ -1563,6 +1653,8 @@ func (m *model) refreshResumeSummaryCache(agentSessions map[string]agents.Sessio
 			summary.LastAgentSummary = formatAgentSummary(*s)
 			summary.LastAgentLabel = formatRelativeLabel("agent", sessionRelevantTime(*s))
 		}
+		summary.AttentionAnchor, summary.RecentArtifact = m.deriveWorktreeSignals(worktreeID)
+		summary.PinnedNote, summary.BlockerNote = m.deriveWorktreeNotes(summary.TaskID, worktreeID)
 		summary.ResumeReason, summary.ResumeScore = computeResumeReason(summary)
 		summary.LastResumeHint = buildResumeHint(summary)
 		m.resumeSummaryCache[worktreeID] = summary
@@ -1589,6 +1681,95 @@ func (m *model) listWorktreeContexts(repoID string) []models.WorktreeContextReco
 		return nil
 	}
 	return records
+}
+
+func (m *model) listWorktreeTaskLinks(worktreeID string) []models.TaskWorktreeLinkRecord {
+	if m.common == nil || m.common.Store == nil {
+		return nil
+	}
+	records, err := m.common.Store.ListWorktreeTaskLinks(worktreeID)
+	if err != nil {
+		return nil
+	}
+	return records
+}
+
+func (m *model) deriveWorktreeNotes(taskID string, worktreeID string) (string, string) {
+	if m.common == nil || m.common.Store == nil {
+		return "", ""
+	}
+	notes, err := m.common.Store.ListContextNotes(taskID, worktreeID)
+	if err != nil {
+		return "", ""
+	}
+	var pinned, blocker string
+	for _, note := range notes {
+		if blocker == "" && note.NoteType == "blocker" {
+			blocker = note.Body
+		}
+		if pinned == "" && note.Pinned {
+			pinned = note.Body
+		}
+		if pinned != "" && blocker != "" {
+			break
+		}
+	}
+	return pinned, blocker
+}
+
+func (m *model) deriveWorktreeSignals(worktreeID string) (string, string) {
+	if worktreeID == "" {
+		return "", ""
+	}
+	if page, ok := m.pages[worktreeID]; ok && page != nil {
+		if anchor, artifact := pageSignals(page); anchor != "" || artifact != "" {
+			return anchor, artifact
+		}
+	}
+	if page, ok := m.pages[worktreeID]; ok && page != nil && page.snapshot != nil {
+		if anchor, artifact := snapshotSignals(page.snapshot); anchor != "" || artifact != "" {
+			return anchor, artifact
+		}
+	}
+	return "", ""
+}
+
+func pageSignals(p *page) (string, string) {
+	if p == nil {
+		return "", ""
+	}
+	if meta, ok := p.paneMeta[p.focused]; ok {
+		switch meta.Type {
+		case models.PaneTypeEditor:
+			return "editing", meta.CWD
+		case models.PaneTypeDiffView:
+			return "reviewing diff", meta.CWD
+		case models.PaneTypeGitStatus:
+			return "checking git status", meta.CWD
+		case models.PaneTypeShell:
+			return "working in shell", meta.CWD
+		}
+	}
+	for _, id := range p.paneOrder {
+		meta := p.paneMeta[id]
+		if meta.Type == models.PaneTypeEditor && meta.CWD != "" {
+			return "editing", meta.CWD
+		}
+	}
+	return "", ""
+}
+
+func snapshotSignals(snapshot *PageSnapshot) (string, string) {
+	if snapshot == nil {
+		return "", ""
+	}
+	if len(snapshot.OpenEditors) > 0 {
+		return "resume available", snapshot.OpenEditors[0]
+	}
+	if snapshot.Focused != "" {
+		return "resume available", string(snapshot.Focused)
+	}
+	return "", ""
 }
 
 func mostRelevantAgentSession(worktreeID string, sessions map[string]agents.Session) *agents.Session {
@@ -1661,9 +1842,17 @@ func computeResumeReason(summary gitmodel.WorktreeResumeSummary) (string, int) {
 		score += 20
 		parts = append(parts, "next step ready")
 	}
+	if summary.BlockerNote != "" {
+		score += 25
+		parts = append(parts, "blocker noted")
+	}
 	if summary.LastAgentSummary != "" {
 		score += 15
 		parts = append(parts, summary.LastAgentSummary)
+	}
+	if summary.QueuedTaskCount > 0 {
+		score += 10
+		parts = append(parts, fmt.Sprintf("%d queued", summary.QueuedTaskCount))
 	}
 	if summary.LastActiveLabel != "" {
 		score += 10
@@ -1674,6 +1863,15 @@ func computeResumeReason(summary gitmodel.WorktreeResumeSummary) (string, int) {
 func buildResumeHint(summary gitmodel.WorktreeResumeSummary) string {
 	if summary.NextStep != "" {
 		return "Continue: " + summary.NextStep
+	}
+	if summary.BlockerNote != "" {
+		return "Blocked: " + summary.BlockerNote
+	}
+	if summary.AttentionAnchor != "" {
+		return summary.AttentionAnchor
+	}
+	if summary.QueuedTaskTitle != "" {
+		return "Queued: " + summary.QueuedTaskTitle
 	}
 	if summary.TaskGoal != "" {
 		return "Goal: " + summary.TaskGoal
@@ -1697,6 +1895,13 @@ func lastAgentAtForWorktree(records []models.AgentSessionRecord) *time.Time {
 		}
 	}
 	return latest
+}
+
+func stringPtrOrNil(value string) *string {
+	if value == "" {
+		return nil
+	}
+	return &value
 }
 
 func (m *model) touchActiveWorktreeContext() {

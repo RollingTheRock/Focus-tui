@@ -164,12 +164,48 @@ func TestOverviewPageBodyTreeIsOrchestrationHub(t *testing.T) {
 	st, _ := store.New(":memory:")
 	m := New(cfg, st).(model)
 
-	leaves := layout.LeafOrder(m.activePage.bodyTree)
-	if len(leaves) != 2 {
-		t.Fatalf("expected overview page to have 2 leaves, got %d", len(leaves))
+	if m.activePage.bodyTree.Direction != layout.SplitVertical {
+		t.Fatalf("expected overview layout to split vertically, got %s", m.activePage.bodyTree.Direction)
 	}
-	if leaves[0] != paneWorktree || leaves[1] != paneShell {
-		t.Fatalf("expected overview leaves [worktree shell], got %v", leaves)
+	if m.activePage.bodyTree.Ratio != 74 {
+		t.Fatalf("expected overview shell to be demoted to a small lower section, got ratio %d", m.activePage.bodyTree.Ratio)
+	}
+	leaves := layout.LeafOrder(m.activePage.bodyTree)
+	if len(leaves) != 4 {
+		t.Fatalf("expected overview page to have 4 leaves, got %d", len(leaves))
+	}
+	if leaves[0] != paneOverviewSummary || leaves[1] != paneWorktree || leaves[2] != paneOverviewDetail || leaves[3] != paneShell {
+		t.Fatalf("expected overview leaves [summary worktree detail shell], got %v", leaves)
+	}
+}
+
+func TestOverviewLayoutPrioritizesWorktreeOverShellHeight(t *testing.T) {
+	cfg := config.DefaultConfig()
+	st, _ := store.New(":memory:")
+	m := New(cfg, st).(model)
+
+	frames := layout.ComputeFrames(m.activePage.bodyTree, models.PaneFrame{X: 0, Y: 0, W: 120, H: 40})
+	summaryFrame := frames[paneOverviewSummary]
+	worktreeFrame := frames[paneWorktree]
+	detailFrame := frames[paneOverviewDetail]
+	shellFrame := frames[paneShell]
+	if summaryFrame.W <= 0 || summaryFrame.H <= 0 {
+		t.Fatalf("expected overview summary pane frame to exist, got %+v", summaryFrame)
+	}
+	if worktreeFrame.H <= shellFrame.H {
+		t.Fatalf("expected worktree pane to have more vertical space than shell, got worktree=%d shell=%d", worktreeFrame.H, shellFrame.H)
+	}
+	if shellFrame.H >= worktreeFrame.H/2 {
+		t.Fatalf("expected shell to remain a secondary strip, got worktree=%d shell=%d", worktreeFrame.H, shellFrame.H)
+	}
+	if detailFrame.W <= 0 || detailFrame.H <= 0 {
+		t.Fatalf("expected overview detail pane frame to exist, got %+v", detailFrame)
+	}
+	if summaryFrame.H >= worktreeFrame.H {
+		t.Fatalf("expected summary pane to be a compact band above the main workbench, got summary=%d worktree=%d", summaryFrame.H, worktreeFrame.H)
+	}
+	if worktreeFrame.W <= detailFrame.W/2 {
+		t.Fatalf("expected queue pane to remain a meaningful primary column, got worktree=%d detail=%d", worktreeFrame.W, detailFrame.W)
 	}
 }
 
@@ -271,8 +307,8 @@ func TestWorktreePageSplitDoesNotAffectOverview(t *testing.T) {
 	}
 	m.switchToOverviewPage()
 	overviewLeaves := len(layout.LeafOrder(m.activePage.bodyTree))
-	if overviewLeaves != 2 {
-		t.Fatalf("expected overview page to have 2 leaves, got %d", overviewLeaves)
+	if overviewLeaves != 4 {
+		t.Fatalf("expected overview page to have 4 leaves, got %d", overviewLeaves)
 	}
 }
 
@@ -376,8 +412,8 @@ func TestSplitFocusedHorizontal(t *testing.T) {
 	m := New(cfg, st).(model)
 
 	initialOrder := layout.LeafOrder(m.activePage.bodyTree)
-	if len(initialOrder) != 2 {
-		t.Fatalf("expected 2 panes initially (worktree + shell), got %d", len(initialOrder))
+	if len(initialOrder) != 4 {
+		t.Fatalf("expected 4 panes initially (summary + worktree + detail + shell), got %d", len(initialOrder))
 	}
 
 	m.setFocus(paneShell)
@@ -388,13 +424,13 @@ func TestSplitFocusedHorizontal(t *testing.T) {
 	m = newM.(model)
 
 	newOrder := layout.LeafOrder(m.activePage.bodyTree)
-	if len(newOrder) != 3 {
-		t.Fatalf("expected 3 panes after split, got %d", len(newOrder))
+	if len(newOrder) != 5 {
+		t.Fatalf("expected 5 panes after split, got %d", len(newOrder))
 	}
 
 	foundNewPane := false
 	for _, id := range newOrder {
-		if string(id) != string(paneShell) && string(id) != string(paneWorktree) {
+		if string(id) != string(paneShell) && string(id) != string(paneWorktree) && string(id) != string(paneOverviewDetail) && string(id) != string(paneOverviewSummary) {
 			foundNewPane = true
 			if m.activePage.focused != id {
 				t.Fatalf("expected focus on new pane %s, got %s", id, m.activePage.focused)
@@ -535,12 +571,14 @@ func TestSaveTaskEditorPersistsTaskAndPrimaryWorktreeLink(t *testing.T) {
 
 	m.switchToWorktreePage("/repo/feature-a", string(paneShell))
 	if cmd := m.saveTaskEditor(TaskEditorSavedMsg{
-		ID:         paneTaskEdit,
-		WorktreeID: "/repo/feature-a",
-		Title:      "Draft overview task planning",
-		Goal:       "Enable lightweight task editing",
-		NextStep:   "Save primary task to worktree context",
-		State:      "active",
+		ID:           paneTaskEdit,
+		WorktreeID:   "/repo/feature-a",
+		Title:        "Draft overview task planning",
+		Goal:         "Enable lightweight task editing",
+		NextStep:     "Save primary task to worktree context",
+		State:        "active",
+		Priority:     "high",
+		RelationType: "primary",
 	}); cmd != nil {
 		t.Fatalf("expected saveTaskEditor to complete synchronously")
 	}
@@ -556,7 +594,7 @@ func TestSaveTaskEditorPersistsTaskAndPrimaryWorktreeLink(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get task context: %v", err)
 	}
-	if task == nil || task.Title != "Draft overview task planning" || task.NextStep != "Save primary task to worktree context" {
+	if task == nil || task.Title != "Draft overview task planning" || task.NextStep != "Save primary task to worktree context" || task.Priority != "high" {
 		t.Fatalf("unexpected task context: %+v", task)
 	}
 	links, err := st.ListWorktreeTaskLinks("/repo/feature-a")
@@ -566,6 +604,155 @@ func TestSaveTaskEditorPersistsTaskAndPrimaryWorktreeLink(t *testing.T) {
 	if len(links) != 1 || links[0].RelationType != "primary" {
 		t.Fatalf("unexpected task/worktree links: %+v", links)
 	}
+}
+
+func TestSaveTaskEditorPersistsQueuedFollowUpWithoutReplacingPrimary(t *testing.T) {
+	cfg := config.DefaultConfig()
+	st, _ := store.New(":memory:")
+	m := New(cfg, st).(model)
+
+	m.switchToWorktreePage("/repo/feature-a", string(paneShell))
+	if cmd := m.saveTaskEditor(TaskEditorSavedMsg{
+		ID:           paneTaskEdit,
+		WorktreeID:   "/repo/feature-a",
+		Title:        "Primary task",
+		Goal:         "Land primary flow",
+		NextStep:     "Keep resume stable",
+		State:        "active",
+		Priority:     "medium",
+		RelationType: "primary",
+	}); cmd != nil {
+		t.Fatalf("expected primary save to complete synchronously")
+	}
+	primaryContext, err := st.GetWorktreeContext("/repo/feature-a")
+	if err != nil {
+		t.Fatalf("get primary worktree context: %v", err)
+	}
+	if primaryContext == nil || primaryContext.PrimaryTaskID == nil {
+		t.Fatalf("expected primary task after first save, got %+v", primaryContext)
+	}
+	primaryTaskID := *primaryContext.PrimaryTaskID
+
+	if cmd := m.saveTaskEditor(TaskEditorSavedMsg{
+		ID:           paneTaskEdit,
+		WorktreeID:   "/repo/feature-a",
+		Title:        "Queued follow-up",
+		Goal:         "Queue cleanup after main work",
+		NextStep:     "Clean summary scoring",
+		State:        "paused",
+		Priority:     "low",
+		RelationType: "queued",
+		ParentTaskID: primaryTaskID,
+	}); cmd != nil {
+		t.Fatalf("expected queued save to complete synchronously")
+	}
+
+	worktreeContext, err := st.GetWorktreeContext("/repo/feature-a")
+	if err != nil {
+		t.Fatalf("get worktree context: %v", err)
+	}
+	if worktreeContext == nil || worktreeContext.PrimaryTaskID == nil || *worktreeContext.PrimaryTaskID != primaryTaskID {
+		t.Fatalf("expected queued follow-up to keep primary task, got %+v", worktreeContext)
+	}
+	links, err := st.ListWorktreeTaskLinks("/repo/feature-a")
+	if err != nil {
+		t.Fatalf("list worktree task links: %v", err)
+	}
+	if len(links) != 2 {
+		t.Fatalf("expected primary and queued links, got %+v", links)
+	}
+	foundQueued := false
+	for _, link := range links {
+		if link.RelationType == "queued" {
+			foundQueued = true
+			queuedTask, err := st.GetTaskContext(link.TaskID)
+			if err != nil {
+				t.Fatalf("get queued task: %v", err)
+			}
+			if queuedTask == nil || queuedTask.ParentTaskID == nil || *queuedTask.ParentTaskID != primaryTaskID {
+				t.Fatalf("expected queued task to point at primary parent, got %+v", queuedTask)
+			}
+		}
+	}
+	if !foundQueued {
+		t.Fatalf("expected queued relation in links: %+v", links)
+	}
+}
+
+func TestCycleTaskStateUpdatesPrimaryTask(t *testing.T) {
+	cfg := config.DefaultConfig()
+	st, _ := store.New(":memory:")
+	m := New(cfg, st).(model)
+
+	m.switchToWorktreePage("/repo/feature-a", string(paneShell))
+	if cmd := m.saveTaskEditor(TaskEditorSavedMsg{
+		ID:           paneTaskEdit,
+		WorktreeID:   "/repo/feature-a",
+		Title:        "Primary task",
+		Goal:         "Land primary flow",
+		NextStep:     "Keep resume stable",
+		State:        "active",
+		Priority:     "medium",
+		RelationType: "primary",
+	}); cmd != nil {
+		t.Fatalf("expected saveTaskEditor to complete synchronously")
+	}
+	worktreeContext, err := st.GetWorktreeContext("/repo/feature-a")
+	if err != nil {
+		t.Fatalf("get worktree context: %v", err)
+	}
+	m.cycleTaskState(gitplugin.CycleTaskStateMsg{TaskID: *worktreeContext.PrimaryTaskID, WorktreeID: "/repo/feature-a", CurrentState: "active"})
+	task, err := st.GetTaskContext(*worktreeContext.PrimaryTaskID)
+	if err != nil {
+		t.Fatalf("get task context: %v", err)
+	}
+	if task == nil || task.State != "paused" {
+		t.Fatalf("expected task state to cycle to paused, got %+v", task)
+	}
+}
+
+func TestBuildWorkbenchOverviewContextTranslatesTruthToSummaryAndDetail(t *testing.T) {
+	now := time.Now()
+	source := fakeWorkbenchContextSource{
+		ordered: []gitplugin.WorktreeContextView{
+			{Worktree: gitmodel.Worktree{Path: "/repo/main", Branch: "main", IsMain: true}, Summary: gitmodel.WorktreeResumeSummary{}, Activity: gitmodel.WorktreeActivity{}},
+			{Worktree: gitmodel.Worktree{Path: "/repo/feature-a", Branch: "feature-a", DirtySummary: gitmodel.DirtySummary{Staged: 1, Unstaged: 2}, AheadBehind: gitmodel.AheadBehind{Ahead: 1}, Upstream: "origin/feature-a"}, Summary: gitmodel.WorktreeResumeSummary{TaskID: "task-1", TaskTitle: "Refactor overview translation", TaskGoal: "Make overview reflect context truth", NextStep: "Centralize workbench context builder", TaskState: "active", TaskPriority: "high", QueuedTaskTitle: "Follow-up queue cleanup", QueuedTaskCount: 2, AttentionAnchor: "editing", RecentArtifact: "internal/app/workbench_context.go", PinnedNote: "Keep truth and projection separate", BlockerNote: "Need better auto inference", LastAgentSummary: "opencode running", ResumeReason: "active task · next step ready", LastResumeHint: "Continue: Centralize workbench context builder", ResumeScore: 95, LastActiveLabel: formatRelativeLabel("active", now)}, Activity: gitmodel.WorktreeActivity{OpenEditors: 2, HasShell: true, AgentCount: 1, LastActive: "now"}},
+		},
+		selectedWorktree: gitmodel.Worktree{Path: "/repo/feature-a", Branch: "feature-a", DirtySummary: gitmodel.DirtySummary{Staged: 1, Unstaged: 2}, AheadBehind: gitmodel.AheadBehind{Ahead: 1}, Upstream: "origin/feature-a"},
+		selectedSummary:  gitmodel.WorktreeResumeSummary{TaskID: "task-1", TaskTitle: "Refactor overview translation", TaskGoal: "Make overview reflect context truth", NextStep: "Centralize workbench context builder", TaskState: "active", TaskPriority: "high", QueuedTaskTitle: "Follow-up queue cleanup", QueuedTaskCount: 2, AttentionAnchor: "editing", RecentArtifact: "internal/app/workbench_context.go", PinnedNote: "Keep truth and projection separate", BlockerNote: "Need better auto inference", LastAgentSummary: "opencode running", ResumeReason: "active task · next step ready", LastResumeHint: "Continue: Centralize workbench context builder", ResumeScore: 95},
+		selectedActivity: gitmodel.WorktreeActivity{OpenEditors: 2, HasShell: true, AgentCount: 1, LastActive: "now"},
+	}
+	ctx := buildWorkbenchOverviewContext(source)
+	if ctx.Stats.Total != 2 || ctx.Stats.Active != 1 || ctx.Stats.Queued != 2 || ctx.Stats.Dirty != 1 || ctx.Stats.RunningAgent != 1 {
+		t.Fatalf("unexpected overview stats: %+v", ctx.Stats)
+	}
+	if ctx.Detail.Title != "Refactor overview translation" || ctx.Detail.Goal != "Make overview reflect context truth" {
+		t.Fatalf("unexpected detail projection: %+v", ctx.Detail)
+	}
+	if !strings.Contains(ctx.Detail.GitSummary, "staged") || !strings.Contains(ctx.Detail.RuntimeSummary, "shell=true") || !strings.Contains(ctx.Detail.AgentSummary, "opencode running") {
+		t.Fatalf("expected detail to include git/runtime/agent summaries, got %+v", ctx.Detail)
+	}
+	if ctx.Detail.Attention != "editing · internal/app/workbench_context.go" {
+		t.Fatalf("expected detail to include attention signal, got %+v", ctx.Detail)
+	}
+	if ctx.Detail.RecentArtifact != "internal/app/workbench_context.go" || ctx.Detail.PinnedNote == "" || ctx.Detail.BlockerNote == "" {
+		t.Fatalf("expected detail to include artifact and notes, got %+v", ctx.Detail)
+	}
+}
+
+type fakeWorkbenchContextSource struct {
+	ordered          []gitplugin.WorktreeContextView
+	selectedWorktree gitmodel.Worktree
+	selectedSummary  gitmodel.WorktreeResumeSummary
+	selectedActivity gitmodel.WorktreeActivity
+}
+
+func (f fakeWorkbenchContextSource) OrderedContexts() []gitplugin.WorktreeContextView {
+	return f.ordered
+}
+
+func (f fakeWorkbenchContextSource) SelectedContext() (gitmodel.Worktree, gitmodel.WorktreeResumeSummary, gitmodel.WorktreeActivity, bool) {
+	return f.selectedWorktree, f.selectedSummary, f.selectedActivity, true
 }
 
 func shAutoType(m *shell.Model) string {

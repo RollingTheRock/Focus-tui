@@ -23,12 +23,16 @@ type OpenTaskEditorMsg struct {
 }
 
 type TaskEditorSavedMsg struct {
-	ID         models.PaneID
-	WorktreeID string
-	Title      string
-	Goal       string
-	NextStep   string
-	State      string
+	ID           models.PaneID
+	TaskID       string
+	WorktreeID   string
+	Title        string
+	Goal         string
+	NextStep     string
+	State        string
+	Priority     string
+	RelationType string
+	ParentTaskID string
 }
 
 type CloseTaskEditorMsg struct {
@@ -36,11 +40,15 @@ type CloseTaskEditorMsg struct {
 }
 
 type taskEditorSeed struct {
-	WorktreeID string
-	Title      string
-	Goal       string
-	NextStep   string
-	State      string
+	TaskID       string
+	WorktreeID   string
+	Title        string
+	Goal         string
+	NextStep     string
+	State        string
+	Priority     string
+	RelationType string
+	ParentTaskID string
 }
 
 type TaskEditPane struct {
@@ -48,13 +56,16 @@ type TaskEditPane struct {
 	meta   models.PaneMeta
 	common models.CommonModel
 
-	worktreeID string
-	inputs     []textinput.Model
-	focus      int
-	width      int
-	height     int
-	err        error
-	saving     bool
+	worktreeID   string
+	taskID       string
+	relationType string
+	parentTaskID string
+	inputs       []textinput.Model
+	focus        int
+	width        int
+	height       int
+	err          error
+	saving       bool
 }
 
 const (
@@ -62,6 +73,7 @@ const (
 	taskEditFieldGoal
 	taskEditFieldNextStep
 	taskEditFieldState
+	taskEditFieldPriority
 )
 
 func NewTaskEditPane(id models.PaneID, meta models.PaneMeta, common models.CommonModel, seed taskEditorSeed) *TaskEditPane {
@@ -85,7 +97,12 @@ func NewTaskEditPane(id models.PaneID, meta models.PaneMeta, common models.Commo
 	stateInput.Placeholder = "active"
 	stateInput.SetValue(seed.State)
 
-	inputs := []textinput.Model{titleInput, goalInput, nextStepInput, stateInput}
+	priorityInput := textinput.New()
+	priorityInput.Prompt = "Priority: "
+	priorityInput.Placeholder = "medium"
+	priorityInput.SetValue(seed.Priority)
+
+	inputs := []textinput.Model{titleInput, goalInput, nextStepInput, stateInput, priorityInput}
 	for i := range inputs {
 		inputs[i].PromptStyle = lipgloss.NewStyle().Foreground(appstyles.Accent)
 		inputs[i].TextStyle = lipgloss.NewStyle().Foreground(appstyles.Text)
@@ -94,11 +111,14 @@ func NewTaskEditPane(id models.PaneID, meta models.PaneMeta, common models.Commo
 	inputs[0].Focus()
 
 	return &TaskEditPane{
-		id:         id,
-		meta:       meta,
-		common:     common,
-		worktreeID: seed.WorktreeID,
-		inputs:     inputs,
+		id:           id,
+		meta:         meta,
+		common:       common,
+		worktreeID:   seed.WorktreeID,
+		taskID:       seed.TaskID,
+		relationType: seed.RelationType,
+		parentTaskID: seed.ParentTaskID,
+		inputs:       inputs,
 	}
 }
 
@@ -123,6 +143,10 @@ func (p *TaskEditPane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 			return p, nil
 		case "enter":
 			if p.focus == taskEditFieldState {
+				p.moveFocus(1)
+				return p, nil
+			}
+			if p.focus == taskEditFieldPriority {
 				return p.submit()
 			}
 			p.moveFocus(1)
@@ -152,6 +176,7 @@ func (p *TaskEditPane) View() string {
 		p.inputs[taskEditFieldGoal].View(),
 		p.inputs[taskEditFieldNextStep].View(),
 		p.inputs[taskEditFieldState].View(),
+		p.inputs[taskEditFieldPriority].View(),
 		"",
 		taskEditHintStyle.Render("Tab move · Enter next/save · Ctrl+S save · Esc cancel"),
 	}
@@ -206,16 +231,24 @@ func (p *TaskEditPane) submit() (models.Panel, tea.Cmd) {
 	if state == "" {
 		state = "active"
 	}
+	priority := strings.TrimSpace(p.inputs[taskEditFieldPriority].Value())
+	if priority == "" {
+		priority = "medium"
+	}
 	p.saving = true
 	p.err = nil
 	return p, func() tea.Msg {
 		return TaskEditorSavedMsg{
-			ID:         p.id,
-			WorktreeID: p.worktreeID,
-			Title:      title,
-			Goal:       strings.TrimSpace(p.inputs[taskEditFieldGoal].Value()),
-			NextStep:   strings.TrimSpace(p.inputs[taskEditFieldNextStep].Value()),
-			State:      state,
+			ID:           p.id,
+			TaskID:       p.taskID,
+			WorktreeID:   p.worktreeID,
+			Title:        title,
+			Goal:         strings.TrimSpace(p.inputs[taskEditFieldGoal].Value()),
+			NextStep:     strings.TrimSpace(p.inputs[taskEditFieldNextStep].Value()),
+			State:        state,
+			Priority:     priority,
+			RelationType: p.relationType,
+			ParentTaskID: p.parentTaskID,
 		}
 	}
 }
