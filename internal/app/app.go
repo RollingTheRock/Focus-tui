@@ -1609,7 +1609,8 @@ func (m *model) refreshResumeSummaryCache(agentSessions map[string]agents.Sessio
 			summary.LastAgentLabel = formatRelativeLabel("agent", *wc.LastAgentAt)
 		}
 		summary.AttentionAnchor, summary.RecentArtifact = m.deriveWorktreeSignals(wc.WorktreeID)
-		summary.PinnedNote, summary.BlockerNote = m.deriveWorktreeNotes(summary.TaskID, wc.WorktreeID)
+		summary.PinnedNote, summary.BlockerNote, summary.HandoffNote = m.deriveWorktreeNotes(summary.TaskID, wc.WorktreeID)
+		summary.GitPressure = deriveGitPressure(wc.BranchSnapshot, wc.WorktreeID, m.pages[""].pane(paneWorktree))
 		for _, link := range m.listWorktreeTaskLinks(wc.WorktreeID) {
 			if link.RelationType != "queued" {
 				continue
@@ -1654,7 +1655,8 @@ func (m *model) refreshResumeSummaryCache(agentSessions map[string]agents.Sessio
 			summary.LastAgentLabel = formatRelativeLabel("agent", sessionRelevantTime(*s))
 		}
 		summary.AttentionAnchor, summary.RecentArtifact = m.deriveWorktreeSignals(worktreeID)
-		summary.PinnedNote, summary.BlockerNote = m.deriveWorktreeNotes(summary.TaskID, worktreeID)
+		summary.PinnedNote, summary.BlockerNote, summary.HandoffNote = m.deriveWorktreeNotes(summary.TaskID, worktreeID)
+		summary.GitPressure = deriveGitPressure("", worktreeID, m.pages[""].pane(paneWorktree))
 		summary.ResumeReason, summary.ResumeScore = computeResumeReason(summary)
 		summary.LastResumeHint = buildResumeHint(summary)
 		m.resumeSummaryCache[worktreeID] = summary
@@ -1694,27 +1696,59 @@ func (m *model) listWorktreeTaskLinks(worktreeID string) []models.TaskWorktreeLi
 	return records
 }
 
-func (m *model) deriveWorktreeNotes(taskID string, worktreeID string) (string, string) {
+func (m *model) deriveWorktreeNotes(taskID string, worktreeID string) (string, string, string) {
 	if m.common == nil || m.common.Store == nil {
-		return "", ""
+		return "", "", ""
 	}
 	notes, err := m.common.Store.ListContextNotes(taskID, worktreeID)
 	if err != nil {
-		return "", ""
+		return "", "", ""
 	}
-	var pinned, blocker string
+	var pinned, blocker, handoff string
 	for _, note := range notes {
 		if blocker == "" && note.NoteType == "blocker" {
 			blocker = note.Body
 		}
+		if handoff == "" && note.NoteType == "handoff" {
+			handoff = note.Body
+		}
 		if pinned == "" && note.Pinned {
 			pinned = note.Body
 		}
-		if pinned != "" && blocker != "" {
+		if pinned != "" && blocker != "" && handoff != "" {
 			break
 		}
 	}
-	return pinned, blocker
+	return pinned, blocker, handoff
+}
+
+func deriveGitPressure(branchSnapshot, worktreeID string, pane models.Panel) string {
+	wp, ok := pane.(*gitplugin.WorktreePane)
+	if !ok || wp == nil {
+		return ""
+	}
+	for _, item := range wp.OrderedContexts() {
+		if item.Worktree.Path != worktreeID {
+			continue
+		}
+		wt := item.Worktree
+		if wt.DirtySummary.Conflicted > 0 {
+			return "conflicted"
+		}
+		if wt.AheadBehind.Behind > 0 && wt.DirtySummary.IsDirty() {
+			return "diverged+dirty"
+		}
+		if wt.AheadBehind.Behind > 0 {
+			return "behind"
+		}
+		if wt.DirtySummary.IsDirty() {
+			return "dirty"
+		}
+		if branchSnapshot != "" || wt.Branch != "" {
+			return "clean"
+		}
+	}
+	return ""
 }
 
 func (m *model) deriveWorktreeSignals(worktreeID string) (string, string) {
@@ -1846,6 +1880,13 @@ func computeResumeReason(summary gitmodel.WorktreeResumeSummary) (string, int) {
 		score += 25
 		parts = append(parts, "blocker noted")
 	}
+	if summary.GitPressure == "conflicted" {
+		score += 35
+		parts = append(parts, "git conflicted")
+	} else if summary.GitPressure == "diverged+dirty" {
+		score += 20
+		parts = append(parts, "git diverged")
+	}
 	if summary.LastAgentSummary != "" {
 		score += 15
 		parts = append(parts, summary.LastAgentSummary)
@@ -1866,6 +1907,9 @@ func buildResumeHint(summary gitmodel.WorktreeResumeSummary) string {
 	}
 	if summary.BlockerNote != "" {
 		return "Blocked: " + summary.BlockerNote
+	}
+	if summary.HandoffNote != "" {
+		return "Handoff: " + summary.HandoffNote
 	}
 	if summary.AttentionAnchor != "" {
 		return summary.AttentionAnchor

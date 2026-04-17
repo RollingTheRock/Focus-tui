@@ -115,6 +115,37 @@ func (p *SessionPane) Render(canvas render.Surface, width, height int) {
 	if len(p.sessions) == 0 {
 		lines = append(lines, renderedLine{content: "No running agents.", style: &emptyStyle})
 	} else {
+		running, recent := p.partitionSessions()
+		if len(running) > 0 {
+			lines = append(lines, renderedLine{content: "Running", style: &sectionStyle})
+			for i, s := range running {
+				line := p.renderSessionLine(s)
+				style := (*lipgloss.Style)(nil)
+				if p.sessionIndex(s.ID) == p.cursor {
+					style = &selectedRowStyle
+				}
+				if i == len(running)-1 && len(recent) > 0 {
+					line += ""
+				}
+				lines = append(lines, renderedLine{content: line, style: style})
+			}
+		}
+		if len(recent) > 0 {
+			lines = append(lines, renderedLine{content: "", style: nil})
+			lines = append(lines, renderedLine{content: "Recent", style: &sectionStyle})
+			for _, s := range recent {
+				line := p.renderSessionLine(s)
+				style := (*lipgloss.Style)(nil)
+				if p.sessionIndex(s.ID) == p.cursor {
+					style = &selectedRowStyle
+				}
+				lines = append(lines, renderedLine{content: line, style: style})
+			}
+		}
+		if len(running) == 0 && len(recent) == 0 {
+			lines = append(lines, renderedLine{content: "No running agents.", style: &emptyStyle})
+		}
+		/* old flat rendering retained below for reference
 		for i, s := range p.sessions {
 			state := string(s.State)
 			if state == "" {
@@ -133,6 +164,7 @@ func (p *SessionPane) Render(canvas render.Surface, width, height int) {
 			}
 			lines = append(lines, renderedLine{content: line, style: style})
 		}
+		*/
 	}
 
 	lines = append(lines, renderedLine{content: "", style: nil})
@@ -181,6 +213,44 @@ func (p *SessionPane) selectedSession() (*agents.Session, bool) {
 		return nil, false
 	}
 	return p.sessions[p.cursor], true
+}
+
+func (p *SessionPane) partitionSessions() (running []*agents.Session, recent []*agents.Session) {
+	for _, s := range p.sessions {
+		if s == nil {
+			continue
+		}
+		if s.State == agents.SessionRunning || s.State == agents.SessionWaiting {
+			running = append(running, s)
+		} else {
+			recent = append(recent, s)
+		}
+	}
+	return running, recent
+}
+
+func (p *SessionPane) renderSessionLine(s *agents.Session) string {
+	state := string(s.State)
+	if state == "" {
+		state = string(agents.SessionUnknown)
+	}
+	line := fmt.Sprintf("%s  [%s]  %s", s.DisplayName(), state, shortenPath(s.WorktreeID))
+	if s.PID > 0 {
+		line += fmt.Sprintf("  pid:%d", s.PID)
+	}
+	if !s.StartedAt.IsZero() {
+		line += "  " + formatDuration(time.Since(s.StartedAt))
+	}
+	return line
+}
+
+func (p *SessionPane) sessionIndex(id string) int {
+	for i, s := range p.sessions {
+		if s != nil && s.ID == id {
+			return i
+		}
+	}
+	return -1
 }
 
 type renderedLine struct {

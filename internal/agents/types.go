@@ -21,6 +21,8 @@ type SessionState string
 const (
 	SessionRunning SessionState = "running"
 	SessionExited  SessionState = "exited"
+	SessionFailed  SessionState = "failed"
+	SessionWaiting SessionState = "waiting"
 	SessionUnknown SessionState = "unknown"
 )
 

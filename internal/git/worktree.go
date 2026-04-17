@@ -41,6 +41,8 @@ type WorktreeResumeSummary struct {
 	RecentArtifact   string
 	PinnedNote       string
 	BlockerNote      string
+	HandoffNote      string
+	GitPressure      string
 	LastResumeHint   string
 	LastActiveLabel  string
 	LastAgentLabel   string

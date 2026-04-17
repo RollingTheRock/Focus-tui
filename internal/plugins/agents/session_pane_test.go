@@ -1,6 +1,7 @@
 package agents
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -166,6 +167,26 @@ func TestSessionPaneEmptyState(t *testing.T) {
 	view := pane.View()
 	if view == "" {
 		t.Fatal("expected non-empty view for empty state")
+	}
+	if !strings.Contains(view, "No running agents.") {
+		t.Fatalf("expected empty state message, got:\n%s", view)
+	}
+}
+
+func TestSessionPaneShowsRunningAndRecentSections(t *testing.T) {
+	common := models.CommonModel{Width: 100, Height: 24, Theme: styles.DefaultTheme()}
+	pane := NewSessionPane("agent-session", models.PaneMeta{ID: "agent-session", Name: "Agents", Type: models.PaneTypeAgentSession}, common)
+	pane.SetSize(100, 12)
+	now := time.Now()
+	pane.SetSessions([]*agents.Session{
+		{ID: "s1", Provider: agents.ProviderOpenCode, PID: 1, WorktreeID: "/tmp/wt1", State: agents.SessionRunning, StartedAt: now.Add(-2 * time.Minute)},
+		{ID: "s2", Provider: agents.ProviderClaude, PID: 0, WorktreeID: "/tmp/wt2", State: agents.SessionExited, StartedAt: now.Add(-5 * time.Minute)},
+	})
+	view := pane.View()
+	for _, want := range []string{"Running", "Recent", "opencode  [running]", "claude  [exited]"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("expected view to contain %q, got:\n%s", want, view)
+		}
 	}
 }
 
