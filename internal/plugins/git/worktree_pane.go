@@ -418,7 +418,6 @@ func (p *WorktreePane) loadWorktreesCmd() tea.Cmd {
 func (p *WorktreePane) renderWorktreeRow(wt gitmodel.Worktree) string {
 	var titleTags []string
 	var statusParts []string
-	var runtimeParts []string
 	if wt.IsMain {
 		titleTags = append(titleTags, "main")
 	}
@@ -459,19 +458,14 @@ func (p *WorktreePane) renderWorktreeRow(wt gitmodel.Worktree) string {
 	if summary.TaskMode != "" && summary.TaskMode != "single" {
 		statusParts = append(statusParts, summary.TaskMode)
 	}
-	if activity.HasShell {
-		runtimeParts = append(runtimeParts, "shell")
-	}
-	if activity.OpenEditors > 0 {
-		runtimeParts = append(runtimeParts, fmt.Sprintf("edits %d", activity.OpenEditors))
+	if summary.GitPressure != "" && summary.GitPressure != "clean" {
+		statusParts = append(statusParts, summary.GitPressure)
 	}
 	if activity.AgentCount > 0 {
-		runtimeParts = append(runtimeParts, fmt.Sprintf("agents %d", activity.AgentCount))
+		statusParts = append(statusParts, fmt.Sprintf("agent %d", activity.AgentCount))
 	}
-	if sessions := p.agentSessions[wt.Path]; len(sessions) > 0 {
-		for _, s := range sessions {
-			runtimeParts = append(runtimeParts, s.DisplayName())
-		}
+	if summary.QueuedTaskCount > 0 {
+		statusParts = append(statusParts, fmt.Sprintf("queued %d", summary.QueuedTaskCount))
 	}
 	if wt.AheadBehind.Ahead > 0 {
 		statusParts = append(statusParts, fmt.Sprintf("↑%d", wt.AheadBehind.Ahead))
@@ -502,9 +496,6 @@ func (p *WorktreePane) renderWorktreeRow(wt gitmodel.Worktree) string {
 	if len(statusParts) > 0 {
 		statusLineParts = append(statusLineParts, strings.Join(statusParts, " · "))
 	}
-	if len(runtimeParts) > 0 {
-		statusLineParts = append(statusLineParts, strings.Join(runtimeParts, " · "))
-	}
 	if summary.LastActiveLabel != "" {
 		statusLineParts = append(statusLineParts, summary.LastActiveLabel)
 	} else if activity.LastActive != "" {
@@ -519,18 +510,9 @@ func (p *WorktreePane) renderWorktreeRow(wt gitmodel.Worktree) string {
 	statusLine := emptyStyle.Render(strings.Join(statusLineParts, "  "))
 
 	pathLine := emptyStyle.Render(shortenWorktreePath(wt.Path))
-	if summary.NextStep != "" {
-		pathLine += "  " + upstreamStyle.Render("next: "+summary.NextStep)
-	}
-	if summary.QueuedTaskTitle != "" {
-		queued := "queued: " + summary.QueuedTaskTitle
-		if summary.QueuedTaskCount > 1 {
-			queued += fmt.Sprintf(" (+%d)", summary.QueuedTaskCount-1)
-		}
-		pathLine += "  " + upstreamStyle.Render(queued)
-	}
-	if summary.ResumeReason != "" {
-		pathLine += "  " + upstreamStyle.Render(summary.ResumeReason)
+	cue := primaryQueueCue(summary)
+	if cue != "" {
+		pathLine += "  " + upstreamStyle.Render(cue)
 	}
 	if strings.TrimSpace(statusLine) == "" {
 		return titleLine + "\n" + pathLine
@@ -593,6 +575,25 @@ func formatDirtySummary(ds gitmodel.DirtySummary) string {
 		parts = append(parts, fmt.Sprintf("!%d conflicted", ds.Conflicted))
 	}
 	return strings.Join(parts, " · ")
+}
+
+func primaryQueueCue(summary gitmodel.WorktreeResumeSummary) string {
+	switch {
+	case summary.NextStep != "":
+		return "next: " + summary.NextStep
+	case summary.BlockerNote != "":
+		return "blocked: " + summary.BlockerNote
+	case summary.HandoffNote != "":
+		return "handoff: " + summary.HandoffNote
+	case summary.AttentionAnchor != "":
+		return summary.AttentionAnchor
+	case summary.QueuedTaskTitle != "":
+		return "queued: " + summary.QueuedTaskTitle
+	case summary.ResumeReason != "":
+		return summary.ResumeReason
+	default:
+		return ""
+	}
 }
 
 func FormatDirtySummaryForUI(ds gitmodel.DirtySummary) string {

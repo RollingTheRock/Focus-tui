@@ -326,10 +326,8 @@ func TestWorktreePaneRendersResumeSummaryAndOrdersByScore(t *testing.T) {
 	for _, want := range []string{
 		"Fix resume pipeline",
 		"feature-a",
-		"active · high",
-		"shell · edits 2 · agents 1",
+		"active · high · agent 1 · queued 2",
 		"next: Wire overview summaries",
-		"queued: Follow-up cleanup (+1)",
 		"Selected: feature-a",
 		"Goal: Make overview dense and useful",
 		"Next: Continue: Wire overview summaries",
@@ -339,6 +337,11 @@ func TestWorktreePaneRendersResumeSummaryAndOrdersByScore(t *testing.T) {
 	} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("expected view to contain %q, got:\n%s", want, view)
+		}
+	}
+	for _, notWant := range []string{"shell · edits 2 · agents 1  active", "queued: Follow-up cleanup (+1)  active task"} {
+		if strings.Contains(view, notWant) {
+			t.Fatalf("expected queue row to avoid noisy duplicate context %q, got:\n%s", notWant, view)
 		}
 	}
 
