@@ -110,6 +110,19 @@ CREATE INDEX IF NOT EXISTS idx_task_contexts_repo_state
 CREATE INDEX IF NOT EXISTS idx_task_contexts_preferred_worktree
     ON task_contexts(preferred_worktree_id);
 
+CREATE TABLE IF NOT EXISTS task_briefs (
+    task_id            TEXT PRIMARY KEY REFERENCES task_contexts(id) ON DELETE CASCADE,
+    why_now            TEXT,
+    success_criteria   TEXT,
+    out_of_scope       TEXT,
+    known_risks        TEXT,
+    created_at         DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at         DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_task_briefs_updated
+    ON task_briefs(updated_at DESC);
+
 CREATE TABLE IF NOT EXISTS worktree_contexts (
     worktree_id      TEXT PRIMARY KEY,
     repo_id          TEXT NOT NULL,
@@ -144,6 +157,54 @@ CREATE INDEX IF NOT EXISTS idx_task_worktree_links_task
 
 CREATE INDEX IF NOT EXISTS idx_task_worktree_links_worktree
     ON task_worktree_links(worktree_id, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS task_plans (
+    id            TEXT PRIMARY KEY,
+    task_id       TEXT REFERENCES task_contexts(id) ON DELETE SET NULL,
+    title         TEXT NOT NULL,
+    status        TEXT NOT NULL CHECK(status IN ('draft', 'approved', 'active', 'blocked', 'completed', 'discarded', 'archived')),
+    current_step  TEXT,
+    plan_body     TEXT,
+    created_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    archived_at   DATETIME,
+    done_at       DATETIME
+);
+
+CREATE INDEX IF NOT EXISTS idx_task_plans_task_updated
+    ON task_plans(task_id, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS plan_steps (
+    id           TEXT PRIMARY KEY,
+    plan_id      TEXT NOT NULL REFERENCES task_plans(id) ON DELETE CASCADE,
+    order_index  INTEGER NOT NULL,
+    title        TEXT NOT NULL,
+    state        TEXT NOT NULL CHECK(state IN ('pending', 'in_progress', 'blocked', 'done', 'invalidated')),
+    notes        TEXT,
+    created_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(plan_id, order_index)
+);
+
+CREATE INDEX IF NOT EXISTS idx_plan_steps_plan_order
+    ON plan_steps(plan_id, order_index ASC);
+
+CREATE TABLE IF NOT EXISTS session_handoffs (
+    id                   TEXT PRIMARY KEY,
+    task_id              TEXT NOT NULL REFERENCES task_contexts(id) ON DELETE CASCADE,
+    plan_id              TEXT REFERENCES task_plans(id) ON DELETE SET NULL,
+    session_id           TEXT,
+    done_summary         TEXT,
+    remaining_summary    TEXT,
+    decision_summary     TEXT,
+    uncertainty_summary  TEXT,
+    blocker_summary      TEXT,
+    entrypoint           TEXT,
+    created_at           DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_session_handoffs_task_created
+    ON session_handoffs(task_id, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS context_notes (
     id          TEXT PRIMARY KEY,
@@ -183,5 +244,122 @@ CREATE INDEX IF NOT EXISTS idx_agent_sessions_state ON agent_sessions(state);
 CREATE INDEX IF NOT EXISTS idx_agent_sessions_repo_updated ON agent_sessions(repo_id, updated_at DESC);
 `
 	_, err := s.db.Exec(schema)
-	return err
+	if err != nil {
+		return err
+	}
+	if err := s.migrateTaskPlansForPlanFirst(); err != nil {
+		return err
+	}
+	return s.migrateWorktreeContextsForPlanFirst()
+}
+
+func (s *Store) migrateTaskPlansForPlanFirst() error {
+	rows, err := s.db.Query(`PRAGMA table_info(task_plans)`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	var needsRebuild bool
+	for rows.Next() {
+		var cid int
+		var name, typ string
+		var notnull, pk int
+		var defaultValue sql.NullString
+		if err := rows.Scan(&cid, &name, &typ, &notnull, &defaultValue, &pk); err != nil {
+			return err
+		}
+		if name == "task_id" && notnull == 1 {
+			needsRebuild = true
+			break
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if !needsRebuild {
+		return nil
+	}
+
+	if _, err := s.db.Exec(`PRAGMA foreign_keys=OFF`); err != nil {
+		return err
+	}
+	defer s.db.Exec(`PRAGMA foreign_keys=ON`)
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	steps := []string{
+		`ALTER TABLE task_plans RENAME TO task_plans_legacy`,
+		`CREATE TABLE task_plans (
+			id            TEXT PRIMARY KEY,
+			task_id       TEXT REFERENCES task_contexts(id) ON DELETE SET NULL,
+			title         TEXT NOT NULL,
+			status        TEXT NOT NULL CHECK(status IN ('draft', 'approved', 'active', 'blocked', 'completed', 'discarded', 'archived')),
+			current_step  TEXT,
+			plan_body     TEXT,
+			created_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			archived_at   DATETIME,
+			done_at       DATETIME
+		)`,
+		`INSERT INTO task_plans (
+			id, task_id, title, status, current_step, plan_body,
+			created_at, updated_at, archived_at, done_at
+		) SELECT
+			id, NULLIF(task_id, ''), title, status, current_step, plan_body,
+			created_at, updated_at, archived_at, done_at
+		FROM task_plans_legacy`,
+		`DROP TABLE task_plans_legacy`,
+		`CREATE INDEX IF NOT EXISTS idx_task_plans_task_updated
+			ON task_plans(task_id, updated_at DESC)`,
+	}
+	for _, step := range steps {
+		if _, err := tx.Exec(step); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+func (s *Store) migrateWorktreeContextsForPlanFirst() error {
+	rows, err := s.db.Query(`PRAGMA table_info(worktree_contexts)`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	var hasCurrentPlanID bool
+	for rows.Next() {
+		var cid int
+		var name, typ string
+		var notnull, pk int
+		var defaultValue sql.NullString
+		if err := rows.Scan(&cid, &name, &typ, &notnull, &defaultValue, &pk); err != nil {
+			return err
+		}
+		if name == "current_plan_id" {
+			hasCurrentPlanID = true
+			break
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if hasCurrentPlanID {
+		return nil
+	}
+	steps := []string{
+		`ALTER TABLE worktree_contexts ADD COLUMN current_plan_id TEXT REFERENCES task_plans(id) ON DELETE SET NULL`,
+		`CREATE INDEX IF NOT EXISTS idx_worktree_contexts_current_plan ON worktree_contexts(current_plan_id)`,
+	}
+	for _, step := range steps {
+		if _, err := s.db.Exec(step); err != nil {
+			return err
+		}
+	}
+	return nil
 }

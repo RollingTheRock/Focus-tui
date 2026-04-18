@@ -21,12 +21,13 @@ func (s *Store) SaveWorktreeContext(record WorktreeContextRecord) error {
 	}
 	const q = `
 		INSERT INTO worktree_contexts (
-			worktree_id, repo_id, primary_task_id, task_mode, task_name,
+			worktree_id, repo_id, primary_task_id, current_plan_id, task_mode, task_name,
 			branch_snapshot, last_active_at, last_opened_at, last_agent_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP), ?, ?, CURRENT_TIMESTAMP)
+		) VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP), ?, ?, CURRENT_TIMESTAMP)
 		ON CONFLICT(worktree_id) DO UPDATE SET
 			repo_id = excluded.repo_id,
 			primary_task_id = excluded.primary_task_id,
+			current_plan_id = excluded.current_plan_id,
 			task_mode = excluded.task_mode,
 			task_name = excluded.task_name,
 			branch_snapshot = excluded.branch_snapshot,
@@ -39,6 +40,7 @@ func (s *Store) SaveWorktreeContext(record WorktreeContextRecord) error {
 		record.WorktreeID,
 		record.RepoID,
 		record.PrimaryTaskID,
+		record.CurrentPlanID,
 		record.TaskMode,
 		nullIfEmpty(record.TaskName),
 		nullIfEmpty(record.BranchSnapshot),
@@ -51,7 +53,7 @@ func (s *Store) SaveWorktreeContext(record WorktreeContextRecord) error {
 
 func (s *Store) GetWorktreeContext(worktreeID string) (*WorktreeContextRecord, error) {
 	const q = `
-		SELECT worktree_id, repo_id, primary_task_id, task_mode, task_name,
+		SELECT worktree_id, repo_id, primary_task_id, current_plan_id, task_mode, task_name,
 		       branch_snapshot, last_active_at, last_opened_at, last_agent_at, updated_at
 		FROM worktree_contexts WHERE worktree_id = ?
 	`
@@ -65,7 +67,7 @@ func (s *Store) GetWorktreeContext(worktreeID string) (*WorktreeContextRecord, e
 
 func (s *Store) ListWorktreeContexts(repoID string) ([]WorktreeContextRecord, error) {
 	const base = `
-		SELECT worktree_id, repo_id, primary_task_id, task_mode, task_name,
+		SELECT worktree_id, repo_id, primary_task_id, current_plan_id, task_mode, task_name,
 		       branch_snapshot, last_active_at, last_opened_at, last_agent_at, updated_at
 		FROM worktree_contexts
 	`
@@ -101,6 +103,7 @@ func (s *Store) DeleteWorktreeContext(worktreeID string) error {
 func scanWorktreeContext(row *sql.Row) (*WorktreeContextRecord, error) {
 	var record WorktreeContextRecord
 	var primaryTaskID sql.NullString
+	var currentPlanID sql.NullString
 	var taskName sql.NullString
 	var branchSnapshot sql.NullString
 	var lastOpenedAt sql.NullTime
@@ -109,6 +112,7 @@ func scanWorktreeContext(row *sql.Row) (*WorktreeContextRecord, error) {
 		&record.WorktreeID,
 		&record.RepoID,
 		&primaryTaskID,
+		&currentPlanID,
 		&record.TaskMode,
 		&taskName,
 		&branchSnapshot,
@@ -121,6 +125,9 @@ func scanWorktreeContext(row *sql.Row) (*WorktreeContextRecord, error) {
 	}
 	if primaryTaskID.Valid {
 		record.PrimaryTaskID = &primaryTaskID.String
+	}
+	if currentPlanID.Valid {
+		record.CurrentPlanID = &currentPlanID.String
 	}
 	if taskName.Valid {
 		record.TaskName = taskName.String
@@ -142,6 +149,7 @@ func scanWorktreeContext(row *sql.Row) (*WorktreeContextRecord, error) {
 func scanWorktreeContextRows(rows *sql.Rows) (*WorktreeContextRecord, error) {
 	var record WorktreeContextRecord
 	var primaryTaskID sql.NullString
+	var currentPlanID sql.NullString
 	var taskName sql.NullString
 	var branchSnapshot sql.NullString
 	var lastOpenedAt sql.NullTime
@@ -150,6 +158,7 @@ func scanWorktreeContextRows(rows *sql.Rows) (*WorktreeContextRecord, error) {
 		&record.WorktreeID,
 		&record.RepoID,
 		&primaryTaskID,
+		&currentPlanID,
 		&record.TaskMode,
 		&taskName,
 		&branchSnapshot,
@@ -162,6 +171,9 @@ func scanWorktreeContextRows(rows *sql.Rows) (*WorktreeContextRecord, error) {
 	}
 	if primaryTaskID.Valid {
 		record.PrimaryTaskID = &primaryTaskID.String
+	}
+	if currentPlanID.Valid {
+		record.CurrentPlanID = &currentPlanID.String
 	}
 	if taskName.Valid {
 		record.TaskName = taskName.String

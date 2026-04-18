@@ -28,27 +28,37 @@ type WorktreeActivity struct {
 }
 
 type WorktreeResumeSummary struct {
-	TaskID           string
-	TaskTitle        string
-	TaskGoal         string
-	NextStep         string
-	TaskState        string
-	TaskPriority     string
-	TaskMode         string
-	QueuedTaskTitle  string
-	QueuedTaskCount  int
-	AttentionAnchor  string
-	RecentArtifact   string
-	PinnedNote       string
-	BlockerNote      string
-	HandoffNote      string
-	GitPressure      string
-	LastResumeHint   string
-	LastActiveLabel  string
-	LastAgentLabel   string
-	LastAgentSummary string
-	ResumeReason     string
-	ResumeScore      int
+	TaskID            string
+	TaskTitle         string
+	TaskGoal          string
+	TaskWhyNow        string
+	TaskSuccess       string
+	TaskOutOfScope    string
+	TaskKnownRisks    string
+	NextStep          string
+	TaskState         string
+	TaskPriority      string
+	TaskMode          string
+	QueuedTaskTitle   string
+	QueuedTaskCount   int
+	AttentionAnchor   string
+	RecentArtifact    string
+	PinnedNote        string
+	BlockerNote       string
+	HandoffNote       string
+	GitPressure       string
+	PlanTitle         string
+	PlanStatus        string
+	CurrentPlanStep   string
+	PlanBody          string
+	PlanSteps         []string
+	HandoffEntrypoint string
+	LastResumeHint    string
+	LastActiveLabel   string
+	LastAgentLabel    string
+	LastAgentSummary  string
+	ResumeReason      string
+	ResumeScore       int
 }
 
 // DisplayName returns a short label suitable for UI display.

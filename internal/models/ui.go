@@ -31,6 +31,8 @@ type Store interface {
 	SaveTaskContext(record TaskContextRecord) error
 	GetTaskContext(id string) (*TaskContextRecord, error)
 	ListTaskContexts(repoID string) ([]TaskContextRecord, error)
+	SaveTaskBrief(record TaskBriefRecord) error
+	GetTaskBrief(taskID string) (*TaskBriefRecord, error)
 	SaveWorktreeContext(record WorktreeContextRecord) error
 	GetWorktreeContext(worktreeID string) (*WorktreeContextRecord, error)
 	ListWorktreeContexts(repoID string) ([]WorktreeContextRecord, error)
@@ -38,6 +40,14 @@ type Store interface {
 	SaveTaskWorktreeLink(record TaskWorktreeLinkRecord) error
 	ListTaskWorktreeLinks(taskID string) ([]TaskWorktreeLinkRecord, error)
 	ListWorktreeTaskLinks(worktreeID string) ([]TaskWorktreeLinkRecord, error)
+	SaveTaskPlan(record TaskPlanRecord) error
+	GetTaskPlan(id string) (*TaskPlanRecord, error)
+	ListTaskPlans(taskID string) ([]TaskPlanRecord, error)
+	SavePlanStep(record PlanStepRecord) error
+	DeletePlanSteps(planID string) error
+	ListPlanSteps(planID string) ([]PlanStepRecord, error)
+	SaveSessionHandoff(record SessionHandoffRecord) error
+	ListSessionHandoffs(taskID string) ([]SessionHandoffRecord, error)
 	SaveContextNote(record ContextNoteRecord) error
 	ListContextNotes(taskID string, worktreeID string) ([]ContextNoteRecord, error)
 	SaveAgentSession(record AgentSessionRecord) error
@@ -79,10 +89,21 @@ type TaskContextRecord struct {
 	UpdatedAt           time.Time
 }
 
+type TaskBriefRecord struct {
+	TaskID          string
+	WhyNow          string
+	SuccessCriteria string
+	OutOfScope      string
+	KnownRisks      string
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+}
+
 type WorktreeContextRecord struct {
 	WorktreeID     string
 	RepoID         string
 	PrimaryTaskID  *string
+	CurrentPlanID  *string
 	TaskMode       string
 	TaskName       string
 	BranchSnapshot string
@@ -99,6 +120,44 @@ type TaskWorktreeLinkRecord struct {
 	RelationType string
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
+}
+
+type TaskPlanRecord struct {
+	ID          string
+	TaskID      string
+	Title       string
+	Status      string
+	CurrentStep string
+	PlanBody    string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+	ArchivedAt  *time.Time
+	DoneAt      *time.Time
+}
+
+type PlanStepRecord struct {
+	ID         string
+	PlanID     string
+	OrderIndex int
+	Title      string
+	State      string
+	Notes      string
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
+}
+
+type SessionHandoffRecord struct {
+	ID                 string
+	TaskID             string
+	PlanID             *string
+	SessionID          string
+	DoneSummary        string
+	RemainingSummary   string
+	DecisionSummary    string
+	UncertaintySummary string
+	BlockerSummary     string
+	Entrypoint         string
+	CreatedAt          time.Time
 }
 
 type ContextNoteRecord struct {

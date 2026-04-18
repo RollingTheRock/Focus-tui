@@ -1,6 +1,8 @@
 package store
 
 import (
+	"database/sql"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -34,6 +36,41 @@ func TestTaskContextRoundTrip(t *testing.T) {
 	}
 }
 
+func TestTaskBriefRoundTrip(t *testing.T) {
+	s, err := New(":memory:")
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer s.Close()
+
+	if err := s.SaveTaskContext(TaskContextRecord{
+		ID:       "task-1",
+		RepoID:   "/repo/main",
+		Title:    "Stabilize phase 4 schema",
+		State:    "active",
+		Priority: "high",
+	}); err != nil {
+		t.Fatalf("save task context: %v", err)
+	}
+	if err := s.SaveTaskBrief(TaskBriefRecord{
+		TaskID:          "task-1",
+		WhyNow:          "The current overview has no planning entry point.",
+		SuccessCriteria: "The overview shows enough context to start from a brief.",
+		OutOfScope:      "Full task graph editing.",
+		KnownRisks:      "Might overfit the UI before plan convergence exists.",
+	}); err != nil {
+		t.Fatalf("save task brief: %v", err)
+	}
+
+	record, err := s.GetTaskBrief("task-1")
+	if err != nil {
+		t.Fatalf("get task brief: %v", err)
+	}
+	if record == nil || record.WhyNow == "" || record.SuccessCriteria == "" || record.OutOfScope == "" || record.KnownRisks == "" {
+		t.Fatalf("unexpected task brief: %+v", record)
+	}
+}
+
 func TestWorktreeContextRoundTrip(t *testing.T) {
 	s, err := New(":memory:")
 	if err != nil {
@@ -51,10 +88,14 @@ func TestWorktreeContextRoundTrip(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("save task context: %v", err)
 	}
+	if err := s.SaveTaskPlan(TaskPlanRecord{ID: "plan-1", Title: "Planning", Status: "draft"}); err != nil {
+		t.Fatalf("save task plan: %v", err)
+	}
 	if err := s.SaveWorktreeContext(WorktreeContextRecord{
 		WorktreeID:     "/repo/feature-a",
 		RepoID:         "/repo/main",
 		PrimaryTaskID:  stringPtr("task-1"),
+		CurrentPlanID:  stringPtr("plan-1"),
 		TaskMode:       "single",
 		TaskName:       "Feature A",
 		BranchSnapshot: "feature-a",
@@ -68,7 +109,7 @@ func TestWorktreeContextRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get worktree context: %v", err)
 	}
-	if record == nil || record.TaskName != "Feature A" || record.PrimaryTaskID == nil || *record.PrimaryTaskID != "task-1" {
+	if record == nil || record.TaskName != "Feature A" || record.PrimaryTaskID == nil || *record.PrimaryTaskID != "task-1" || record.CurrentPlanID == nil || *record.CurrentPlanID != "plan-1" {
 		t.Fatalf("unexpected worktree context: %+v", record)
 	}
 }
@@ -122,6 +163,130 @@ func TestTaskWorktreeLinksAndNotes(t *testing.T) {
 	}
 	if len(notes) != 1 || !notes[0].Pinned || notes[0].Body != "Implement overview summary pipeline" {
 		t.Fatalf("unexpected context notes: %+v", notes)
+	}
+}
+
+func TestTaskPlansAndSessionHandoffsRoundTrip(t *testing.T) {
+	s, err := New(":memory:")
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer s.Close()
+	if err := s.SaveTaskContext(TaskContextRecord{ID: "task-1", RepoID: "/repo/main", Title: "Primary task", State: "active", Priority: "medium"}); err != nil {
+		t.Fatalf("save task context: %v", err)
+	}
+	if err := s.SaveTaskPlan(TaskPlanRecord{ID: "plan-1", TaskID: "task-1", Title: "Phase 1 rollout", Status: "active", CurrentStep: "Wire overview summary", PlanBody: "1. add schema\n2. wire panes"}); err != nil {
+		t.Fatalf("save task plan: %v", err)
+	}
+	if err := s.SavePlanStep(PlanStepRecord{ID: "step-1", PlanID: "plan-1", OrderIndex: 0, Title: "Wire overview summary", State: "in_progress", Notes: "Do this before pane cleanup"}); err != nil {
+		t.Fatalf("save plan step: %v", err)
+	}
+	if err := s.SaveSessionHandoff(SessionHandoffRecord{ID: "handoff-1", TaskID: "task-1", PlanID: stringPtr("plan-1"), SessionID: "session-1", DoneSummary: "Added schema", RemainingSummary: "Wire pane rendering", DecisionSummary: "Keep builder centralized", BlockerSummary: "Need UX pass", Entrypoint: "Open overview detail pane"}); err != nil {
+		t.Fatalf("save session handoff: %v", err)
+	}
+	plans, err := s.ListTaskPlans("task-1")
+	if err != nil || len(plans) != 1 || plans[0].CurrentStep != "Wire overview summary" {
+		t.Fatalf("unexpected task plans: %+v err=%v", plans, err)
+	}
+	steps, err := s.ListPlanSteps("plan-1")
+	if err != nil || len(steps) != 1 || steps[0].State != "in_progress" {
+		t.Fatalf("unexpected plan steps: %+v err=%v", steps, err)
+	}
+	handoffs, err := s.ListSessionHandoffs("task-1")
+	if err != nil || len(handoffs) != 1 || handoffs[0].Entrypoint != "Open overview detail pane" {
+		t.Fatalf("unexpected session handoffs: %+v err=%v", handoffs, err)
+	}
+}
+
+func TestTaskPlanCanExistWithoutTask(t *testing.T) {
+	s, err := New(":memory:")
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer s.Close()
+
+	if err := s.SaveTaskPlan(TaskPlanRecord{ID: "plan-orphan", Title: "Plan first", Status: "draft", PlanBody: "Brief\nDecompose\nConverge"}); err != nil {
+		t.Fatalf("save standalone plan: %v", err)
+	}
+	plan, err := s.GetTaskPlan("plan-orphan")
+	if err != nil {
+		t.Fatalf("get standalone plan: %v", err)
+	}
+	if plan == nil || plan.TaskID != "" || plan.Title != "Plan first" {
+		t.Fatalf("unexpected standalone plan: %+v", plan)
+	}
+	if err := s.SavePlanStep(PlanStepRecord{ID: "plan-orphan::step::000", PlanID: "plan-orphan", OrderIndex: 0, Title: "Intent brief", State: "in_progress"}); err != nil {
+		t.Fatalf("save standalone plan step: %v", err)
+	}
+	steps, err := s.ListPlanSteps("plan-orphan")
+	if err != nil || len(steps) != 1 || steps[0].Title != "Intent brief" {
+		t.Fatalf("unexpected standalone plan steps: %+v err=%v", steps, err)
+	}
+	plans, err := s.ListTaskPlans("")
+	if err != nil {
+		t.Fatalf("list all plans: %v", err)
+	}
+	if len(plans) != 1 || plans[0].ID != "plan-orphan" {
+		t.Fatalf("unexpected standalone plan list: %+v", plans)
+	}
+}
+
+func TestMigrateAddsCurrentPlanIDToExistingWorktreeContexts(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "focus.db")
+	raw, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("open raw db: %v", err)
+	}
+	legacySchema := `
+CREATE TABLE worktree_contexts (
+    worktree_id      TEXT PRIMARY KEY,
+    repo_id          TEXT NOT NULL,
+    primary_task_id  TEXT,
+    task_mode        TEXT NOT NULL DEFAULT 'single',
+    task_name        TEXT,
+    branch_snapshot  TEXT,
+    last_active_at   DATETIME NOT NULL,
+    last_opened_at   DATETIME,
+    last_agent_at    DATETIME,
+    updated_at       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX idx_worktree_contexts_repo_last_active ON worktree_contexts(repo_id, last_active_at DESC);
+CREATE INDEX idx_worktree_contexts_primary_task ON worktree_contexts(primary_task_id);
+INSERT INTO worktree_contexts (worktree_id, repo_id, task_mode, task_name, last_active_at)
+VALUES ('/repo/feature-a', '/repo/main', 'single', 'Planning', CURRENT_TIMESTAMP);
+`
+	if _, err := raw.Exec(legacySchema); err != nil {
+		raw.Close()
+		t.Fatalf("seed legacy schema: %v", err)
+	}
+	raw.Close()
+
+	s, err := New(dbPath)
+	if err != nil {
+		t.Fatalf("open migrated store: %v", err)
+	}
+	defer s.Close()
+
+	if err := s.SaveTaskPlan(TaskPlanRecord{ID: "plan-1", Title: "Plan", Status: "draft"}); err != nil {
+		t.Fatalf("save standalone plan: %v", err)
+	}
+	wc, err := s.GetWorktreeContext("/repo/feature-a")
+	if err != nil {
+		t.Fatalf("get worktree context: %v", err)
+	}
+	if wc == nil {
+		t.Fatalf("expected migrated worktree context")
+	}
+	wc.CurrentPlanID = stringPtr("plan-1")
+	if err := s.SaveWorktreeContext(*wc); err != nil {
+		t.Fatalf("save migrated worktree context with current plan: %v", err)
+	}
+	reloaded, err := s.GetWorktreeContext("/repo/feature-a")
+	if err != nil {
+		t.Fatalf("reload worktree context: %v", err)
+	}
+	if reloaded == nil || reloaded.CurrentPlanID == nil || *reloaded.CurrentPlanID != "plan-1" {
+		t.Fatalf("expected current_plan_id after migration, got %+v", reloaded)
 	}
 }
 
