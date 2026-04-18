@@ -568,6 +568,29 @@ func TestOpenTaskEditPaneUsesOverlayLifecycle(t *testing.T) {
 	}
 }
 
+func TestOpenPlanEditPaneUsesOverlayLifecycle(t *testing.T) {
+	cfg := config.DefaultConfig()
+	st, _ := store.New(":memory:")
+	m := New(cfg, st).(model)
+
+	m.switchToWorktreePage("/repo/feature-a", string(paneShell))
+	cmd := m.openPlanEditPane(gitplugin.OpenPlanEditMsg{TaskID: "task-1", WorktreeID: "/repo/feature-a"})
+	if cmd == nil {
+		t.Fatalf("expected init command for plan edit overlay")
+	}
+	if m.activeOverlayPane() != panePlanEdit {
+		t.Fatalf("expected active overlay %s, got %s", panePlanEdit, m.activeOverlayPane())
+	}
+	if m.activePage.focused != panePlanEdit {
+		t.Fatalf("expected focus on plan edit overlay, got %s", m.activePage.focused)
+	}
+	updated, _ := m.Update(ClosePlanEditorMsg{ID: panePlanEdit})
+	m = updated.(model)
+	if m.activeOverlayPane() != "" {
+		t.Fatalf("expected overlay to close, got %s", m.activeOverlayPane())
+	}
+}
+
 func TestSaveTaskEditorPersistsTaskAndPrimaryWorktreeLink(t *testing.T) {
 	cfg := config.DefaultConfig()
 	st, _ := store.New(":memory:")
@@ -579,6 +602,10 @@ func TestSaveTaskEditorPersistsTaskAndPrimaryWorktreeLink(t *testing.T) {
 		WorktreeID:   "/repo/feature-a",
 		Title:        "Draft overview task planning",
 		Goal:         "Enable lightweight task editing",
+		WhyNow:       "The product needs a planning entry point before task explosion.",
+		Success:      "A saved task keeps enough context to create a plan from it.",
+		OutOfScope:   "Full plan decomposition UI.",
+		KnownRisks:   "Too much form friction could slow quick edits.",
 		NextStep:     "Save primary task to worktree context",
 		State:        "active",
 		Priority:     "high",
@@ -601,12 +628,126 @@ func TestSaveTaskEditorPersistsTaskAndPrimaryWorktreeLink(t *testing.T) {
 	if task == nil || task.Title != "Draft overview task planning" || task.NextStep != "Save primary task to worktree context" || task.Priority != "high" {
 		t.Fatalf("unexpected task context: %+v", task)
 	}
+	brief, err := st.GetTaskBrief(*worktreeContext.PrimaryTaskID)
+	if err != nil {
+		t.Fatalf("get task brief: %v", err)
+	}
+	if brief == nil || brief.WhyNow == "" || brief.SuccessCriteria == "" || brief.OutOfScope == "" || brief.KnownRisks == "" {
+		t.Fatalf("expected task brief to be persisted, got %+v", brief)
+	}
 	links, err := st.ListWorktreeTaskLinks("/repo/feature-a")
 	if err != nil {
 		t.Fatalf("list worktree task links: %v", err)
 	}
 	if len(links) != 1 || links[0].RelationType != "primary" {
 		t.Fatalf("unexpected task/worktree links: %+v", links)
+	}
+}
+
+func TestSavePlanEditorPersistsDraftPlan(t *testing.T) {
+	cfg := config.DefaultConfig()
+	st, _ := store.New(":memory:")
+	m := New(cfg, st).(model)
+
+	if err := st.SaveTaskContext(models.TaskContextRecord{ID: "task-1", RepoID: "/repo/main", Title: "Primary task", State: "active", Priority: "high", PreferredWorktreeID: "/repo/feature-a"}); err != nil {
+		t.Fatalf("save task context: %v", err)
+	}
+	if cmd := m.savePlanEditor(PlanEditorSavedMsg{
+		ID:         panePlanEdit,
+		TaskID:     "task-1",
+		WorktreeID: "/repo/feature-a",
+		Title:      "Phase 1 rollout",
+		PlanBody:   "Main lane\nValidation lane\nRisk lane",
+	}); cmd != nil {
+		t.Fatalf("expected savePlanEditor to complete synchronously")
+	}
+	plans, err := st.ListTaskPlans("task-1")
+	if err != nil {
+		t.Fatalf("list task plans: %v", err)
+	}
+	if len(plans) != 1 || plans[0].Title != "Phase 1 rollout" || plans[0].PlanBody == "" || plans[0].Status != "draft" || plans[0].CurrentStep != "Main lane" {
+		t.Fatalf("unexpected plans: %+v", plans)
+	}
+	steps, err := st.ListPlanSteps(plans[0].ID)
+	if err != nil {
+		t.Fatalf("list plan steps: %v", err)
+	}
+	if len(steps) != 3 || steps[0].Title != "Main lane" || steps[0].State != "in_progress" || steps[1].State != "pending" {
+		t.Fatalf("unexpected saved plan steps: %+v", steps)
+	}
+	wc, err := st.GetWorktreeContext("/repo/feature-a")
+	if err != nil {
+		t.Fatalf("get worktree context: %v", err)
+	}
+	if wc == nil || wc.CurrentPlanID == nil || *wc.CurrentPlanID != plans[0].ID {
+		t.Fatalf("expected worktree current plan to point at saved draft, got %+v", wc)
+	}
+}
+
+func TestSavePlanEditorPersistsStandaloneDraftPlan(t *testing.T) {
+	cfg := config.DefaultConfig()
+	st, _ := store.New(":memory:")
+	m := New(cfg, st).(model)
+
+	if cmd := m.savePlanEditor(PlanEditorSavedMsg{
+		ID:         panePlanEdit,
+		WorktreeID: "/repo/feature-a",
+		Title:      "Plan before task",
+		PlanBody:   "Intent brief\nDecomposition\nConvergence",
+	}); cmd != nil {
+		t.Fatalf("expected savePlanEditor to complete synchronously")
+	}
+	plans, err := st.ListTaskPlans("")
+	if err != nil {
+		t.Fatalf("list task plans: %v", err)
+	}
+	if len(plans) != 1 || plans[0].TaskID != "" || plans[0].Title != "Plan before task" || plans[0].CurrentStep != "Intent brief" {
+		t.Fatalf("unexpected standalone plans: %+v", plans)
+	}
+	steps, err := st.ListPlanSteps(plans[0].ID)
+	if err != nil {
+		t.Fatalf("list standalone plan steps: %v", err)
+	}
+	if len(steps) != 3 || steps[2].Title != "Convergence" {
+		t.Fatalf("unexpected standalone plan steps: %+v", steps)
+	}
+	wc, err := st.GetWorktreeContext("/repo/feature-a")
+	if err != nil {
+		t.Fatalf("get worktree context: %v", err)
+	}
+	if wc == nil || wc.CurrentPlanID == nil || *wc.CurrentPlanID != plans[0].ID {
+		t.Fatalf("expected standalone plan to anchor on worktree, got %+v", wc)
+	}
+}
+
+func TestOpenPlanEditPaneLoadsCurrentPlanForWorktreeWithoutTask(t *testing.T) {
+	cfg := config.DefaultConfig()
+	st, _ := store.New(":memory:")
+	m := New(cfg, st).(model)
+
+	if err := st.SaveTaskPlan(models.TaskPlanRecord{ID: "plan-1", Title: "Standalone plan", Status: "draft", CurrentStep: "Intent brief", PlanBody: "- Intent brief\n- Decomposition"}); err != nil {
+		t.Fatalf("save task plan: %v", err)
+	}
+	if err := st.SavePlanStep(models.PlanStepRecord{ID: "plan-1::step::000", PlanID: "plan-1", OrderIndex: 0, Title: "Intent brief", State: "in_progress"}); err != nil {
+		t.Fatalf("save first plan step: %v", err)
+	}
+	if err := st.SavePlanStep(models.PlanStepRecord{ID: "plan-1::step::001", PlanID: "plan-1", OrderIndex: 1, Title: "Decomposition", State: "pending"}); err != nil {
+		t.Fatalf("save second plan step: %v", err)
+	}
+	if err := st.SaveWorktreeContext(models.WorktreeContextRecord{WorktreeID: "/repo/feature-a", RepoID: "/repo/main", CurrentPlanID: stringPtr("plan-1"), TaskMode: "single", TaskName: "Planning", LastActiveAt: time.Now()}); err != nil {
+		t.Fatalf("save worktree context: %v", err)
+	}
+
+	cmd := m.openPlanEditPane(gitplugin.OpenPlanEditMsg{WorktreeID: "/repo/feature-a"})
+	if cmd == nil {
+		t.Fatalf("expected init command for plan edit overlay")
+	}
+	pane, ok := m.activePage.pane(panePlanEdit).(*PlanEditPane)
+	if !ok {
+		t.Fatalf("expected plan edit pane, got %T", m.activePage.pane(panePlanEdit))
+	}
+	if pane.titleInput.Value() != "Standalone plan" || !strings.Contains(pane.bodyInput.Value(), "Intent brief") {
+		t.Fatalf("expected existing standalone plan to seed editor, got title=%q body=%q", pane.titleInput.Value(), pane.bodyInput.Value())
 	}
 }
 
@@ -621,6 +762,8 @@ func TestSaveTaskEditorPersistsQueuedFollowUpWithoutReplacingPrimary(t *testing.
 		WorktreeID:   "/repo/feature-a",
 		Title:        "Primary task",
 		Goal:         "Land primary flow",
+		WhyNow:       "The queue should attach to a clear parent task.",
+		Success:      "Primary task stays stable while follow-ups queue behind it.",
 		NextStep:     "Keep resume stable",
 		State:        "active",
 		Priority:     "medium",
@@ -642,6 +785,8 @@ func TestSaveTaskEditorPersistsQueuedFollowUpWithoutReplacingPrimary(t *testing.
 		WorktreeID:   "/repo/feature-a",
 		Title:        "Queued follow-up",
 		Goal:         "Queue cleanup after main work",
+		WhyNow:       "This cleanup should not interrupt the active slice.",
+		Success:      "The queued task is visible without replacing the primary task.",
 		NextStep:     "Clean summary scoring",
 		State:        "paused",
 		Priority:     "low",
@@ -694,6 +839,8 @@ func TestCycleTaskStateUpdatesPrimaryTask(t *testing.T) {
 		WorktreeID:   "/repo/feature-a",
 		Title:        "Primary task",
 		Goal:         "Land primary flow",
+		WhyNow:       "The worktree needs an anchored primary task.",
+		Success:      "State cycling updates the anchored task.",
 		NextStep:     "Keep resume stable",
 		State:        "active",
 		Priority:     "medium",
@@ -720,10 +867,10 @@ func TestBuildWorkbenchOverviewContextTranslatesTruthToSummaryAndDetail(t *testi
 	source := fakeWorkbenchContextSource{
 		ordered: []gitplugin.WorktreeContextView{
 			{Worktree: gitmodel.Worktree{Path: "/repo/main", Branch: "main", IsMain: true}, Summary: gitmodel.WorktreeResumeSummary{}, Activity: gitmodel.WorktreeActivity{}},
-			{Worktree: gitmodel.Worktree{Path: "/repo/feature-a", Branch: "feature-a", DirtySummary: gitmodel.DirtySummary{Staged: 1, Unstaged: 2}, AheadBehind: gitmodel.AheadBehind{Ahead: 1}, Upstream: "origin/feature-a"}, Summary: gitmodel.WorktreeResumeSummary{TaskID: "task-1", TaskTitle: "Refactor overview translation", TaskGoal: "Make overview reflect context truth", NextStep: "Centralize workbench context builder", TaskState: "active", TaskPriority: "high", QueuedTaskTitle: "Follow-up queue cleanup", QueuedTaskCount: 2, AttentionAnchor: "editing", RecentArtifact: "internal/app/workbench_context.go", PinnedNote: "Keep truth and projection separate", BlockerNote: "Need better auto inference", HandoffNote: "Resume from shared builder wiring", GitPressure: "diverged+dirty", LastAgentSummary: "opencode running", ResumeReason: "active task · next step ready", LastResumeHint: "Continue: Centralize workbench context builder", ResumeScore: 95, LastActiveLabel: formatRelativeLabel("active", now)}, Activity: gitmodel.WorktreeActivity{OpenEditors: 2, HasShell: true, AgentCount: 1, LastActive: "now"}},
+			{Worktree: gitmodel.Worktree{Path: "/repo/feature-a", Branch: "feature-a", DirtySummary: gitmodel.DirtySummary{Staged: 1, Unstaged: 2}, AheadBehind: gitmodel.AheadBehind{Ahead: 1}, Upstream: "origin/feature-a"}, Summary: gitmodel.WorktreeResumeSummary{TaskID: "task-1", TaskTitle: "Refactor overview translation", TaskGoal: "Make overview reflect context truth", TaskWhyNow: "The overview needs a plan-first entry point.", TaskSuccess: "A programmer can restart work from the saved brief.", TaskOutOfScope: "Full graph orchestration.", TaskKnownRisks: "Too much density could hurt scanning.", NextStep: "Centralize workbench context builder", TaskState: "active", TaskPriority: "high", PlanTitle: "Phase 1 rollout", PlanStatus: "active", CurrentPlanStep: "Wire overview summary", PlanBody: "Main lane\nValidation lane\nRisk lane", PlanSteps: []string{"[in_progress] Wire overview summary", "[pending] Validation lane", "[pending] Risk lane"}, HandoffEntrypoint: "Open overview detail pane", QueuedTaskTitle: "Follow-up queue cleanup", QueuedTaskCount: 2, AttentionAnchor: "editing", RecentArtifact: "internal/app/workbench_context.go", PinnedNote: "Keep truth and projection separate", BlockerNote: "Need better auto inference", HandoffNote: "Resume from shared builder wiring", GitPressure: "diverged+dirty", LastAgentSummary: "opencode running", ResumeReason: "active task · next step ready", LastResumeHint: "Continue: Centralize workbench context builder", ResumeScore: 95, LastActiveLabel: formatRelativeLabel("active", now)}, Activity: gitmodel.WorktreeActivity{OpenEditors: 2, HasShell: true, AgentCount: 1, LastActive: "now"}},
 		},
 		selectedWorktree: gitmodel.Worktree{Path: "/repo/feature-a", Branch: "feature-a", DirtySummary: gitmodel.DirtySummary{Staged: 1, Unstaged: 2}, AheadBehind: gitmodel.AheadBehind{Ahead: 1}, Upstream: "origin/feature-a"},
-		selectedSummary:  gitmodel.WorktreeResumeSummary{TaskID: "task-1", TaskTitle: "Refactor overview translation", TaskGoal: "Make overview reflect context truth", NextStep: "Centralize workbench context builder", TaskState: "active", TaskPriority: "high", QueuedTaskTitle: "Follow-up queue cleanup", QueuedTaskCount: 2, AttentionAnchor: "editing", RecentArtifact: "internal/app/workbench_context.go", PinnedNote: "Keep truth and projection separate", BlockerNote: "Need better auto inference", HandoffNote: "Resume from shared builder wiring", GitPressure: "diverged+dirty", LastAgentSummary: "opencode running", ResumeReason: "active task · next step ready", LastResumeHint: "Continue: Centralize workbench context builder", ResumeScore: 95},
+		selectedSummary:  gitmodel.WorktreeResumeSummary{TaskID: "task-1", TaskTitle: "Refactor overview translation", TaskGoal: "Make overview reflect context truth", TaskWhyNow: "The overview needs a plan-first entry point.", TaskSuccess: "A programmer can restart work from the saved brief.", TaskOutOfScope: "Full graph orchestration.", TaskKnownRisks: "Too much density could hurt scanning.", NextStep: "Centralize workbench context builder", TaskState: "active", TaskPriority: "high", PlanTitle: "Phase 1 rollout", PlanStatus: "active", CurrentPlanStep: "Wire overview summary", PlanBody: "Main lane\nValidation lane\nRisk lane", PlanSteps: []string{"[in_progress] Wire overview summary", "[pending] Validation lane", "[pending] Risk lane"}, HandoffEntrypoint: "Open overview detail pane", QueuedTaskTitle: "Follow-up queue cleanup", QueuedTaskCount: 2, AttentionAnchor: "editing", RecentArtifact: "internal/app/workbench_context.go", PinnedNote: "Keep truth and projection separate", BlockerNote: "Need better auto inference", HandoffNote: "Resume from shared builder wiring", GitPressure: "diverged+dirty", LastAgentSummary: "opencode running", ResumeReason: "active task · next step ready", LastResumeHint: "Continue: Centralize workbench context builder", ResumeScore: 95},
 		selectedActivity: gitmodel.WorktreeActivity{OpenEditors: 2, HasShell: true, AgentCount: 1, LastActive: "now"},
 	}
 	ctx := buildWorkbenchOverviewContext(source)
@@ -732,6 +879,9 @@ func TestBuildWorkbenchOverviewContextTranslatesTruthToSummaryAndDetail(t *testi
 	}
 	if ctx.Detail.Title != "Refactor overview translation" || ctx.Detail.Goal != "Make overview reflect context truth" {
 		t.Fatalf("unexpected detail projection: %+v", ctx.Detail)
+	}
+	if ctx.Detail.WhyNow == "" || ctx.Detail.SuccessCriteria == "" || ctx.Detail.OutOfScope == "" || ctx.Detail.KnownRisks == "" {
+		t.Fatalf("expected detail to include brief projection, got %+v", ctx.Detail)
 	}
 	if !strings.Contains(ctx.Detail.GitSummary, "staged") || !strings.Contains(ctx.Detail.RuntimeSummary, "shell=true") || !strings.Contains(ctx.Detail.AgentSummary, "opencode running") {
 		t.Fatalf("expected detail to include git/runtime/agent summaries, got %+v", ctx.Detail)
@@ -744,6 +894,15 @@ func TestBuildWorkbenchOverviewContextTranslatesTruthToSummaryAndDetail(t *testi
 	}
 	if ctx.Detail.HandoffNote != "Resume from shared builder wiring" || ctx.Detail.GitPressure != "git pressure: diverged+dirty" {
 		t.Fatalf("expected detail to include handoff and git pressure, got %+v", ctx.Detail)
+	}
+	if ctx.Detail.PlanTitle != "Phase 1 rollout" || ctx.Detail.CurrentPlanStep != "Wire overview summary" || ctx.Detail.HandoffEntrypoint != "Open overview detail pane" {
+		t.Fatalf("expected detail to include plan/handoff projection, got %+v", ctx.Detail)
+	}
+	if !strings.Contains(ctx.Detail.PlanBody, "Validation lane") {
+		t.Fatalf("expected detail to include plan body, got %+v", ctx.Detail)
+	}
+	if len(ctx.Detail.PlanSteps) != 3 || !strings.Contains(ctx.Detail.PlanSteps[0], "Wire overview summary") {
+		t.Fatalf("expected detail to include structured plan steps, got %+v", ctx.Detail)
 	}
 }
 

@@ -19,6 +19,7 @@ type workbenchQueueItem struct {
 	Activity           gitmodel.WorktreeActivity
 	GitSummary         string
 	GitPressureSummary string
+	PlanSummary        string
 	QueuedSummary      string
 	AgentSummary       string
 	RuntimeSummary     string
@@ -74,27 +75,37 @@ func buildWorkbenchOverviewContext(source workbenchContextSource) workbenchOverv
 		selected := buildWorkbenchQueueItem(wt, summary, activity)
 		ctx.Selected = &selected
 		ctx.Detail = overviewDetailSelection{
-			Title:          selected.DisplayTitle(),
-			Branch:         wt.Branch,
-			WorktreePath:   wt.Path,
-			State:          summary.TaskState,
-			Priority:       summary.TaskPriority,
-			ResumeReason:   summary.ResumeReason,
-			ResumeHint:     summary.LastResumeHint,
-			Goal:           summary.TaskGoal,
-			NextStep:       summary.NextStep,
-			AgentSummary:   selected.AgentSummary,
-			QueuedSummary:  selected.QueuedSummary,
-			GitSummary:     selected.GitSummary,
-			GitPressure:    selected.GitPressureSummary,
-			RuntimeSummary: selected.RuntimeSummary,
-			Upstream:       selected.UpstreamSummary,
-			Attention:      selected.AttentionSummary,
-			PinnedNote:     selected.NoteSummary,
-			BlockerNote:    summary.BlockerNote,
-			HandoffNote:    summary.HandoffNote,
-			RecentArtifact: summary.RecentArtifact,
-			HasSelection:   true,
+			Title:             selected.DisplayTitle(),
+			Branch:            wt.Branch,
+			WorktreePath:      wt.Path,
+			State:             summary.TaskState,
+			Priority:          summary.TaskPriority,
+			ResumeReason:      summary.ResumeReason,
+			ResumeHint:        summary.LastResumeHint,
+			Goal:              summary.TaskGoal,
+			WhyNow:            summary.TaskWhyNow,
+			SuccessCriteria:   summary.TaskSuccess,
+			OutOfScope:        summary.TaskOutOfScope,
+			KnownRisks:        summary.TaskKnownRisks,
+			NextStep:          summary.NextStep,
+			AgentSummary:      selected.AgentSummary,
+			QueuedSummary:     selected.QueuedSummary,
+			GitSummary:        selected.GitSummary,
+			GitPressure:       selected.GitPressureSummary,
+			RuntimeSummary:    selected.RuntimeSummary,
+			Upstream:          selected.UpstreamSummary,
+			Attention:         selected.AttentionSummary,
+			PinnedNote:        selected.NoteSummary,
+			BlockerNote:       summary.BlockerNote,
+			HandoffNote:       summary.HandoffNote,
+			PlanTitle:         summary.PlanTitle,
+			PlanStatus:        summary.PlanStatus,
+			CurrentPlanStep:   summary.CurrentPlanStep,
+			PlanBody:          summary.PlanBody,
+			PlanSteps:         summary.PlanSteps,
+			HandoffEntrypoint: summary.HandoffEntrypoint,
+			RecentArtifact:    summary.RecentArtifact,
+			HasSelection:      true,
 		}
 	}
 	return ctx
@@ -136,6 +147,9 @@ func buildWorkbenchQueueItem(wt gitmodel.Worktree, summary gitmodel.WorktreeResu
 	}
 	if summary.HandoffNote != "" {
 		item.HandoffSummary = "handoff: " + summary.HandoffNote
+	}
+	if summary.PlanTitle != "" {
+		item.PlanSummary = compactWorkbenchParts(summary.PlanTitle, summary.PlanStatus, summary.CurrentPlanStep)
 	}
 	item.RuntimeSummary = fmt.Sprintf("runtime: shell=%t edits=%d agents=%d", activity.HasShell, activity.OpenEditors, activity.AgentCount)
 	if wt.AheadBehind.Ahead > 0 || wt.AheadBehind.Behind > 0 || wt.Upstream != "" {

@@ -10,27 +10,37 @@ import (
 )
 
 type overviewDetailSelection struct {
-	Title          string
-	Branch         string
-	WorktreePath   string
-	State          string
-	Priority       string
-	ResumeReason   string
-	ResumeHint     string
-	Goal           string
-	NextStep       string
-	Attention      string
-	RecentArtifact string
-	AgentSummary   string
-	QueuedSummary  string
-	GitSummary     string
-	GitPressure    string
-	RuntimeSummary string
-	Upstream       string
-	PinnedNote     string
-	BlockerNote    string
-	HandoffNote    string
-	HasSelection   bool
+	Title             string
+	Branch            string
+	WorktreePath      string
+	State             string
+	Priority          string
+	ResumeReason      string
+	ResumeHint        string
+	Goal              string
+	WhyNow            string
+	SuccessCriteria   string
+	OutOfScope        string
+	KnownRisks        string
+	NextStep          string
+	PlanTitle         string
+	PlanStatus        string
+	CurrentPlanStep   string
+	PlanBody          string
+	PlanSteps         []string
+	HandoffEntrypoint string
+	Attention         string
+	RecentArtifact    string
+	AgentSummary      string
+	QueuedSummary     string
+	GitSummary        string
+	GitPressure       string
+	RuntimeSummary    string
+	Upstream          string
+	PinnedNote        string
+	BlockerNote       string
+	HandoffNote       string
+	HasSelection      bool
 }
 
 type overviewDetailProvider func() workbenchOverviewContext
@@ -84,6 +94,48 @@ func (p *overviewDetailPane) View() string {
 	if selection.Goal != "" {
 		lines = append(lines, overviewDetailBodyStyle.Render("goal: "+selection.Goal))
 	}
+	if selection.WhyNow != "" || selection.SuccessCriteria != "" || selection.OutOfScope != "" || selection.KnownRisks != "" {
+		lines = append(lines,
+			"",
+			overviewDetailSectionStyle.Render("Brief"),
+		)
+		if selection.WhyNow != "" {
+			lines = append(lines, overviewDetailBodyStyle.Render("why now: "+selection.WhyNow))
+		}
+		if selection.SuccessCriteria != "" {
+			lines = append(lines, overviewDetailBodyStyle.Render("success: "+selection.SuccessCriteria))
+		}
+		if selection.OutOfScope != "" {
+			lines = append(lines, overviewDetailBodyStyle.Render("out of scope: "+selection.OutOfScope))
+		}
+		if selection.KnownRisks != "" {
+			lines = append(lines, overviewDetailBodyStyle.Render("risks: "+selection.KnownRisks))
+		}
+	}
+	if selection.PlanTitle != "" || selection.PlanStatus != "" || selection.CurrentPlanStep != "" || selection.PlanBody != "" || len(selection.PlanSteps) > 0 {
+		lines = append(lines,
+			"",
+			overviewDetailSectionStyle.Render("Plan"),
+		)
+		if selection.PlanTitle != "" {
+			lines = append(lines, overviewDetailBodyStyle.Render("plan: "+selection.PlanTitle))
+		}
+		if selection.PlanStatus != "" {
+			lines = append(lines, overviewDetailBodyStyle.Render("status: "+selection.PlanStatus))
+		}
+		if selection.CurrentPlanStep != "" {
+			lines = append(lines, overviewDetailBodyStyle.Render("step: "+selection.CurrentPlanStep))
+		}
+		if selection.PlanBody != "" {
+			lines = append(lines, overviewDetailBodyStyle.Render(selection.PlanBody))
+		}
+		if len(selection.PlanSteps) > 0 {
+			lines = append(lines, overviewDetailBodyStyle.Render("decomposition:"))
+			for _, step := range selection.PlanSteps {
+				lines = append(lines, overviewDetailBodyStyle.Render("  "+step))
+			}
+		}
+	}
 	if selection.Attention != "" || selection.RecentArtifact != "" {
 		lines = append(lines,
 			"",
@@ -118,6 +170,9 @@ func (p *overviewDetailPane) View() string {
 		}
 		if selection.HandoffNote != "" {
 			lines = append(lines, overviewDetailBodyStyle.Render("handoff: "+selection.HandoffNote))
+		}
+		if selection.HandoffEntrypoint != "" {
+			lines = append(lines, overviewDetailBodyStyle.Render("entrypoint: "+selection.HandoffEntrypoint))
 		}
 	}
 	lines = append(lines,

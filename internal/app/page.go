@@ -573,11 +573,14 @@ func (p *page) activeOverlayPane() models.PaneID {
 	if _, ok := p.paneMeta[paneTaskEdit]; ok {
 		return paneTaskEdit
 	}
+	if _, ok := p.paneMeta[panePlanEdit]; ok {
+		return panePlanEdit
+	}
 	return ""
 }
 
 func (p *page) isOverlayPane(id models.PaneID) bool {
-	return id == paneGitCommit || id == paneWorktreeCreate || id == paneTaskEdit
+	return id == paneGitCommit || id == paneWorktreeCreate || id == paneTaskEdit || id == panePlanEdit
 }
 
 func (p *page) paneAt(x, y int) models.PaneID {
@@ -965,6 +968,36 @@ func (p *page) openTaskEditPane(seed taskEditorSeed) tea.Cmd {
 		Closable:       true,
 	}
 	panel := NewTaskEditPane(meta.ID, meta, *p.common, seed)
+	p.registerPane(meta.ID, panel, meta)
+	if p.returnFocus == nil {
+		p.returnFocus = make(map[models.PaneID]models.PaneID)
+	}
+	p.returnFocus[meta.ID] = baseFocus
+	p.setFocus(meta.ID)
+	p.updateSizes(p.bodyBoundsSize())
+	return panel.Init()
+}
+
+func (p *page) openPlanEditPane(seed planEditorSeed) tea.Cmd {
+	p.closePane(panePlanEdit)
+
+	baseFocus := p.focused
+	if baseFocus == "" {
+		baseFocus = paneWorktree
+	}
+
+	meta := models.PaneMeta{
+		ID:             panePlanEdit,
+		Name:           "Plan Draft",
+		Type:           paneTypePlanEdit,
+		CWD:            p.gitRepoPath(),
+		RepoID:         p.currentRepoID(),
+		WorktreeID:     seed.WorktreeID,
+		BranchSnapshot: p.currentBranchSnapshot(),
+		Status:         models.PaneStatusReady,
+		Closable:       true,
+	}
+	panel := NewPlanEditPane(meta.ID, meta, *p.common, seed)
 	p.registerPane(meta.ID, panel, meta)
 	if p.returnFocus == nil {
 		p.returnFocus = make(map[models.PaneID]models.PaneID)

@@ -28,6 +28,10 @@ type TaskEditorSavedMsg struct {
 	WorktreeID   string
 	Title        string
 	Goal         string
+	WhyNow       string
+	Success      string
+	OutOfScope   string
+	KnownRisks   string
 	NextStep     string
 	State        string
 	Priority     string
@@ -44,6 +48,10 @@ type taskEditorSeed struct {
 	WorktreeID   string
 	Title        string
 	Goal         string
+	WhyNow       string
+	Success      string
+	OutOfScope   string
+	KnownRisks   string
 	NextStep     string
 	State        string
 	Priority     string
@@ -71,6 +79,10 @@ type TaskEditPane struct {
 const (
 	taskEditFieldTitle = iota
 	taskEditFieldGoal
+	taskEditFieldWhyNow
+	taskEditFieldSuccess
+	taskEditFieldOutOfScope
+	taskEditFieldKnownRisks
 	taskEditFieldNextStep
 	taskEditFieldState
 	taskEditFieldPriority
@@ -87,6 +99,26 @@ func NewTaskEditPane(id models.PaneID, meta models.PaneMeta, common models.Commo
 	goalInput.Placeholder = "What outcome should this task produce?"
 	goalInput.SetValue(seed.Goal)
 
+	whyNowInput := textinput.New()
+	whyNowInput.Prompt = "Why now: "
+	whyNowInput.Placeholder = "Why is this worth doing before coding?"
+	whyNowInput.SetValue(seed.WhyNow)
+
+	successInput := textinput.New()
+	successInput.Prompt = "Success: "
+	successInput.Placeholder = "What outcome proves this worked?"
+	successInput.SetValue(seed.Success)
+
+	outOfScopeInput := textinput.New()
+	outOfScopeInput.Prompt = "Out of scope: "
+	outOfScopeInput.Placeholder = "What are we explicitly not doing?"
+	outOfScopeInput.SetValue(seed.OutOfScope)
+
+	knownRisksInput := textinput.New()
+	knownRisksInput.Prompt = "Known risks: "
+	knownRisksInput.Placeholder = "What could still blow up later?"
+	knownRisksInput.SetValue(seed.KnownRisks)
+
 	nextStepInput := textinput.New()
 	nextStepInput.Prompt = "Next: "
 	nextStepInput.Placeholder = "Render summary in overview"
@@ -102,7 +134,7 @@ func NewTaskEditPane(id models.PaneID, meta models.PaneMeta, common models.Commo
 	priorityInput.Placeholder = "medium"
 	priorityInput.SetValue(seed.Priority)
 
-	inputs := []textinput.Model{titleInput, goalInput, nextStepInput, stateInput, priorityInput}
+	inputs := []textinput.Model{titleInput, goalInput, whyNowInput, successInput, outOfScopeInput, knownRisksInput, nextStepInput, stateInput, priorityInput}
 	for i := range inputs {
 		inputs[i].PromptStyle = lipgloss.NewStyle().Foreground(appstyles.Accent)
 		inputs[i].TextStyle = lipgloss.NewStyle().Foreground(appstyles.Text)
@@ -170,10 +202,14 @@ func (p *TaskEditPane) View() string {
 	}
 	lines := []string{
 		taskEditHeaderStyle.Render("Task Context"),
-		taskEditHintStyle.Render("Define the task, its goal, and the next step for this worktree."),
+		taskEditHintStyle.Render("Define the task, its brief constraints, and the next step for this worktree."),
 		"",
 		p.inputs[taskEditFieldTitle].View(),
 		p.inputs[taskEditFieldGoal].View(),
+		p.inputs[taskEditFieldWhyNow].View(),
+		p.inputs[taskEditFieldSuccess].View(),
+		p.inputs[taskEditFieldOutOfScope].View(),
+		p.inputs[taskEditFieldKnownRisks].View(),
 		p.inputs[taskEditFieldNextStep].View(),
 		p.inputs[taskEditFieldState].View(),
 		p.inputs[taskEditFieldPriority].View(),
@@ -244,6 +280,10 @@ func (p *TaskEditPane) submit() (models.Panel, tea.Cmd) {
 			WorktreeID:   p.worktreeID,
 			Title:        title,
 			Goal:         strings.TrimSpace(p.inputs[taskEditFieldGoal].Value()),
+			WhyNow:       strings.TrimSpace(p.inputs[taskEditFieldWhyNow].Value()),
+			Success:      strings.TrimSpace(p.inputs[taskEditFieldSuccess].Value()),
+			OutOfScope:   strings.TrimSpace(p.inputs[taskEditFieldOutOfScope].Value()),
+			KnownRisks:   strings.TrimSpace(p.inputs[taskEditFieldKnownRisks].Value()),
 			NextStep:     strings.TrimSpace(p.inputs[taskEditFieldNextStep].Value()),
 			State:        state,
 			Priority:     priority,
