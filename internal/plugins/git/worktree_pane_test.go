@@ -230,6 +230,83 @@ func TestWorktreePaneFollowUpTaskMessageUsesSelectedWorktree(t *testing.T) {
 	}
 }
 
+func TestWorktreePanePlanDraftMessageUsesSelectedWorktree(t *testing.T) {
+	adapter := &fakeGitAdapter{
+		worktrees: []gitmodel.Worktree{
+			{Path: "/repo/main", Branch: "main", IsMain: true},
+			{Path: "/repo/feature-a", Branch: "feature-a"},
+		},
+	}
+	pane := NewWorktreePane("worktree-1", models.PaneMeta{ID: "worktree-1", Type: models.PaneTypeWorktree, CWD: "/repo/main"}, models.CommonModel{}, adapter)
+	updated, _ := pane.Update(worktreesLoadedMsg{worktrees: adapter.worktrees})
+	pane = updated.(*WorktreePane)
+	pane.SetResumeSummaries(map[string]gitmodel.WorktreeResumeSummary{
+		"/repo/feature-a": {TaskID: "task-1", TaskTitle: "Fix resume pipeline", ResumeScore: 90},
+	})
+
+	updated, cmd := pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'p'}})
+	pane = updated.(*WorktreePane)
+	if cmd == nil {
+		t.Fatalf("expected plan-draft command")
+	}
+	msg := runCmd(t, cmd)
+	openMsg, ok := msg.(OpenPlanEditMsg)
+	if !ok {
+		t.Fatalf("expected OpenPlanEditMsg, got %T", msg)
+	}
+	if openMsg.WorktreeID != "/repo/feature-a" || openMsg.TaskID != "task-1" {
+		t.Fatalf("unexpected plan edit message %+v", openMsg)
+	}
+}
+
+func TestWorktreePanePlanDraftAllowsMissingTask(t *testing.T) {
+	adapter := &fakeGitAdapter{
+		worktrees: []gitmodel.Worktree{
+			{Path: "/repo/main", Branch: "main", IsMain: true},
+			{Path: "/repo/feature-a", Branch: "feature-a"},
+		},
+	}
+	pane := NewWorktreePane("worktree-1", models.PaneMeta{ID: "worktree-1", Type: models.PaneTypeWorktree, CWD: "/repo/main"}, models.CommonModel{}, adapter)
+	updated, _ := pane.Update(worktreesLoadedMsg{worktrees: adapter.worktrees})
+	pane = updated.(*WorktreePane)
+	pane.SetResumeSummaries(map[string]gitmodel.WorktreeResumeSummary{
+		"/repo/feature-a": {TaskTitle: "No task yet", ResumeScore: 40},
+	})
+
+	updated, cmd := pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'p'}})
+	pane = updated.(*WorktreePane)
+	if cmd == nil {
+		t.Fatalf("expected standalone plan-draft command")
+	}
+	if pane.err != nil {
+		t.Fatalf("expected no error for standalone plan draft, got %v", pane.err)
+	}
+	msg := runCmd(t, cmd)
+	openMsg, ok := msg.(OpenPlanEditMsg)
+	if !ok {
+		t.Fatalf("expected OpenPlanEditMsg, got %T", msg)
+	}
+	if openMsg.WorktreeID != "/repo/feature-a" || openMsg.TaskID != "" {
+		t.Fatalf("unexpected standalone plan edit message %+v", openMsg)
+	}
+}
+
+func TestWorktreePaneUppercasePStartsPruneConfirmation(t *testing.T) {
+	adapter := &fakeGitAdapter{worktrees: []gitmodel.Worktree{{Path: "/repo/main", Branch: "main", IsMain: true}, {Path: "/repo/feature-a", Branch: "feature-a"}}}
+	pane := NewWorktreePane("worktree-1", models.PaneMeta{ID: "worktree-1", Type: models.PaneTypeWorktree, CWD: "/repo/main"}, models.CommonModel{}, adapter)
+	updated, _ := pane.Update(worktreesLoadedMsg{worktrees: adapter.worktrees})
+	pane = updated.(*WorktreePane)
+
+	updated, cmd := pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'P'}})
+	pane = updated.(*WorktreePane)
+	if cmd != nil {
+		t.Fatalf("expected prune confirmation without immediate command")
+	}
+	if pane.confirm == nil || pane.confirm.kind != "prune" {
+		t.Fatalf("expected uppercase P to start prune confirmation, got %+v", pane.confirm)
+	}
+}
+
 func TestWorktreePaneCycleTaskStateMessageUsesSelectedWorktree(t *testing.T) {
 	adapter := &fakeGitAdapter{
 		worktrees: []gitmodel.Worktree{
@@ -379,7 +456,7 @@ func TestWorktreePaneForceRemoveDirtyWorktree(t *testing.T) {
 func TestWorktreePanePruneConfirmationEmitsRequest(t *testing.T) {
 	pane := NewWorktreePane("worktree-1", models.PaneMeta{ID: "worktree-1", Type: models.PaneTypeWorktree, CWD: "/repo/main"}, models.CommonModel{}, &fakeGitAdapter{})
 
-	updated, _ := pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'p'}})
+	updated, _ := pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'P'}})
 	pane = updated.(*WorktreePane)
 	if pane.confirm == nil || pane.confirm.kind != "prune" {
 		t.Fatalf("expected prune confirmation, got %+v", pane.confirm)

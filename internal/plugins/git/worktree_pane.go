@@ -81,6 +81,12 @@ type OpenTaskEditMsg struct {
 	ParentTaskID string
 }
 
+type OpenPlanEditMsg struct {
+	TaskID     string
+	WorktreeID string
+	RepoID     string
+}
+
 type CycleTaskStateMsg struct {
 	TaskID       string
 	WorktreeID   string
@@ -254,6 +260,14 @@ func (p *WorktreePane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 					return OpenTaskEditMsg{WorktreeID: wt.Path, RepoID: p.repoPath, RelationType: "queued", ParentTaskID: summary.TaskID}
 				}
 			}
+		case "p":
+			if wt, ok := p.selectedWorktree(); ok {
+				summary := p.summaries[wt.Path]
+				p.notice = "Drafting plan for " + shortenWorktreePath(wt.Path)
+				return p, func() tea.Msg {
+					return OpenPlanEditMsg{TaskID: summary.TaskID, WorktreeID: wt.Path, RepoID: p.repoPath}
+				}
+			}
 		case "s":
 			if wt, ok := p.selectedWorktree(); ok {
 				summary := p.summaries[wt.Path]
@@ -290,7 +304,7 @@ func (p *WorktreePane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 				p.err = nil
 				return p, nil
 			}
-		case "p":
+		case "P":
 			p.confirm = &worktreeConfirmState{kind: "prune"}
 			p.err = nil
 			return p, nil
