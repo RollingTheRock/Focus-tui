@@ -454,6 +454,15 @@ func TestLaunchAgentPersistsSessionAndInjectsStableID(t *testing.T) {
 	cfg := config.DefaultConfig()
 	st, _ := store.New(":memory:")
 	m := New(cfg, st).(model)
+	if err := st.SaveTaskPlan(models.TaskPlanRecord{ID: "plan-1", Title: "Plan", Status: "active", CurrentStep: "Step one"}); err != nil {
+		t.Fatalf("save task plan: %v", err)
+	}
+	if err := st.SavePlanStep(models.PlanStepRecord{ID: "step-1", PlanID: "plan-1", OrderIndex: 0, Title: "Step one", State: "in_progress"}); err != nil {
+		t.Fatalf("save plan step: %v", err)
+	}
+	if err := st.SaveWorktreeContext(models.WorktreeContextRecord{WorktreeID: "/repo/feature-a", RepoID: "/repo/main", CurrentPlanID: stringPtr("plan-1"), TaskMode: "single", TaskName: "Planning", LastActiveAt: time.Now()}); err != nil {
+		t.Fatalf("save worktree context: %v", err)
+	}
 
 	cmd := m.launchAgent(agents.LaunchAgentMsg{WorktreeID: "/repo/feature-a", Provider: agents.ProviderOpenCode})
 	if cmd == nil {
@@ -469,6 +478,9 @@ func TestLaunchAgentPersistsSessionAndInjectsStableID(t *testing.T) {
 	}
 	if records[0].Provider != string(agents.ProviderOpenCode) {
 		t.Fatalf("expected opencode session, got %+v", records[0])
+	}
+	if records[0].PlanID != "plan-1" || records[0].StepID != "step-1" {
+		t.Fatalf("expected session to capture current execution slice, got %+v", records[0])
 	}
 
 	focused := m.activePage.focused
@@ -657,6 +669,10 @@ func TestSavePlanEditorPersistsDraftPlan(t *testing.T) {
 		TaskID:     "task-1",
 		WorktreeID: "/repo/feature-a",
 		Title:      "Phase 1 rollout",
+		WhyNow:     "Planning should happen before task expansion.",
+		Success:    "The plan survives reopening with brief intact.",
+		OutOfScope: "Full session orchestration.",
+		KnownRisks: "Expansion may create too many tasks too early.",
 		PlanBody:   "Main lane\nValidation lane\nRisk lane",
 	}); cmd != nil {
 		t.Fatalf("expected savePlanEditor to complete synchronously")
@@ -668,12 +684,18 @@ func TestSavePlanEditorPersistsDraftPlan(t *testing.T) {
 	if len(plans) != 1 || plans[0].Title != "Phase 1 rollout" || plans[0].PlanBody == "" || plans[0].Status != "draft" || plans[0].CurrentStep != "Main lane" {
 		t.Fatalf("unexpected plans: %+v", plans)
 	}
+	if plans[0].WhyNow == "" || plans[0].Success == "" || plans[0].OutOfScope == "" || plans[0].KnownRisks == "" {
+		t.Fatalf("expected plan-owned brief fields, got %+v", plans[0])
+	}
 	steps, err := st.ListPlanSteps(plans[0].ID)
 	if err != nil {
 		t.Fatalf("list plan steps: %v", err)
 	}
 	if len(steps) != 3 || steps[0].Title != "Main lane" || steps[0].State != "in_progress" || steps[1].State != "pending" {
 		t.Fatalf("unexpected saved plan steps: %+v", steps)
+	}
+	if steps[0].Notes != "main" {
+		t.Fatalf("expected default step note kind to be main, got %+v", steps[0])
 	}
 	wc, err := st.GetWorktreeContext("/repo/feature-a")
 	if err != nil {
@@ -717,6 +739,132 @@ func TestSavePlanEditorPersistsStandaloneDraftPlan(t *testing.T) {
 	}
 	if wc == nil || wc.CurrentPlanID == nil || *wc.CurrentPlanID != plans[0].ID {
 		t.Fatalf("expected standalone plan to anchor on worktree, got %+v", wc)
+	}
+}
+
+func TestSavePlanEditorExpandToTasksCreatesPrimaryAndQueuedTasks(t *testing.T) {
+	cfg := config.DefaultConfig()
+	st, _ := store.New(":memory:")
+	m := New(cfg, st).(model)
+
+	if cmd := m.savePlanEditor(PlanEditorSavedMsg{
+		ID:            panePlanEdit,
+		WorktreeID:    "/repo/feature-a",
+		Title:         "Plan before task",
+		WhyNow:        "Need a converged plan before execution.",
+		Success:       "Tasks appear only after explicit expansion.",
+		PlanBody:      "Intent brief\nDecomposition\nConvergence",
+		ExpandToTasks: true,
+	}); cmd != nil {
+		t.Fatalf("expected savePlanEditor to complete synchronously")
+	}
+	wc, err := st.GetWorktreeContext("/repo/feature-a")
+	if err != nil {
+		t.Fatalf("get worktree context: %v", err)
+	}
+	if wc == nil || wc.PrimaryTaskID == nil || wc.CurrentPlanID == nil {
+		t.Fatalf("expected expanded worktree context, got %+v", wc)
+	}
+	links, err := st.ListWorktreeTaskLinks("/repo/feature-a")
+	if err != nil {
+		t.Fatalf("list worktree task links: %v", err)
+	}
+	if len(links) != 3 {
+		t.Fatalf("expected 3 task links after expansion, got %+v", links)
+	}
+	plans, err := st.ListTaskPlans("")
+	if err != nil || len(plans) != 1 || plans[0].TaskID == "" {
+		t.Fatalf("expected expanded plan to attach primary task, got %+v err=%v", plans, err)
+	}
+	steps, err := st.ListPlanSteps(*wc.CurrentPlanID)
+	if err != nil {
+		t.Fatalf("list plan steps: %v", err)
+	}
+	for _, step := range steps {
+		if step.ExpandedTaskID == "" {
+			t.Fatalf("expected expanded task id on step, got %+v", step)
+		}
+	}
+}
+
+func TestSavePlanEditorParsesConvergencePrefixes(t *testing.T) {
+	cfg := config.DefaultConfig()
+	st, _ := store.New(":memory:")
+	m := New(cfg, st).(model)
+
+	if cmd := m.savePlanEditor(PlanEditorSavedMsg{
+		ID:         panePlanEdit,
+		WorktreeID: "/repo/feature-a",
+		Title:      "Converged plan",
+		PlanBody:   "validation: check smoke path\nblocked: wait for repo cleanup\nfollow-up: polish detail pane\nworktree: isolate risky refactor",
+	}); cmd != nil {
+		t.Fatalf("expected savePlanEditor to complete synchronously")
+	}
+	plans, err := st.ListTaskPlans("")
+	if err != nil || len(plans) != 1 {
+		t.Fatalf("list plans: %+v err=%v", plans, err)
+	}
+	steps, err := st.ListPlanSteps(plans[0].ID)
+	if err != nil {
+		t.Fatalf("list plan steps: %v", err)
+	}
+	if len(steps) != 4 || steps[0].Notes != "validation" || steps[1].State != "blocked" || steps[2].Notes != "follow-up" || steps[3].Notes != "worktree-candidate" {
+		t.Fatalf("unexpected converged steps: %+v", steps)
+	}
+}
+
+func TestPlanEditorApprovalRequiresWorthItBrief(t *testing.T) {
+	pane := NewPlanEditPane(panePlanEdit, models.PaneMeta{ID: panePlanEdit}, models.CommonModel{}, planEditorSeed{Title: "Plan", PlanBody: "Do thing"})
+	pane.status = "approved"
+	updated, cmd := pane.submit()
+	if cmd != nil {
+		t.Fatalf("expected approval without brief to fail")
+	}
+	planPane := updated.(*PlanEditPane)
+	if planPane.err == nil {
+		t.Fatalf("expected validation error for missing worth-it brief")
+	}
+}
+
+func TestHandleAgentExitedBackflowsPlanStepAndHandoff(t *testing.T) {
+	cfg := config.DefaultConfig()
+	st, _ := store.New(":memory:")
+	m := New(cfg, st).(model)
+
+	if err := st.SaveTaskContext(models.TaskContextRecord{ID: "task-1", RepoID: "/repo/main", Title: "Step one", NextStep: "Step one", State: "active", Priority: "medium"}); err != nil {
+		t.Fatalf("save task: %v", err)
+	}
+	if err := st.SaveTaskPlan(models.TaskPlanRecord{ID: "plan-1", TaskID: "task-1", Title: "Plan", Status: "active", CurrentStep: "Step one"}); err != nil {
+		t.Fatalf("save plan: %v", err)
+	}
+	if err := st.SavePlanStep(models.PlanStepRecord{ID: "step-1", PlanID: "plan-1", OrderIndex: 0, Title: "Step one", State: "in_progress", ExpandedTaskID: "task-1"}); err != nil {
+		t.Fatalf("save current step: %v", err)
+	}
+	if err := st.SavePlanStep(models.PlanStepRecord{ID: "step-2", PlanID: "plan-1", OrderIndex: 1, Title: "Step two", State: "pending"}); err != nil {
+		t.Fatalf("save next step: %v", err)
+	}
+	m.saveAgentSessionRecord(models.AgentSessionRecord{ID: "session-1", Provider: string(agents.ProviderOpenCode), WorktreeID: "/repo/feature-a", TaskID: "task-1", PlanID: "plan-1", StepID: "step-1", State: string(agents.SessionRunning), StartedAt: time.Now()})
+
+	m.handleAgentExited(agents.AgentExitedMsg{WorktreeID: "/repo/feature-a", Provider: agents.ProviderOpenCode})
+
+	steps, err := st.ListPlanSteps("plan-1")
+	if err != nil {
+		t.Fatalf("list steps: %v", err)
+	}
+	if steps[0].State != "done" || steps[1].State != "in_progress" {
+		t.Fatalf("expected plan steps to advance, got %+v", steps)
+	}
+	plan, err := st.GetTaskPlan("plan-1")
+	if err != nil || plan == nil || plan.CurrentStep != "Step two" {
+		t.Fatalf("expected plan current step to advance, got %+v err=%v", plan, err)
+	}
+	task, err := st.GetTaskContext("task-1")
+	if err != nil || task == nil || task.NextStep != "Step two" {
+		t.Fatalf("expected task next step to update, got %+v err=%v", task, err)
+	}
+	handoffs, err := st.ListSessionHandoffs("task-1")
+	if err != nil || len(handoffs) != 1 || handoffs[0].DoneSummary != "Step one" || handoffs[0].RemainingSummary != "Step two" {
+		t.Fatalf("expected handoff backflow, got %+v err=%v", handoffs, err)
 	}
 }
 

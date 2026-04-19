@@ -178,7 +178,7 @@ func TestTaskPlansAndSessionHandoffsRoundTrip(t *testing.T) {
 	if err := s.SaveTaskPlan(TaskPlanRecord{ID: "plan-1", TaskID: "task-1", Title: "Phase 1 rollout", Status: "active", CurrentStep: "Wire overview summary", PlanBody: "1. add schema\n2. wire panes"}); err != nil {
 		t.Fatalf("save task plan: %v", err)
 	}
-	if err := s.SavePlanStep(PlanStepRecord{ID: "step-1", PlanID: "plan-1", OrderIndex: 0, Title: "Wire overview summary", State: "in_progress", Notes: "Do this before pane cleanup"}); err != nil {
+	if err := s.SavePlanStep(PlanStepRecord{ID: "step-1", PlanID: "plan-1", OrderIndex: 0, Title: "Wire overview summary", State: "in_progress", ExpandedTaskID: "task-1", Notes: "Do this before pane cleanup"}); err != nil {
 		t.Fatalf("save plan step: %v", err)
 	}
 	if err := s.SaveSessionHandoff(SessionHandoffRecord{ID: "handoff-1", TaskID: "task-1", PlanID: stringPtr("plan-1"), SessionID: "session-1", DoneSummary: "Added schema", RemainingSummary: "Wire pane rendering", DecisionSummary: "Keep builder centralized", BlockerSummary: "Need UX pass", Entrypoint: "Open overview detail pane"}); err != nil {
@@ -188,8 +188,11 @@ func TestTaskPlansAndSessionHandoffsRoundTrip(t *testing.T) {
 	if err != nil || len(plans) != 1 || plans[0].CurrentStep != "Wire overview summary" {
 		t.Fatalf("unexpected task plans: %+v err=%v", plans, err)
 	}
+	if plans[0].WhyNow != "" {
+		t.Fatalf("expected empty optional plan brief by default, got %+v", plans[0])
+	}
 	steps, err := s.ListPlanSteps("plan-1")
-	if err != nil || len(steps) != 1 || steps[0].State != "in_progress" {
+	if err != nil || len(steps) != 1 || steps[0].State != "in_progress" || steps[0].ExpandedTaskID != "task-1" {
 		t.Fatalf("unexpected plan steps: %+v err=%v", steps, err)
 	}
 	handoffs, err := s.ListSessionHandoffs("task-1")
@@ -215,7 +218,7 @@ func TestTaskPlanCanExistWithoutTask(t *testing.T) {
 	if plan == nil || plan.TaskID != "" || plan.Title != "Plan first" {
 		t.Fatalf("unexpected standalone plan: %+v", plan)
 	}
-	if err := s.SavePlanStep(PlanStepRecord{ID: "plan-orphan::step::000", PlanID: "plan-orphan", OrderIndex: 0, Title: "Intent brief", State: "in_progress"}); err != nil {
+	if err := s.SavePlanStep(PlanStepRecord{ID: "plan-orphan::step::000", PlanID: "plan-orphan", OrderIndex: 0, Title: "Intent brief", State: "in_progress", ExpandedTaskID: ""}); err != nil {
 		t.Fatalf("save standalone plan step: %v", err)
 	}
 	steps, err := s.ListPlanSteps("plan-orphan")
