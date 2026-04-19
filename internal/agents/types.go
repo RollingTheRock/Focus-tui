@@ -33,6 +33,9 @@ type Session struct {
 	Provider       Provider
 	WorktreeID     string
 	RepoID         string
+	TaskID         string
+	PlanID         string
+	StepID         string
 	BranchSnapshot string
 	PID            int
 	State          SessionState

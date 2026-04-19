@@ -264,6 +264,9 @@ func (p *SessionPane) renderSessionLine(s *agents.Session) string {
 	if s.LaunchSource != "" {
 		line += "  src:" + s.LaunchSource
 	}
+	if s.StepID != "" {
+		line += "  step:" + shortSessionID(s.StepID)
+	}
 	if !s.StartedAt.IsZero() {
 		line += "  " + formatDuration(time.Since(s.StartedAt))
 	}
@@ -274,6 +277,13 @@ func (p *SessionPane) renderSessionLine(s *agents.Session) string {
 		line += "  — " + s.Summary
 	}
 	return line
+}
+
+func shortSessionID(id string) string {
+	if len(id) <= 12 {
+		return id
+	}
+	return id[:12]
 }
 
 func (p *SessionPane) sessionIndex(id string) int {
