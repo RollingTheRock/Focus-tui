@@ -1,5 +1,10 @@
 # Focus TUI 开发实现计划（当前执行版）
 
+> [过时归档说明]
+> 自 2026-04-19 起，本文档不再作为当前执行依据。
+> 项目方向已升级为 **ADR → Plan → Task → Session** 的宪法驱动流程，旧的 phase/step 计划仅保留作历史参考。
+> 后续应以新的 ADR 宪法文档与其派生 plan 为准。
+
 > 更新日期: 2026-04-17
 > 当前阶段: Phase 4 - Human Context Recovery + Lightweight Task Orchestration
 > 当前执行点: Phase 4 Step 1 - Context Schema & Store Foundation

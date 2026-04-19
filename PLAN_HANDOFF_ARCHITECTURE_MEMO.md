@@ -1,5 +1,9 @@
 # MEMO: Focus-tui Plan & Handoff Layer — Architecture Risk Review
 
+> [过时归档说明]
+> 本 memo 基于 ADR-first 之前的 plan/handoff 形态。
+> 自 2026-04-19 起保留作历史架构审查参考，不再作为当前目标架构定义。
+
 **Date:** 2026-04-17  
 **Scope:** Concrete first-implementation guidance for a durable Plan & Handoff layer, grounded in the existing SQLite store, task/worktree/session structures, and `workbench_context.go` fusion pipeline.  
 **Constraint:** Must respect the Phase 4 "no event sink, no transcript store, no project manager bloat" boundary (`IMPLEMENTATION_PLAN.md` Section V).

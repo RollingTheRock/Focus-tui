@@ -1,5 +1,9 @@
 # MEMO: Plan & Handoff Layer — Safe Seams & Minimal-Diff Path
 
+> [过时归档说明]
+> 本 memo 记录的是 ADR-first 转型前的 seam 分析。
+> 自 2026-04-19 起保留作历史参考，不再作为当前执行依据。
+
 **Date:** 2026-04-17  
 **Scope:** Schema, store, models, app workbench context builder, overview panes, task/worktree links, notes, agent sessions, tests.  
 **Constraint:** No broad redesign. Identify exact extension points and likely conflicts.

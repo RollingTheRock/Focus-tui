@@ -1,5 +1,9 @@
 # Next Steps
 
+> [过时归档说明]
+> 自 2026-04-19 起，本文档不再作为当前 session 的执行入口。
+> 项目已切换到 **ADR-first** 工作流；后续的执行入口应来自 ADR 宪法与其下位 plan，而不是本文件中的 phase/step 描述。
+
 > 更新日期: 2026-04-17
 > 本页只保留“当前真实状态 + 当前执行入口”
 
@@ -17,9 +21,10 @@
 
 | 文档 | 用途 | 优先级 |
 |------|------|--------|
-| **[IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md)** | 当前执行计划与优先级 | ⭐⭐⭐ 首读 |
-| **[PLAN-WORKTREE-CONTAINERS-2026-04.md](./PLAN-WORKTREE-CONTAINERS-2026-04.md)** | Worktree container 总体阶段计划 | ⭐⭐⭐ 必读 |
-| **[DIRECTION.md](./DIRECTION.md)** | 产品方向与长期架构 | ⭐⭐ 背景参考 |
+| **[docs/adr/0000-constitution-for-adr-driven-execution.md](./docs/adr/0000-constitution-for-adr-driven-execution.md)** | 当前最高层宪法约束 | ⭐⭐⭐ 首读 |
+| **[docs/adr/0001-product-positioning-human-sovereign-agent-native-workbench.md](./docs/adr/0001-product-positioning-human-sovereign-agent-native-workbench.md)** | 当前产品定位 | ⭐⭐⭐ 必读 |
+| **[IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md)** | 历史实现计划参考 | ⭐ 背景 |
+| **[DIRECTION.md](./DIRECTION.md)** | ADR-first 转型前方向历史 | ⭐ 背景 |
 | **[DESIGN-WORKTREE-CONTAINERS-2026-04.md](./DESIGN-WORKTREE-CONTAINERS-2026-04.md)** | Worktree 容器工程设计 | ⭐⭐ 设计参考 |
 | **[PLAN-2.4.md](./PLAN-2.4.md)** | 历史基础设施计划 | 历史参考 |
 | **[LEARNINGS.md](./LEARNINGS.md)** | 历史探索笔记 | 参考 |

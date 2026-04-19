@@ -1,5 +1,9 @@
 # MEMO: Focus-tui Plan-First Readiness Audit
 
+> [过时归档说明]
+> 本 memo 的价值在于记录 **旧系统为何仍是 task-first**。
+> 自 2026-04-19 起，它不再描述目标状态，而是 ADR-first 转型前的审计证据。
+
 **Date:** 2026-04-18  
 **Scope:** Schema, models, panes, builder logic, and interaction flows  
 **Constraint:** Evidence only — no edits, no builds, no speculation.

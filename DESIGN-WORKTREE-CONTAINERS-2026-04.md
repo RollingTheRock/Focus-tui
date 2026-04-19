@@ -1,5 +1,9 @@
 # Worktree Container Architecture Design (2026-04)
 
+> [过时归档说明]
+> 自 2026-04-19 起，本文档中的设计约束已降级为历史设计参考。
+> 后续设计应服从新的 ADR 宪法，而不是直接继承本文档中的阶段性设计假设。
+
 > Document version: 2026-04-14
 > Status: Proposed engineering design
 > Scope: Establish worktree as the primary development container for shell, git, editor, and agent workflows

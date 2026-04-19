@@ -1,14 +1,15 @@
 # focus-tui
 
-`focus-tui` is a terminal-native developer workspace: a step toward a developer operating system that runs inside the terminal.
+`focus-tui` is an ADR-driven, terminal-native developer workbench for human-sovereign, agent-native software execution.
 
-It is not meant to be a wrapper for a single coding agent. The goal is to provide one structured workspace where `shell` sessions, coding agents, git workflows, and personal workflow components can coexist and stay visible together.
+It is not meant to be a wrapper for a single coding agent or a chat-first coding surface. The goal is to provide one structured workspace where `ADR`, `plan`, `task`, and `session` layers stay explicit while `shell` sessions, coding agents, git workflows, and personal workflow components remain visible together.
 
 ## Positioning
 
-- Terminal-first, not GUI-first
+- ADR-driven, not session-driven
+- Human-sovereign, not agent-sovereign
+- Agent-native, not agent-incidental
 - Native shell integration, not a launcher for external TUIs
-- Agent-agnostic: works with any terminal-based coding agent, including `OpenCode`, `Claude Code`, and future CLI agents
 - Personal workflow components such as `Todo` and `Pomodoro` remain first-class parts of the workspace instead of being treated as throwaway experiments
 
 ## Current Status

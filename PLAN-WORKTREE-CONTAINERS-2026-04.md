@@ -1,5 +1,9 @@
 # Worktree Container Implementation Plan (2026-04)
 
+> [过时归档说明]
+> 自 2026-04-19 起，本文档已被 ADR-first 方向 supersede。
+> 保留仅作历史阶段计划参考，不再作为当前实现依据。
+
 > Document version: 2026-04-14
 > Expected duration: 4-6 weeks
 > Goal: Make worktree the primary development container for parallel shell, git, editor, and agent workflows
