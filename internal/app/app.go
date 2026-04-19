@@ -783,6 +783,7 @@ func (m *model) handleAgentExited(msg agents.AgentExitedMsg) {
 		record.EndedAt = &now
 		record.UpdatedAt = now
 		m.saveAgentSessionRecord(record)
+		m.backflowAgentSession(record)
 		if m.agentRegistry != nil {
 			m.agentRegistry.Remove(record.ID)
 		}
@@ -1262,6 +1263,10 @@ func (m *model) openPlanEditPane(msg gitplugin.OpenPlanEditMsg) tea.Cmd {
 		if plan != nil {
 			seed.PlanID = plan.ID
 			seed.Title = plan.Title
+			seed.WhyNow = plan.WhyNow
+			seed.Success = plan.Success
+			seed.OutOfScope = plan.OutOfScope
+			seed.KnownRisks = plan.KnownRisks
 			seed.PlanBody = plan.PlanBody
 			seed.Status = plan.Status
 			seed.CurrentStep = plan.CurrentStep
@@ -1392,44 +1397,78 @@ func (m *model) savePlanEditor(msg PlanEditorSavedMsg) tea.Cmd {
 		ID:          planID,
 		TaskID:      msg.TaskID,
 		Title:       msg.Title,
+		WhyNow:      msg.WhyNow,
+		Success:     msg.Success,
+		OutOfScope:  msg.OutOfScope,
+		KnownRisks:  msg.KnownRisks,
 		Status:      status,
 		CurrentStep: currentStep,
 		PlanBody:    msg.PlanBody,
 	})
 	_ = m.common.Store.DeletePlanSteps(planID)
-	for i, title := range parsePlanStepTitles(msg.PlanBody) {
+	for i, step := range parsePlanSteps(msg.PlanBody) {
 		_ = m.common.Store.SavePlanStep(models.PlanStepRecord{
 			ID:         fmt.Sprintf("%s::step::%03d", planID, i),
 			PlanID:     planID,
 			OrderIndex: i,
-			Title:      title,
-			State:      stepStateForIndex(i),
+			Title:      step.Title,
+			State:      stepStateForIndex(i, step.Kind),
+			Notes:      step.Kind,
 		})
 	}
 	if msg.WorktreeID != "" {
 		m.attachPlanToWorktree(msg.WorktreeID, msg.Title, planID)
 	}
+	if msg.ExpandToTasks {
+		m.expandPlanToTasks(planID, msg.WorktreeID)
+	}
 	return nil
 }
 
 func inferCurrentPlanStep(planBody string) string {
-	for _, line := range parsePlanStepTitles(planBody) {
-		if line != "" {
-			return line
+	for _, step := range parsePlanSteps(planBody) {
+		if step.Title != "" && step.Kind != "blocked" && step.Kind != "follow-up" {
+			return step.Title
 		}
 	}
 	return ""
 }
 
-func parsePlanStepTitles(planBody string) []string {
+type parsedPlanStep struct {
+	Title string
+	Kind  string
+}
+
+func parsePlanSteps(planBody string) []parsedPlanStep {
 	lines := strings.Split(planBody, "\n")
-	steps := make([]string, 0, len(lines))
+	steps := make([]parsedPlanStep, 0, len(lines))
 	for _, line := range lines {
 		line = strings.TrimSpace(strings.TrimLeft(line, "-•0123456789. "))
 		if line == "" {
 			continue
 		}
-		steps = append(steps, line)
+		kind := "main"
+		switch {
+		case strings.HasPrefix(strings.ToLower(line), "blocked:"):
+			kind = "blocked"
+			line = strings.TrimSpace(line[len("blocked:"):])
+		case strings.HasPrefix(strings.ToLower(line), "follow-up:"):
+			kind = "follow-up"
+			line = strings.TrimSpace(line[len("follow-up:"):])
+		case strings.HasPrefix(strings.ToLower(line), "worktree:"):
+			kind = "worktree-candidate"
+			line = strings.TrimSpace(line[len("worktree:"):])
+		case strings.HasPrefix(strings.ToLower(line), "validation:"):
+			kind = "validation"
+			line = strings.TrimSpace(line[len("validation:"):])
+		case strings.HasPrefix(strings.ToLower(line), "risk:"):
+			kind = "risk"
+			line = strings.TrimSpace(line[len("risk:"):])
+		}
+		if line == "" {
+			continue
+		}
+		steps = append(steps, parsedPlanStep{Title: line, Kind: kind})
 	}
 	return steps
 }
@@ -1441,13 +1480,28 @@ func renderPlanSteps(steps []models.PlanStepRecord) string {
 		if line == "" {
 			continue
 		}
+		switch step.Notes {
+		case "blocked":
+			line = "blocked: " + line
+		case "follow-up":
+			line = "follow-up: " + line
+		case "worktree-candidate":
+			line = "worktree: " + line
+		case "validation":
+			line = "validation: " + line
+		case "risk":
+			line = "risk: " + line
+		}
 		lines = append(lines, "- "+line)
 	}
 	return strings.Join(lines, "\n")
 }
 
-func stepStateForIndex(index int) string {
-	if index == 0 {
+func stepStateForIndex(index int, kind string) string {
+	if kind == "blocked" {
+		return "blocked"
+	}
+	if index == 0 && kind != "follow-up" {
 		return "in_progress"
 	}
 	return "pending"
@@ -1486,6 +1540,84 @@ func (m *model) attachPlanToWorktree(worktreeID, fallbackTitle, planID string) {
 		}
 	}
 	_ = m.common.Store.SaveWorktreeContext(record)
+}
+
+func (m *model) expandPlanToTasks(planID, worktreeID string) {
+	if m.common == nil || m.common.Store == nil || planID == "" || worktreeID == "" {
+		return
+	}
+	plan, err := m.common.Store.GetTaskPlan(planID)
+	if err != nil || plan == nil {
+		return
+	}
+	steps := m.listPlanSteps(planID)
+	if len(steps) == 0 {
+		return
+	}
+	repoID := m.gitRepoPath()
+	if repoID == "" {
+		repoID, _ = gitRepoRoot(worktreeID)
+	}
+	if repoID == "" {
+		repoID = worktreeID
+	}
+	wc, _ := m.common.Store.GetWorktreeContext(worktreeID)
+	var primaryTaskID *string
+	if wc != nil {
+		primaryTaskID = wc.PrimaryTaskID
+	}
+	createdPrimary := primaryTaskID == nil || *primaryTaskID == ""
+	for i, step := range steps {
+		if step.ExpandedTaskID != "" {
+			continue
+		}
+		taskID := uuid.NewString()
+		state := "paused"
+		relationType := "queued"
+		if step.Notes == "blocked" {
+			state = "blocked"
+		}
+		if i == 0 && createdPrimary {
+			state = "active"
+			relationType = "primary"
+			primaryTaskID = &taskID
+		} else if step.State == "in_progress" {
+			state = "active"
+		}
+		if step.Notes == "worktree-candidate" {
+			relationType = "secondary"
+		}
+		_ = m.common.Store.SaveTaskContext(models.TaskContextRecord{
+			ID:                  taskID,
+			RepoID:              repoID,
+			Title:               step.Title,
+			Goal:                plan.Title,
+			NextStep:            step.Title,
+			State:               state,
+			Priority:            "medium",
+			PreferredWorktreeID: worktreeID,
+		})
+		_ = m.common.Store.SaveTaskBrief(models.TaskBriefRecord{TaskID: taskID, WhyNow: plan.WhyNow, SuccessCriteria: plan.Success, OutOfScope: plan.OutOfScope, KnownRisks: plan.KnownRisks})
+		step.ExpandedTaskID = taskID
+		_ = m.common.Store.SavePlanStep(step)
+		_ = m.common.Store.SaveTaskWorktreeLink(models.TaskWorktreeLinkRecord{ID: taskID + "::" + worktreeID + "::" + relationType, TaskID: taskID, WorktreeID: worktreeID, RelationType: relationType})
+		if plan.TaskID == "" && relationType == "primary" {
+			plan.TaskID = taskID
+		}
+	}
+	if plan.TaskID != "" {
+		_ = m.common.Store.SaveTaskPlan(*plan)
+	}
+	if wc != nil {
+		wc.PrimaryTaskID = primaryTaskID
+		if wc.TaskName == "" {
+			wc.TaskName = plan.Title
+		}
+		if wc.TaskMode == "" {
+			wc.TaskMode = "mixed"
+		}
+		_ = m.common.Store.SaveWorktreeContext(*wc)
+	}
 }
 
 func (m *model) cycleTaskState(msg gitplugin.CycleTaskStateMsg) {
@@ -1817,6 +1949,18 @@ func (m *model) refreshResumeSummaryCache(agentSessions map[string]agents.Sessio
 			summary.PlanStatus = plan.Status
 			summary.CurrentPlanStep = plan.CurrentStep
 			summary.PlanBody = plan.PlanBody
+			if summary.TaskWhyNow == "" {
+				summary.TaskWhyNow = plan.WhyNow
+			}
+			if summary.TaskSuccess == "" {
+				summary.TaskSuccess = plan.Success
+			}
+			if summary.TaskOutOfScope == "" {
+				summary.TaskOutOfScope = plan.OutOfScope
+			}
+			if summary.TaskKnownRisks == "" {
+				summary.TaskKnownRisks = plan.KnownRisks
+			}
 			steps := m.listPlanSteps(plan.ID)
 			if len(steps) > 0 {
 				summary.PlanSteps = formatPlanStepSummaries(steps)
@@ -1891,6 +2035,18 @@ func (m *model) refreshResumeSummaryCache(agentSessions map[string]agents.Sessio
 			summary.PlanStatus = plan.Status
 			summary.CurrentPlanStep = plan.CurrentStep
 			summary.PlanBody = plan.PlanBody
+			if summary.TaskWhyNow == "" {
+				summary.TaskWhyNow = plan.WhyNow
+			}
+			if summary.TaskSuccess == "" {
+				summary.TaskSuccess = plan.Success
+			}
+			if summary.TaskOutOfScope == "" {
+				summary.TaskOutOfScope = plan.OutOfScope
+			}
+			if summary.TaskKnownRisks == "" {
+				summary.TaskKnownRisks = plan.KnownRisks
+			}
 			steps := m.listPlanSteps(plan.ID)
 			if len(steps) > 0 {
 				summary.PlanSteps = formatPlanStepSummaries(steps)
@@ -2353,6 +2509,9 @@ func (m *model) persistedAgentSessions() map[string]agents.Session {
 			Provider:       agents.Provider(record.Provider),
 			WorktreeID:     record.WorktreeID,
 			RepoID:         record.RepoID,
+			TaskID:         record.TaskID,
+			PlanID:         record.PlanID,
+			StepID:         record.StepID,
 			BranchSnapshot: record.BranchSnapshot,
 			PID:            record.PID,
 			State:          agents.SessionState(record.State),
@@ -2456,11 +2615,15 @@ func (m *model) newAgentSession(worktreeID string, provider agents.Provider) *ag
 			branchSnapshot = status.Branch
 		}
 	}
+	taskID, planID, stepID := m.currentExecutionSlice(worktreeID)
 	return &agents.Session{
 		ID:             agents.NewSessionID(),
 		Provider:       provider,
 		WorktreeID:     worktreeID,
 		RepoID:         repoID,
+		TaskID:         taskID,
+		PlanID:         planID,
+		StepID:         stepID,
 		BranchSnapshot: branchSnapshot,
 		State:          agents.SessionWaiting,
 		LaunchSource:   "focus",
@@ -2479,6 +2642,9 @@ func (m *model) saveAgentSession(session *agents.Session) {
 		Provider:       string(session.Provider),
 		WorktreeID:     session.WorktreeID,
 		RepoID:         session.RepoID,
+		TaskID:         session.TaskID,
+		PlanID:         session.PlanID,
+		StepID:         session.StepID,
 		BranchSnapshot: session.BranchSnapshot,
 		PID:            session.PID,
 		State:          string(session.State),
@@ -2489,6 +2655,94 @@ func (m *model) saveAgentSession(session *agents.Session) {
 		LastActivityAt: session.LastActivityAt,
 		UpdatedAt:      session.UpdatedAt,
 	})
+}
+
+func (m *model) currentExecutionSlice(worktreeID string) (string, string, string) {
+	if m.common == nil || m.common.Store == nil || worktreeID == "" {
+		return "", "", ""
+	}
+	wc, _ := m.common.Store.GetWorktreeContext(worktreeID)
+	var taskID, planID string
+	if wc != nil {
+		if wc.PrimaryTaskID != nil {
+			taskID = *wc.PrimaryTaskID
+		}
+		if wc.CurrentPlanID != nil {
+			planID = *wc.CurrentPlanID
+		}
+	}
+	if planID == "" && taskID != "" {
+		plan := m.resolveCurrentPlan(nil, taskID)
+		if plan != nil {
+			planID = plan.ID
+		}
+	}
+	if planID == "" {
+		return taskID, "", ""
+	}
+	for _, step := range m.listPlanSteps(planID) {
+		if step.State == "in_progress" {
+			if taskID == "" {
+				taskID = step.ExpandedTaskID
+			}
+			return taskID, planID, step.ID
+		}
+	}
+	return taskID, planID, ""
+}
+
+func (m *model) backflowAgentSession(record models.AgentSessionRecord) {
+	if m.common == nil || m.common.Store == nil || record.StepID == "" || record.PlanID == "" {
+		return
+	}
+	steps := m.listPlanSteps(record.PlanID)
+	if len(steps) == 0 {
+		return
+	}
+	var currentTitle, nextTitle string
+	for i := range steps {
+		if steps[i].ID != record.StepID {
+			continue
+		}
+		steps[i].State = "done"
+		currentTitle = steps[i].Title
+		_ = m.common.Store.SavePlanStep(steps[i])
+		if i+1 < len(steps) {
+			steps[i+1].State = "in_progress"
+			nextTitle = steps[i+1].Title
+			_ = m.common.Store.SavePlanStep(steps[i+1])
+		}
+		break
+	}
+	plan, _ := m.common.Store.GetTaskPlan(record.PlanID)
+	if plan != nil {
+		plan.CurrentStep = nextTitle
+		if plan.CurrentStep == "" {
+			plan.Status = "completed"
+		}
+		_ = m.common.Store.SaveTaskPlan(*plan)
+	}
+	if record.TaskID != "" {
+		task, _ := m.common.Store.GetTaskContext(record.TaskID)
+		if task != nil {
+			task.NextStep = nextTitle
+			if nextTitle == "" {
+				task.State = "done"
+			}
+			_ = m.common.Store.SaveTaskContext(*task)
+		}
+		planID := record.PlanID
+		_ = m.common.Store.SaveSessionHandoff(models.SessionHandoffRecord{
+			ID:               record.ID + "::handoff",
+			TaskID:           record.TaskID,
+			PlanID:           &planID,
+			SessionID:        record.ID,
+			DoneSummary:      currentTitle,
+			RemainingSummary: nextTitle,
+			DecisionSummary:  "advance to next plan step",
+			Entrypoint:       "Open plan detail and continue current step",
+		})
+	}
 }
 
 func (m *model) saveAgentSessionRecord(record models.AgentSessionRecord) {
