@@ -18,14 +18,19 @@ type ClosePlanEditorMsg struct {
 }
 
 type PlanEditorSavedMsg struct {
-	ID          models.PaneID
-	PlanID      string
-	TaskID      string
-	WorktreeID  string
-	Title       string
-	PlanBody    string
-	Status      string
-	CurrentStep string
+	ID            models.PaneID
+	PlanID        string
+	TaskID        string
+	WorktreeID    string
+	Title         string
+	WhyNow        string
+	Success       string
+	OutOfScope    string
+	KnownRisks    string
+	PlanBody      string
+	Status        string
+	CurrentStep   string
+	ExpandToTasks bool
 }
 
 type planEditorSeed struct {
@@ -33,6 +38,10 @@ type planEditorSeed struct {
 	TaskID      string
 	WorktreeID  string
 	Title       string
+	WhyNow      string
+	Success     string
+	OutOfScope  string
+	KnownRisks  string
 	PlanBody    string
 	Status      string
 	CurrentStep string
@@ -43,22 +52,30 @@ type PlanEditPane struct {
 	meta   models.PaneMeta
 	common models.CommonModel
 
-	planID      string
-	taskID      string
-	worktreeID  string
-	titleInput  textinput.Model
-	bodyInput   textarea.Model
-	focus       int
-	width       int
-	height      int
-	err         error
-	saving      bool
-	status      string
-	currentStep string
+	planID          string
+	taskID          string
+	worktreeID      string
+	titleInput      textinput.Model
+	whyNowInput     textinput.Model
+	successInput    textinput.Model
+	outOfScopeInput textinput.Model
+	knownRisksInput textinput.Model
+	bodyInput       textarea.Model
+	focus           int
+	width           int
+	height          int
+	err             error
+	saving          bool
+	status          string
+	currentStep     string
 }
 
 const (
 	planEditFieldTitle = iota
+	planEditFieldWhyNow
+	planEditFieldSuccess
+	planEditFieldOutOfScope
+	planEditFieldKnownRisks
 	planEditFieldBody
 )
 
@@ -71,6 +88,30 @@ func NewPlanEditPane(id models.PaneID, meta models.PaneMeta, common models.Commo
 	titleInput.TextStyle = lipgloss.NewStyle().Foreground(appstyles.Text)
 	titleInput.PlaceholderStyle = lipgloss.NewStyle().Foreground(appstyles.Subtle)
 	titleInput.Focus()
+
+	whyNowInput := textinput.New()
+	whyNowInput.Prompt = "Why now: "
+	whyNowInput.Placeholder = "Why is this plan worth doing now?"
+	whyNowInput.SetValue(seed.WhyNow)
+	whyNowInput.PromptStyle = lipgloss.NewStyle().Foreground(appstyles.Accent)
+
+	successInput := textinput.New()
+	successInput.Prompt = "Success: "
+	successInput.Placeholder = "What proves the plan succeeded?"
+	successInput.SetValue(seed.Success)
+	successInput.PromptStyle = lipgloss.NewStyle().Foreground(appstyles.Accent)
+
+	outOfScopeInput := textinput.New()
+	outOfScopeInput.Prompt = "Out of scope: "
+	outOfScopeInput.Placeholder = "What are we explicitly not doing?"
+	outOfScopeInput.SetValue(seed.OutOfScope)
+	outOfScopeInput.PromptStyle = lipgloss.NewStyle().Foreground(appstyles.Accent)
+
+	knownRisksInput := textinput.New()
+	knownRisksInput.Prompt = "Risks: "
+	knownRisksInput.Placeholder = "What can still go wrong?"
+	knownRisksInput.SetValue(seed.KnownRisks)
+	knownRisksInput.PromptStyle = lipgloss.NewStyle().Foreground(appstyles.Accent)
 
 	bodyInput := textarea.New()
 	bodyInput.Placeholder = "Phase A\nValidation lane\nRisk lane"
@@ -92,16 +133,20 @@ func NewPlanEditPane(id models.PaneID, meta models.PaneMeta, common models.Commo
 	bodyInput.SetHeight(8)
 
 	return &PlanEditPane{
-		id:          id,
-		meta:        meta,
-		common:      common,
-		planID:      seed.PlanID,
-		taskID:      seed.TaskID,
-		worktreeID:  seed.WorktreeID,
-		titleInput:  titleInput,
-		bodyInput:   bodyInput,
-		status:      seed.Status,
-		currentStep: seed.CurrentStep,
+		id:              id,
+		meta:            meta,
+		common:          common,
+		planID:          seed.PlanID,
+		taskID:          seed.TaskID,
+		worktreeID:      seed.WorktreeID,
+		titleInput:      titleInput,
+		whyNowInput:     whyNowInput,
+		successInput:    successInput,
+		outOfScopeInput: outOfScopeInput,
+		knownRisksInput: knownRisksInput,
+		bodyInput:       bodyInput,
+		status:          seed.Status,
+		currentStep:     seed.CurrentStep,
 	}
 }
 
@@ -120,6 +165,15 @@ func (p *PlanEditPane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 			return p, closePlanEditorCmd(p.id)
 		case tea.KeyCtrlS:
 			return p.submit()
+		case tea.KeyCtrlA:
+			if p.status == "approved" {
+				p.status = "draft"
+			} else {
+				p.status = "approved"
+			}
+			return p, nil
+		case tea.KeyCtrlT:
+			return p.submitExpanded()
 		case tea.KeyTab:
 			p.moveFocus(1)
 			return p, nil
@@ -135,11 +189,20 @@ func (p *PlanEditPane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 	}
 
 	var cmd tea.Cmd
-	if p.focus == planEditFieldTitle {
+	switch p.focus {
+	case planEditFieldTitle:
 		p.titleInput, cmd = p.titleInput.Update(msg)
-		return p, cmd
+	case planEditFieldWhyNow:
+		p.whyNowInput, cmd = p.whyNowInput.Update(msg)
+	case planEditFieldSuccess:
+		p.successInput, cmd = p.successInput.Update(msg)
+	case planEditFieldOutOfScope:
+		p.outOfScopeInput, cmd = p.outOfScopeInput.Update(msg)
+	case planEditFieldKnownRisks:
+		p.knownRisksInput, cmd = p.knownRisksInput.Update(msg)
+	default:
+		p.bodyInput, cmd = p.bodyInput.Update(msg)
 	}
-	p.bodyInput, cmd = p.bodyInput.Update(msg)
 	return p, cmd
 }
 
@@ -150,13 +213,18 @@ func (p *PlanEditPane) View() string {
 	}
 	lines := []string{
 		taskEditHeaderStyle.Render("Plan Draft"),
-		taskEditHintStyle.Render("Create the plan first, then break it into tasks and sessions once the structure is right. Each non-empty line becomes a decomposition step."),
+		taskEditHintStyle.Render("Create the plan first, then break it into tasks and sessions once the structure is right. Prefix lines with blocked:, follow-up:, worktree:, validation:, or risk: to converge the plan before expansion."),
 		"",
 		p.titleInput.View(),
+		p.whyNowInput.View(),
+		p.successInput.View(),
+		p.outOfScopeInput.View(),
+		p.knownRisksInput.View(),
 		"",
 		p.bodyInput.View(),
 		"",
-		taskEditHintStyle.Render("Tab switch fields · Enter move into body · Ctrl+S save · Esc cancel"),
+		taskEditHintStyle.Render("Tab switch fields · Enter move into body · Ctrl+S save · Ctrl+A approve/draft · Ctrl+T save+expand · Esc cancel"),
+		taskEditHintStyle.Render("status: " + p.status),
 	}
 	if p.saving {
 		lines = append(lines, taskEditHintStyle.Render("Saving plan draft..."))
@@ -178,6 +246,10 @@ func (p *PlanEditPane) SetSize(width, height int) {
 		inputWidth = 24
 	}
 	p.titleInput.Width = inputWidth
+	p.whyNowInput.Width = inputWidth
+	p.successInput.Width = inputWidth
+	p.outOfScopeInput.Width = inputWidth
+	p.knownRisksInput.Width = inputWidth
 	p.bodyInput.SetWidth(inputWidth)
 	bodyHeight := 8
 	if height > 0 {
@@ -193,39 +265,112 @@ func (p *PlanEditPane) SetSize(width, height int) {
 }
 
 func (p *PlanEditPane) moveFocus(delta int) {
-	p.focus = (p.focus + delta + 2) % 2
+	p.focus = (p.focus + delta + 5) % 5
 	if p.focus == planEditFieldTitle {
 		p.titleInput.Focus()
+		p.whyNowInput.Blur()
+		p.successInput.Blur()
+		p.outOfScopeInput.Blur()
+		p.knownRisksInput.Blur()
+		p.bodyInput.Blur()
+	} else if p.focus == planEditFieldWhyNow {
+		p.titleInput.Blur()
+		p.whyNowInput.Focus()
+		p.successInput.Blur()
+		p.outOfScopeInput.Blur()
+		p.knownRisksInput.Blur()
+		p.bodyInput.Blur()
+	} else if p.focus == planEditFieldSuccess {
+		p.titleInput.Blur()
+		p.whyNowInput.Blur()
+		p.successInput.Focus()
+		p.outOfScopeInput.Blur()
+		p.knownRisksInput.Blur()
+		p.bodyInput.Blur()
+	} else if p.focus == planEditFieldOutOfScope {
+		p.titleInput.Blur()
+		p.whyNowInput.Blur()
+		p.successInput.Blur()
+		p.outOfScopeInput.Focus()
+		p.knownRisksInput.Blur()
+		p.bodyInput.Blur()
+	} else if p.focus == planEditFieldKnownRisks {
+		p.titleInput.Blur()
+		p.whyNowInput.Blur()
+		p.successInput.Blur()
+		p.outOfScopeInput.Blur()
+		p.knownRisksInput.Focus()
 		p.bodyInput.Blur()
 	} else {
 		p.titleInput.Blur()
+		p.whyNowInput.Blur()
+		p.successInput.Blur()
+		p.outOfScopeInput.Blur()
+		p.knownRisksInput.Blur()
 		_ = p.bodyInput.Focus()
 	}
 }
 
 func (p *PlanEditPane) submit() (models.Panel, tea.Cmd) {
-	if p.saving {
-		return p, nil
-	}
-	title := strings.TrimSpace(p.titleInput.Value())
-	if title == "" {
-		p.err = errors.New("plan title cannot be empty")
+	msg, err := p.buildSavedMsg(false)
+	if err != nil {
+		p.err = err
 		return p, nil
 	}
 	p.saving = true
 	p.err = nil
-	return p, func() tea.Msg {
-		return PlanEditorSavedMsg{
-			ID:          p.id,
-			PlanID:      p.planID,
-			TaskID:      p.taskID,
-			WorktreeID:  p.worktreeID,
-			Title:       title,
-			PlanBody:    strings.TrimSpace(p.bodyInput.Value()),
-			Status:      p.status,
-			CurrentStep: p.currentStep,
+	return p, func() tea.Msg { return msg }
+}
+
+func (p *PlanEditPane) buildSavedMsg(expand bool) (PlanEditorSavedMsg, error) {
+	if p.saving {
+		return PlanEditorSavedMsg{}, errors.New("plan is already saving")
+	}
+	title := strings.TrimSpace(p.titleInput.Value())
+	if title == "" {
+		return PlanEditorSavedMsg{}, errors.New("plan title cannot be empty")
+	}
+	if expand || p.status == "approved" {
+		if strings.TrimSpace(p.whyNowInput.Value()) == "" {
+			return PlanEditorSavedMsg{}, errors.New("approved plans require a why-now brief")
+		}
+		if strings.TrimSpace(p.successInput.Value()) == "" {
+			return PlanEditorSavedMsg{}, errors.New("approved plans require success criteria")
+		}
+		if strings.TrimSpace(p.outOfScopeInput.Value()) == "" {
+			return PlanEditorSavedMsg{}, errors.New("approved plans require an out-of-scope boundary")
+		}
+		if len(strings.TrimSpace(p.bodyInput.Value())) == 0 {
+			return PlanEditorSavedMsg{}, errors.New("approved plans require at least one decomposition step")
 		}
 	}
+	return PlanEditorSavedMsg{
+		ID:            p.id,
+		PlanID:        p.planID,
+		TaskID:        p.taskID,
+		WorktreeID:    p.worktreeID,
+		Title:         title,
+		WhyNow:        strings.TrimSpace(p.whyNowInput.Value()),
+		Success:       strings.TrimSpace(p.successInput.Value()),
+		OutOfScope:    strings.TrimSpace(p.outOfScopeInput.Value()),
+		KnownRisks:    strings.TrimSpace(p.knownRisksInput.Value()),
+		PlanBody:      strings.TrimSpace(p.bodyInput.Value()),
+		Status:        p.status,
+		CurrentStep:   p.currentStep,
+		ExpandToTasks: expand,
+	}, nil
+}
+
+func (p *PlanEditPane) submitExpanded() (models.Panel, tea.Cmd) {
+	p.status = "approved"
+	msg, err := p.buildSavedMsg(true)
+	if err != nil {
+		p.err = err
+		return p, nil
+	}
+	p.saving = true
+	p.err = nil
+	return p, func() tea.Msg { return msg }
 }
 
 func closePlanEditorCmd(id models.PaneID) tea.Cmd {
