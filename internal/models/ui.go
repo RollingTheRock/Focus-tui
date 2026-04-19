@@ -64,6 +64,9 @@ type AgentSessionRecord struct {
 	Provider       string
 	WorktreeID     string
 	RepoID         string
+	TaskID         string
+	PlanID         string
+	StepID         string
 	BranchSnapshot string
 	PID            int
 	State          string
@@ -126,6 +129,10 @@ type TaskPlanRecord struct {
 	ID          string
 	TaskID      string
 	Title       string
+	WhyNow      string
+	Success     string
+	OutOfScope  string
+	KnownRisks  string
 	Status      string
 	CurrentStep string
 	PlanBody    string
@@ -136,14 +143,15 @@ type TaskPlanRecord struct {
 }
 
 type PlanStepRecord struct {
-	ID         string
-	PlanID     string
-	OrderIndex int
-	Title      string
-	State      string
-	Notes      string
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
+	ID             string
+	PlanID         string
+	OrderIndex     int
+	Title          string
+	State          string
+	ExpandedTaskID string
+	Notes          string
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
 }
 
 type SessionHandoffRecord struct {

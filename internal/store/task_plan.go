@@ -21,12 +21,16 @@ func (s *Store) SaveTaskPlan(record TaskPlanRecord) error {
 	}
 	const q = `
 		INSERT INTO task_plans (
-			id, task_id, title, status, current_step, plan_body,
+			id, task_id, title, why_now, success, out_of_scope, known_risks, status, current_step, plan_body,
 			created_at, updated_at, archived_at, done_at
-		) VALUES (?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP), CURRENT_TIMESTAMP, ?, ?)
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP), CURRENT_TIMESTAMP, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			task_id = excluded.task_id,
 			title = excluded.title,
+			why_now = excluded.why_now,
+			success = excluded.success,
+			out_of_scope = excluded.out_of_scope,
+			known_risks = excluded.known_risks,
 			status = excluded.status,
 			current_step = excluded.current_step,
 			plan_body = excluded.plan_body,
@@ -38,6 +42,10 @@ func (s *Store) SaveTaskPlan(record TaskPlanRecord) error {
 		record.ID,
 		nullIfEmpty(record.TaskID),
 		record.Title,
+		nullIfEmpty(record.WhyNow),
+		nullIfEmpty(record.Success),
+		nullIfEmpty(record.OutOfScope),
+		nullIfEmpty(record.KnownRisks),
 		record.Status,
 		nullIfEmpty(record.CurrentStep),
 		nullIfEmpty(record.PlanBody),
@@ -50,7 +58,7 @@ func (s *Store) SaveTaskPlan(record TaskPlanRecord) error {
 
 func (s *Store) GetTaskPlan(id string) (*TaskPlanRecord, error) {
 	const q = `
-		SELECT id, task_id, title, status, current_step, plan_body,
+		SELECT id, task_id, title, why_now, success, out_of_scope, known_risks, status, current_step, plan_body,
 		       created_at, updated_at, archived_at, done_at
 		FROM task_plans WHERE id = ?
 	`
@@ -60,7 +68,7 @@ func (s *Store) GetTaskPlan(id string) (*TaskPlanRecord, error) {
 
 func (s *Store) ListTaskPlans(taskID string) ([]TaskPlanRecord, error) {
 	const base = `
-		SELECT id, task_id, title, status, current_step, plan_body,
+		SELECT id, task_id, title, why_now, success, out_of_scope, known_risks, status, current_step, plan_body,
 		       created_at, updated_at, archived_at, done_at
 		FROM task_plans
 	`
@@ -90,9 +98,10 @@ func (s *Store) ListTaskPlans(taskID string) ([]TaskPlanRecord, error) {
 func scanTaskPlan(row *sql.Row) (*TaskPlanRecord, error) {
 	var record TaskPlanRecord
 	var taskID sql.NullString
+	var whyNow, success, outOfScope, knownRisks sql.NullString
 	var currentStep, planBody sql.NullString
 	var archivedAt, doneAt sql.NullTime
-	if err := row.Scan(&record.ID, &taskID, &record.Title, &record.Status, &currentStep, &planBody, &record.CreatedAt, &record.UpdatedAt, &archivedAt, &doneAt); err != nil {
+	if err := row.Scan(&record.ID, &taskID, &record.Title, &whyNow, &success, &outOfScope, &knownRisks, &record.Status, &currentStep, &planBody, &record.CreatedAt, &record.UpdatedAt, &archivedAt, &doneAt); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
@@ -100,6 +109,18 @@ func scanTaskPlan(row *sql.Row) (*TaskPlanRecord, error) {
 	}
 	if taskID.Valid {
 		record.TaskID = taskID.String
+	}
+	if whyNow.Valid {
+		record.WhyNow = whyNow.String
+	}
+	if success.Valid {
+		record.Success = success.String
+	}
+	if outOfScope.Valid {
+		record.OutOfScope = outOfScope.String
+	}
+	if knownRisks.Valid {
+		record.KnownRisks = knownRisks.String
 	}
 	if currentStep.Valid {
 		record.CurrentStep = currentStep.String
@@ -121,13 +142,26 @@ func scanTaskPlan(row *sql.Row) (*TaskPlanRecord, error) {
 func scanTaskPlanRows(rows *sql.Rows) (*TaskPlanRecord, error) {
 	var record TaskPlanRecord
 	var taskID sql.NullString
+	var whyNow, success, outOfScope, knownRisks sql.NullString
 	var currentStep, planBody sql.NullString
 	var archivedAt, doneAt sql.NullTime
-	if err := rows.Scan(&record.ID, &taskID, &record.Title, &record.Status, &currentStep, &planBody, &record.CreatedAt, &record.UpdatedAt, &archivedAt, &doneAt); err != nil {
+	if err := rows.Scan(&record.ID, &taskID, &record.Title, &whyNow, &success, &outOfScope, &knownRisks, &record.Status, &currentStep, &planBody, &record.CreatedAt, &record.UpdatedAt, &archivedAt, &doneAt); err != nil {
 		return nil, err
 	}
 	if taskID.Valid {
 		record.TaskID = taskID.String
+	}
+	if whyNow.Valid {
+		record.WhyNow = whyNow.String
+	}
+	if success.Valid {
+		record.Success = success.String
+	}
+	if outOfScope.Valid {
+		record.OutOfScope = outOfScope.String
+	}
+	if knownRisks.Valid {
+		record.KnownRisks = knownRisks.String
 	}
 	if currentStep.Valid {
 		record.CurrentStep = currentStep.String

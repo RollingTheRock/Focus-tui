@@ -162,6 +162,10 @@ CREATE TABLE IF NOT EXISTS task_plans (
     id            TEXT PRIMARY KEY,
     task_id       TEXT REFERENCES task_contexts(id) ON DELETE SET NULL,
     title         TEXT NOT NULL,
+    why_now       TEXT,
+    success       TEXT,
+    out_of_scope  TEXT,
+    known_risks   TEXT,
     status        TEXT NOT NULL CHECK(status IN ('draft', 'approved', 'active', 'blocked', 'completed', 'discarded', 'archived')),
     current_step  TEXT,
     plan_body     TEXT,
@@ -180,6 +184,7 @@ CREATE TABLE IF NOT EXISTS plan_steps (
     order_index  INTEGER NOT NULL,
     title        TEXT NOT NULL,
     state        TEXT NOT NULL CHECK(state IN ('pending', 'in_progress', 'blocked', 'done', 'invalidated')),
+    expanded_task_id TEXT REFERENCES task_contexts(id) ON DELETE SET NULL,
     notes        TEXT,
     created_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -228,6 +233,9 @@ CREATE TABLE IF NOT EXISTS agent_sessions (
     provider        TEXT NOT NULL,
     worktree_id     TEXT NOT NULL,
     repo_id         TEXT,
+    task_id         TEXT REFERENCES task_contexts(id) ON DELETE SET NULL,
+    plan_id         TEXT REFERENCES task_plans(id) ON DELETE SET NULL,
+    step_id         TEXT REFERENCES plan_steps(id) ON DELETE SET NULL,
     branch_snapshot TEXT,
     pid             INTEGER,
     state           TEXT NOT NULL,
@@ -250,7 +258,16 @@ CREATE INDEX IF NOT EXISTS idx_agent_sessions_repo_updated ON agent_sessions(rep
 	if err := s.migrateTaskPlansForPlanFirst(); err != nil {
 		return err
 	}
-	return s.migrateWorktreeContextsForPlanFirst()
+	if err := s.migrateWorktreeContextsForPlanFirst(); err != nil {
+		return err
+	}
+	if err := s.migrateTaskPlansBriefColumns(); err != nil {
+		return err
+	}
+	if err := s.migratePlanStepsExpansionColumns(); err != nil {
+		return err
+	}
+	return s.migrateAgentSessionsWorkflowColumns()
 }
 
 func (s *Store) migrateTaskPlansForPlanFirst() error {
@@ -358,6 +375,60 @@ func (s *Store) migrateWorktreeContextsForPlanFirst() error {
 	}
 	for _, step := range steps {
 		if _, err := s.db.Exec(step); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Store) migrateTaskPlansBriefColumns() error {
+	return ensureColumns(s.db, "task_plans", map[string]string{
+		"why_now":      "TEXT",
+		"success":      "TEXT",
+		"out_of_scope": "TEXT",
+		"known_risks":  "TEXT",
+	})
+}
+
+func (s *Store) migratePlanStepsExpansionColumns() error {
+	return ensureColumns(s.db, "plan_steps", map[string]string{
+		"expanded_task_id": "TEXT REFERENCES task_contexts(id) ON DELETE SET NULL",
+	})
+}
+
+func (s *Store) migrateAgentSessionsWorkflowColumns() error {
+	return ensureColumns(s.db, "agent_sessions", map[string]string{
+		"task_id": "TEXT REFERENCES task_contexts(id) ON DELETE SET NULL",
+		"plan_id": "TEXT REFERENCES task_plans(id) ON DELETE SET NULL",
+		"step_id": "TEXT REFERENCES plan_steps(id) ON DELETE SET NULL",
+	})
+}
+
+func ensureColumns(db *sql.DB, table string, columns map[string]string) error {
+	rows, err := db.Query(`PRAGMA table_info(` + table + `)`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	existing := make(map[string]bool)
+	for rows.Next() {
+		var cid int
+		var name, typ string
+		var notnull, pk int
+		var defaultValue sql.NullString
+		if err := rows.Scan(&cid, &name, &typ, &notnull, &defaultValue, &pk); err != nil {
+			return err
+		}
+		existing[name] = true
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for name, decl := range columns {
+		if existing[name] {
+			continue
+		}
+		if _, err := db.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", table, name, decl)); err != nil {
 			return err
 		}
 	}

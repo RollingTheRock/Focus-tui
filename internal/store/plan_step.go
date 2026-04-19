@@ -24,13 +24,14 @@ func (s *Store) SavePlanStep(record PlanStepRecord) error {
 	}
 	const q = `
 		INSERT INTO plan_steps (
-			id, plan_id, order_index, title, state, notes, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP), CURRENT_TIMESTAMP)
+			id, plan_id, order_index, title, state, expanded_task_id, notes, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP), CURRENT_TIMESTAMP)
 		ON CONFLICT(id) DO UPDATE SET
 			plan_id = excluded.plan_id,
 			order_index = excluded.order_index,
 			title = excluded.title,
 			state = excluded.state,
+			expanded_task_id = excluded.expanded_task_id,
 			notes = excluded.notes,
 			updated_at = CURRENT_TIMESTAMP
 	`
@@ -40,6 +41,7 @@ func (s *Store) SavePlanStep(record PlanStepRecord) error {
 		record.OrderIndex,
 		record.Title,
 		record.State,
+		nullIfEmpty(record.ExpandedTaskID),
 		nullIfEmpty(record.Notes),
 		nullableTimeValue(record.CreatedAt),
 	)
@@ -56,7 +58,7 @@ func (s *Store) DeletePlanSteps(planID string) error {
 
 func (s *Store) ListPlanSteps(planID string) ([]PlanStepRecord, error) {
 	const q = `
-		SELECT id, plan_id, order_index, title, state, notes, created_at, updated_at
+		SELECT id, plan_id, order_index, title, state, expanded_task_id, notes, created_at, updated_at
 		FROM plan_steps
 		WHERE plan_id = ?
 		ORDER BY order_index ASC, created_at ASC
@@ -69,9 +71,13 @@ func (s *Store) ListPlanSteps(planID string) ([]PlanStepRecord, error) {
 	var records []PlanStepRecord
 	for rows.Next() {
 		var record PlanStepRecord
+		var expandedTaskID sql.NullString
 		var notes sql.NullString
-		if err := rows.Scan(&record.ID, &record.PlanID, &record.OrderIndex, &record.Title, &record.State, &notes, &record.CreatedAt, &record.UpdatedAt); err != nil {
+		if err := rows.Scan(&record.ID, &record.PlanID, &record.OrderIndex, &record.Title, &record.State, &expandedTaskID, &notes, &record.CreatedAt, &record.UpdatedAt); err != nil {
 			return nil, err
+		}
+		if expandedTaskID.Valid {
+			record.ExpandedTaskID = expandedTaskID.String
 		}
 		if notes.Valid {
 			record.Notes = notes.String

@@ -28,13 +28,16 @@ func (s *Store) SaveAgentSession(record AgentSessionRecord) error {
 	}
 	const q = `
 		INSERT INTO agent_sessions (
-			id, provider, worktree_id, repo_id, branch_snapshot,
+			id, provider, worktree_id, repo_id, task_id, plan_id, step_id, branch_snapshot,
 			pid, state, launch_source, summary, started_at, ended_at, last_activity_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
 		ON CONFLICT(id) DO UPDATE SET
 			provider = excluded.provider,
 			worktree_id = excluded.worktree_id,
 			repo_id = excluded.repo_id,
+			task_id = excluded.task_id,
+			plan_id = excluded.plan_id,
+			step_id = excluded.step_id,
 			branch_snapshot = excluded.branch_snapshot,
 			pid = excluded.pid,
 			state = excluded.state,
@@ -50,6 +53,9 @@ func (s *Store) SaveAgentSession(record AgentSessionRecord) error {
 		record.Provider,
 		record.WorktreeID,
 		record.RepoID,
+		nullIfEmpty(record.TaskID),
+		nullIfEmpty(record.PlanID),
+		nullIfEmpty(record.StepID),
 		record.BranchSnapshot,
 		record.PID,
 		record.State,
@@ -64,7 +70,7 @@ func (s *Store) SaveAgentSession(record AgentSessionRecord) error {
 
 func (s *Store) ListAgentSessions(worktreeID string) ([]AgentSessionRecord, error) {
 	const base = `
-		SELECT id, provider, worktree_id, repo_id, branch_snapshot,
+		SELECT id, provider, worktree_id, repo_id, task_id, plan_id, step_id, branch_snapshot,
 		       pid, state, launch_source, summary, started_at, ended_at, last_activity_at, updated_at
 		FROM agent_sessions
 	`
@@ -85,6 +91,7 @@ func (s *Store) ListAgentSessions(worktreeID string) ([]AgentSessionRecord, erro
 	var records []AgentSessionRecord
 	for rows.Next() {
 		var record AgentSessionRecord
+		var taskID, planID, stepID sql.NullString
 		var endedAt sql.NullTime
 		var lastActivityAt sql.NullTime
 		var launchSource sql.NullString
@@ -94,6 +101,9 @@ func (s *Store) ListAgentSessions(worktreeID string) ([]AgentSessionRecord, erro
 			&record.Provider,
 			&record.WorktreeID,
 			&record.RepoID,
+			&taskID,
+			&planID,
+			&stepID,
 			&record.BranchSnapshot,
 			&record.PID,
 			&record.State,
@@ -116,6 +126,15 @@ func (s *Store) ListAgentSessions(worktreeID string) ([]AgentSessionRecord, erro
 		}
 		if launchSource.Valid {
 			record.LaunchSource = launchSource.String
+		}
+		if taskID.Valid {
+			record.TaskID = taskID.String
+		}
+		if planID.Valid {
+			record.PlanID = planID.String
+		}
+		if stepID.Valid {
+			record.StepID = stepID.String
 		}
 		if summary.Valid {
 			record.Summary = summary.String
