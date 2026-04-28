@@ -174,11 +174,11 @@ func TestOverviewPageBodyTreeIsOrchestrationHub(t *testing.T) {
 		t.Fatalf("expected overview shell to be demoted to a small lower section, got ratio %d", m.activePage.bodyTree.Ratio)
 	}
 	leaves := layout.LeafOrder(m.activePage.bodyTree)
-	if len(leaves) != 5 {
-		t.Fatalf("expected overview page to have 5 leaves, got %d", len(leaves))
+	if len(leaves) != 6 {
+		t.Fatalf("expected overview page to have 6 leaves, got %d", len(leaves))
 	}
-	if leaves[0] != paneOverviewSummary || leaves[1] != paneWorktree || leaves[2] != paneOverviewDetail || leaves[3] != paneAgentSession || leaves[4] != paneShell {
-		t.Fatalf("expected overview leaves [summary worktree detail agent shell], got %v", leaves)
+	if leaves[0] != paneOverviewSummary || leaves[1] != paneWorktree || leaves[2] != paneOverviewDAG || leaves[3] != paneOverviewDetail || leaves[4] != paneAgentSession || leaves[5] != paneShell {
+		t.Fatalf("expected overview leaves [summary worktree dag detail agent shell], got %v", leaves)
 	}
 }
 
@@ -190,6 +190,7 @@ func TestOverviewLayoutPrioritizesWorktreeOverShellHeight(t *testing.T) {
 	frames := layout.ComputeFrames(m.activePage.bodyTree, models.PaneFrame{X: 0, Y: 0, W: 120, H: 40})
 	summaryFrame := frames[paneOverviewSummary]
 	worktreeFrame := frames[paneWorktree]
+	dagFrame := frames[paneOverviewDAG]
 	detailFrame := frames[paneOverviewDetail]
 	agentFrame := frames[paneAgentSession]
 	shellFrame := frames[paneShell]
@@ -204,6 +205,9 @@ func TestOverviewLayoutPrioritizesWorktreeOverShellHeight(t *testing.T) {
 	}
 	if detailFrame.W <= 0 || detailFrame.H <= 0 {
 		t.Fatalf("expected overview detail pane frame to exist, got %+v", detailFrame)
+	}
+	if dagFrame.W <= 0 || dagFrame.H <= 0 {
+		t.Fatalf("expected overview dag pane frame to exist, got %+v", dagFrame)
 	}
 	if agentFrame.W <= 0 || agentFrame.H <= 0 {
 		t.Fatalf("expected overview agent pane frame to exist, got %+v", agentFrame)
@@ -314,8 +318,8 @@ func TestWorktreePageSplitDoesNotAffectOverview(t *testing.T) {
 	}
 	m.switchToOverviewPage()
 	overviewLeaves := len(layout.LeafOrder(m.activePage.bodyTree))
-	if overviewLeaves != 5 {
-		t.Fatalf("expected overview page to have 5 leaves, got %d", overviewLeaves)
+	if overviewLeaves != 6 {
+		t.Fatalf("expected overview page to have 6 leaves, got %d", overviewLeaves)
 	}
 }
 
@@ -419,8 +423,8 @@ func TestSplitFocusedHorizontal(t *testing.T) {
 	m := New(cfg, st).(model)
 
 	initialOrder := layout.LeafOrder(m.activePage.bodyTree)
-	if len(initialOrder) != 5 {
-		t.Fatalf("expected 5 panes initially (summary + worktree + detail + agents + shell), got %d", len(initialOrder))
+	if len(initialOrder) != 6 {
+		t.Fatalf("expected 6 panes initially (summary + worktree + dag + detail + agents + shell), got %d", len(initialOrder))
 	}
 
 	m.setFocus(paneShell)
@@ -431,13 +435,13 @@ func TestSplitFocusedHorizontal(t *testing.T) {
 	m = newM.(model)
 
 	newOrder := layout.LeafOrder(m.activePage.bodyTree)
-	if len(newOrder) != 6 {
-		t.Fatalf("expected 6 panes after split, got %d", len(newOrder))
+	if len(newOrder) != 7 {
+		t.Fatalf("expected 7 panes after split, got %d", len(newOrder))
 	}
 
 	foundNewPane := false
 	for _, id := range newOrder {
-		if string(id) != string(paneShell) && string(id) != string(paneWorktree) && string(id) != string(paneOverviewDetail) && string(id) != string(paneOverviewSummary) && string(id) != string(paneAgentSession) {
+		if string(id) != string(paneShell) && string(id) != string(paneWorktree) && string(id) != string(paneOverviewDAG) && string(id) != string(paneOverviewDetail) && string(id) != string(paneOverviewSummary) && string(id) != string(paneAgentSession) {
 			foundNewPane = true
 			if m.activePage.focused != id {
 				t.Fatalf("expected focus on new pane %s, got %s", id, m.activePage.focused)
@@ -1695,7 +1699,7 @@ func TestBuildWorkbenchOverviewContextTranslatesTruthToSummaryAndDetail(t *testi
 		selectedSummary:  gitmodel.WorktreeResumeSummary{TaskID: "task-1", TaskTitle: "Refactor overview translation", TaskGoal: "Make overview reflect context truth", TaskWhyNow: "The overview needs a plan-first entry point.", TaskSuccess: "A programmer can restart work from the saved brief.", TaskOutOfScope: "Full graph orchestration.", TaskKnownRisks: "Too much density could hurt scanning.", NextStep: "Centralize workbench context builder", TaskState: "active", TaskPriority: "high", PlanTitle: "Phase 1 rollout", PlanStatus: "active", CurrentPlanStep: "Wire overview summary", PlanBody: "Main lane\nValidation lane\nRisk lane", PlanSteps: []string{"[in_progress] Wire overview summary", "[pending] Validation lane", "[pending] Risk lane"}, HandoffEntrypoint: "Open overview detail pane", QueuedTaskTitle: "Follow-up queue cleanup", QueuedTaskCount: 2, AttentionAnchor: "editing", RecentArtifact: "internal/app/workbench_context.go", PinnedNote: "Keep truth and projection separate", BlockerNote: "Need better auto inference", HandoffNote: "Resume from shared builder wiring", GitPressure: "diverged+dirty", LastAgentSummary: "opencode running", ResumeReason: "active task · next step ready", LastResumeHint: "Continue: Centralize workbench context builder", ResumeScore: 95},
 		selectedActivity: gitmodel.WorktreeActivity{OpenEditors: 2, HasShell: true, AgentCount: 1, LastActive: "now"},
 	}
-	ctx := buildWorkbenchOverviewContext(source)
+	ctx := buildWorkbenchOverviewContext(source, nil, "/repo/main")
 	if ctx.Stats.Total != 2 || ctx.Stats.Active != 1 || ctx.Stats.Queued != 2 || ctx.Stats.Dirty != 1 || ctx.Stats.RunningAgent != 1 {
 		t.Fatalf("unexpected overview stats: %+v", ctx.Stats)
 	}
