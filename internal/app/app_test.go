@@ -1,6 +1,7 @@
 package app
 
 import (
+	"errors"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -490,6 +491,82 @@ func TestLaunchAgentPersistsSessionAndInjectsStableID(t *testing.T) {
 	}
 	if !strings.Contains(shAutoType(sh), agents.SessionIDEnvVar+"=") {
 		t.Fatalf("expected auto-typed command to inject session id, got %q", shAutoType(sh))
+	}
+}
+
+func TestLaunchAgentExternalModePersistsEnvSnapshot(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Agent.ExternalTerminal = true
+	cfg.Agent.TerminalEmulator = "nonexistent-terminal-binary"
+	st, _ := store.New(":memory:")
+	m := New(cfg, st).(model)
+	if err := st.SaveWorktreeContext(models.WorktreeContextRecord{
+		WorktreeID:   "/repo/feature-x",
+		RepoID:       "/repo/main",
+		TaskMode:     "single",
+		TaskName:     "Planning",
+		LastActiveAt: time.Now(),
+	}); err != nil {
+		t.Fatalf("save worktree context: %v", err)
+	}
+
+	cmd := m.launchAgent(agents.LaunchAgentMsg{WorktreeID: "/repo/feature-x", Provider: agents.ProviderClaude})
+	if cmd == nil {
+		t.Fatal("expected external launch command")
+	}
+
+	records, err := st.ListAgentSessions("/repo/feature-x")
+	if err != nil {
+		t.Fatalf("list sessions: %v", err)
+	}
+	if len(records) != 1 {
+		t.Fatalf("expected one session record, got %+v", records)
+	}
+	if !strings.Contains(records[0].EnvSnapshot, agents.SessionIDEnvVar+"=") {
+		t.Fatalf("expected env snapshot to contain session id env, got %+v", records[0])
+	}
+	if records[0].State != string(agents.SessionWaiting) {
+		t.Fatalf("expected waiting state before launch result, got %+v", records[0])
+	}
+}
+
+func TestHandleExternalLaunchResultUpdatesState(t *testing.T) {
+	cfg := config.DefaultConfig()
+	st, _ := store.New(":memory:")
+	m := New(cfg, st).(model)
+	now := time.Now().Add(-time.Minute)
+	if err := st.SaveAgentSession(models.AgentSessionRecord{
+		ID:         "session-external-1",
+		Provider:   "claude",
+		WorktreeID: "/repo/feature-z",
+		State:      "waiting",
+		StartedAt:  now,
+	}); err != nil {
+		t.Fatalf("save seed session: %v", err)
+	}
+
+	m.handleExternalLaunchResult(agents.ExternalLaunchResultMsg{
+		SessionID: "session-external-1",
+		PID:       4321,
+	})
+	records, err := st.ListAgentSessions("/repo/feature-z")
+	if err != nil {
+		t.Fatalf("list sessions after success: %v", err)
+	}
+	if len(records) != 1 || records[0].State != string(agents.SessionRunning) || records[0].PID != 4321 {
+		t.Fatalf("expected running session with pid, got %+v", records)
+	}
+
+	m.handleExternalLaunchResult(agents.ExternalLaunchResultMsg{
+		SessionID: "session-external-1",
+		Err:       errors.New("launch failed"),
+	})
+	records, err = st.ListAgentSessions("/repo/feature-z")
+	if err != nil {
+		t.Fatalf("list sessions after failure: %v", err)
+	}
+	if len(records) != 1 || records[0].State != string(agents.SessionFailed) || records[0].StopReason == "" {
+		t.Fatalf("expected failed session with stop reason, got %+v", records)
 	}
 }
 
@@ -1007,6 +1084,65 @@ func TestCycleTaskStateUpdatesPrimaryTask(t *testing.T) {
 	}
 	if task == nil || task.State != "paused" {
 		t.Fatalf("expected task state to cycle to paused, got %+v", task)
+	}
+}
+
+func TestCycleTaskStateDoneLaunchesReadyDownstreamTask(t *testing.T) {
+	cfg := config.DefaultConfig()
+	st, _ := store.New(":memory:")
+	m := New(cfg, st).(model)
+
+	if err := st.SaveTaskContext(models.TaskContextRecord{
+		ID:                  "task-upstream",
+		RepoID:              "/repo/main",
+		Title:               "Upstream",
+		State:               "blocked",
+		Priority:            "high",
+		PreferredWorktreeID: "/repo/feature-a",
+	}); err != nil {
+		t.Fatalf("save upstream task: %v", err)
+	}
+	if err := st.SaveTaskContext(models.TaskContextRecord{
+		ID:                  "task-downstream",
+		RepoID:              "/repo/main",
+		Title:               "Downstream",
+		State:               "paused",
+		Priority:            "medium",
+		PreferredWorktreeID: "/repo/feature-b",
+	}); err != nil {
+		t.Fatalf("save downstream task: %v", err)
+	}
+	if err := st.SaveTaskDependency(models.TaskDependencyRecord{
+		FromTaskID:     "task-upstream",
+		ToTaskID:       "task-downstream",
+		DependencyType: "hard",
+	}); err != nil {
+		t.Fatalf("save task dependency: %v", err)
+	}
+
+	cmd := m.cycleTaskState(gitplugin.CycleTaskStateMsg{
+		TaskID:       "task-upstream",
+		WorktreeID:   "/repo/feature-a",
+		CurrentState: "blocked",
+	})
+	if cmd == nil {
+		t.Fatal("expected downstream launch command when upstream moves to done")
+	}
+
+	upstream, err := st.GetTaskContext("task-upstream")
+	if err != nil {
+		t.Fatalf("get upstream task: %v", err)
+	}
+	if upstream == nil || upstream.State != "done" {
+		t.Fatalf("expected upstream task done, got %+v", upstream)
+	}
+
+	sessions, err := st.ListAgentSessions("/repo/feature-b")
+	if err != nil {
+		t.Fatalf("list downstream sessions: %v", err)
+	}
+	if len(sessions) != 1 {
+		t.Fatalf("expected one launched downstream session, got %+v", sessions)
 	}
 }
 

@@ -2,12 +2,15 @@ package app
 
 import (
 	"fmt"
+	"focus/internal/a2a"
 	"focus/internal/adapters"
 	"focus/internal/agents"
 	"focus/internal/avatar"
 	"focus/internal/config"
 	gitmodel "focus/internal/git"
+	"focus/internal/mcp"
 	"focus/internal/models"
+	"focus/internal/orchestrator"
 	"focus/internal/plugins"
 	agentsplugin "focus/internal/plugins/agents"
 	editorplugin "focus/internal/plugins/editor"
@@ -100,6 +103,8 @@ type model struct {
 	adapterManager     *adapters.Manager
 	agentRegistry      *agents.Registry
 	resumeSummaryCache map[string]gitmodel.WorktreeResumeSummary
+	mcpServer          *mcp.Server
+	a2aRouter          *a2a.Router
 
 	lastAgentSync time.Time
 }
@@ -132,7 +137,11 @@ func New(cfg config.Config, store models.Store) tea.Model {
 		agentRegistry:      agents.NewRegistry(),
 		pages:              make(map[string]*page),
 		resumeSummaryCache: make(map[string]gitmodel.WorktreeResumeSummary),
+		mcpServer:          mcp.NewServer(cfg.Agent.MCPSocket),
+		a2aRouter:          a2a.NewRouter(cfg.Agent.A2ASocket),
 	}
+	_ = m.mcpServer.Start()
+	_ = m.a2aRouter.Start()
 
 	gitAdapter := adapters.NewGitLocalAdapter()
 	_ = m.adapterManager.Register(gitAdapter.Name(), gitAdapter)
@@ -260,10 +269,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case gitplugin.CycleTaskStateMsg:
-		m.cycleTaskState(msg)
+		cmd := m.cycleTaskState(msg)
 		m.syncWorktreeActivities()
 		m.invalidateView()
-		return m, nil
+		return m, cmd
 
 	case CloseTaskEditorMsg:
 		m.closePane(msg.ID)
@@ -299,6 +308,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case agents.AgentExitedMsg:
 		m.handleAgentExited(msg)
+		m.syncWorktreeActivities()
+		m.invalidateView()
+		return m, nil
+
+	case agents.ExternalLaunchResultMsg:
+		m.handleExternalLaunchResult(msg)
 		m.syncWorktreeActivities()
 		m.invalidateView()
 		return m, nil
@@ -739,6 +754,17 @@ func (m *model) launchAgent(msg agents.LaunchAgentMsg) tea.Cmd {
 	}
 
 	pageCmd := m.switchToWorktreePage(worktreeID, "")
+	if m.common != nil && m.common.Cfg.Agent.ExternalTerminal {
+		launchCmd := m.launchExternalAgent(session)
+		m.updateSizes(m.common.Width, m.common.Height)
+		if pageCmd != nil && launchCmd != nil {
+			return tea.Batch(pageCmd, launchCmd)
+		}
+		if pageCmd != nil {
+			return pageCmd
+		}
+		return launchCmd
+	}
 	var launchCmd tea.Cmd
 	if m.activePage != nil {
 		launchCmd = m.activePage.openAgentShell(worktreeID, provider, session.ID)
@@ -751,6 +777,69 @@ func (m *model) launchAgent(msg agents.LaunchAgentMsg) tea.Cmd {
 		return pageCmd
 	}
 	return launchCmd
+}
+
+func (m *model) launchExternalAgent(session *agents.Session) tea.Cmd {
+	if session == nil {
+		return nil
+	}
+	title := fmt.Sprintf("Focus:%s:%s", session.PlanID, session.ID)
+	if session.TaskID != "" {
+		title = fmt.Sprintf("Focus:%s:%s", session.PlanID, session.TaskID)
+	}
+	envVars := []string{
+		agents.SessionIDEnvVar + "=" + session.ID,
+		agents.LegacySessionIDEnvVar + "=" + session.ID,
+	}
+	if session.TaskID != "" {
+		envVars = append(envVars, agents.TaskIDEnvVar+"="+session.TaskID)
+	}
+	if session.PlanID != "" {
+		envVars = append(envVars, agents.PlanIDEnvVar+"="+session.PlanID)
+	}
+	if socket := strings.TrimSpace(m.common.Cfg.Agent.MCPSocket); socket != "" {
+		envVars = append(envVars, agents.MCPSocketEnvVar+"="+socket)
+	}
+	if socket := strings.TrimSpace(m.common.Cfg.Agent.A2ASocket); socket != "" {
+		envVars = append(envVars, agents.A2ASocketEnvVar+"="+socket)
+	}
+	session.State = agents.SessionWaiting
+	session.EnvSnapshot = strings.Join(envVars, " ")
+	m.saveAgentSession(session)
+	return agents.LaunchExternalCommand(agents.ExternalLaunchRequest{
+		SessionID:        session.ID,
+		Title:            title,
+		WorktreeID:       session.WorktreeID,
+		Provider:         session.Provider,
+		TerminalEmulator: strings.TrimSpace(m.common.Cfg.Agent.TerminalEmulator),
+		EnvVars:          envVars,
+	})
+}
+
+func (m *model) handleExternalLaunchResult(msg agents.ExternalLaunchResultMsg) {
+	record := m.agentSessionRecord(msg.SessionID)
+	if record.ID == "" || record.WorktreeID == "" {
+		return
+	}
+	now := time.Now()
+	if msg.Err != nil {
+		record.State = string(agents.SessionFailed)
+		record.StopReason = msg.Err.Error()
+		record.EndedAt = &now
+		record.PID = 0
+		record.UpdatedAt = now
+		record.LastActivityAt = &now
+		m.saveAgentSessionRecord(record)
+		return
+	}
+	record.PID = msg.PID
+	record.State = string(agents.SessionRunning)
+	record.StopReason = ""
+	record.EndedAt = nil
+	record.UpdatedAt = now
+	record.LastActivityAt = &now
+	record.LastHeartbeat = &now
+	m.saveAgentSessionRecord(record)
 }
 
 func (m *model) killAgent(msg agentsplugin.KillSessionMsg) tea.Cmd {
@@ -1605,6 +1694,18 @@ func (m *model) expandPlanToTasks(planID, worktreeID string) {
 			plan.TaskID = taskID
 		}
 	}
+	for i := 0; i+1 < len(steps); i++ {
+		fromTaskID := strings.TrimSpace(steps[i].ExpandedTaskID)
+		toTaskID := strings.TrimSpace(steps[i+1].ExpandedTaskID)
+		if fromTaskID == "" || toTaskID == "" || fromTaskID == toTaskID {
+			continue
+		}
+		_ = m.common.Store.SaveTaskDependency(models.TaskDependencyRecord{
+			FromTaskID:     fromTaskID,
+			ToTaskID:       toTaskID,
+			DependencyType: "hard",
+		})
+	}
 	if plan.TaskID != "" {
 		_ = m.common.Store.SaveTaskPlan(*plan)
 	}
@@ -1620,16 +1721,88 @@ func (m *model) expandPlanToTasks(planID, worktreeID string) {
 	}
 }
 
-func (m *model) cycleTaskState(msg gitplugin.CycleTaskStateMsg) {
+func (m *model) cycleTaskState(msg gitplugin.CycleTaskStateMsg) tea.Cmd {
 	if m.common == nil || m.common.Store == nil || msg.TaskID == "" {
-		return
+		return nil
 	}
 	task, err := m.common.Store.GetTaskContext(msg.TaskID)
 	if err != nil || task == nil {
-		return
+		return nil
 	}
+	prevState := task.State
 	task.State = nextTaskState(task.State)
 	_ = m.common.Store.SaveTaskContext(*task)
+	if prevState != "done" && task.State == "done" {
+		return m.launchDownstreamTasks(task.ID)
+	}
+	return nil
+}
+
+func (m *model) launchDownstreamTasks(taskID string) tea.Cmd {
+	if m.common == nil || m.common.Store == nil || taskID == "" {
+		return nil
+	}
+	launcher := &appOrchestratorLauncher{model: m}
+	engine := orchestrator.New(appOrchestratorStore{model: m}, launcher)
+	if _, err := engine.OnTaskCompleted(taskID); err != nil {
+		return nil
+	}
+	if len(launcher.cmds) == 0 {
+		return nil
+	}
+	return tea.Batch(launcher.cmds...)
+}
+
+type appOrchestratorStore struct {
+	model *model
+}
+
+func (s appOrchestratorStore) GetDownstreamTasks(taskID string) ([]orchestrator.Task, error) {
+	records, err := s.model.common.Store.ListDownstreamTaskContexts(taskID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]orchestrator.Task, 0, len(records))
+	for _, record := range records {
+		out = append(out, orchestrator.Task{
+			ID:         record.ID,
+			Name:       record.Title,
+			WorktreeID: strings.TrimSpace(record.PreferredWorktreeID),
+			Provider:   string(agents.DefaultProvider()),
+		})
+	}
+	return out, nil
+}
+
+func (s appOrchestratorStore) AllPrerequisitesMet(taskID string) (bool, error) {
+	return s.model.common.Store.AreTaskPrerequisitesMet(taskID)
+}
+
+func (s appOrchestratorStore) MarkSessionDisconnected(sessionID string) error {
+	return s.model.common.Store.MarkAgentSessionDisconnected(sessionID, "heartbeat timeout")
+}
+
+type appOrchestratorLauncher struct {
+	model *model
+	cmds  []tea.Cmd
+}
+
+func (l *appOrchestratorLauncher) LaunchTask(task orchestrator.Task) error {
+	if strings.TrimSpace(task.WorktreeID) == "" {
+		return nil
+	}
+	provider := agents.Provider(task.Provider)
+	if provider == "" {
+		provider = agents.DefaultProvider()
+	}
+	cmd := l.model.launchAgent(agents.LaunchAgentMsg{
+		WorktreeID: task.WorktreeID,
+		Provider:   provider,
+	})
+	if cmd != nil {
+		l.cmds = append(l.cmds, cmd)
+	}
+	return nil
 }
 
 func nextTaskState(state string) string {
@@ -2517,6 +2690,7 @@ func (m *model) persistedAgentSessions() map[string]agents.Session {
 			State:          agents.SessionState(record.State),
 			LaunchSource:   record.LaunchSource,
 			Summary:        record.Summary,
+			EnvSnapshot:    record.EnvSnapshot,
 			StartedAt:      record.StartedAt,
 			EndedAt:        record.EndedAt,
 			LastActivityAt: record.LastActivityAt,
@@ -2559,6 +2733,7 @@ func (m *model) reconcileDiscoveredAgentSessions(existing map[string]agents.Sess
 		existing[record.ID] = record
 		seen[record.ID] = struct{}{}
 		m.saveAgentSession(&record)
+		_ = m.common.Store.UpdateAgentSessionHeartbeat(record.ID, now, string(agents.SessionRunning))
 	}
 
 	for id, session := range existing {
@@ -2571,7 +2746,7 @@ func (m *model) reconcileDiscoveredAgentSessions(existing map[string]agents.Sess
 		if session.PID == 0 && now.Sub(session.StartedAt) < 5*time.Second {
 			continue
 		}
-		session.State = agents.SessionExited
+		session.State = agents.SessionDisconnected
 		session.PID = 0
 		session.UpdatedAt = now
 		if session.EndedAt == nil {
@@ -2580,6 +2755,7 @@ func (m *model) reconcileDiscoveredAgentSessions(existing map[string]agents.Sess
 		}
 		existing[id] = session
 		m.saveAgentSession(&session)
+		_ = m.common.Store.MarkAgentSessionDisconnected(session.ID, "heartbeat timeout")
 	}
 
 	return existing
@@ -2650,6 +2826,7 @@ func (m *model) saveAgentSession(session *agents.Session) {
 		State:          string(session.State),
 		LaunchSource:   session.LaunchSource,
 		Summary:        session.Summary,
+		EnvSnapshot:    session.EnvSnapshot,
 		StartedAt:      session.StartedAt,
 		EndedAt:        session.EndedAt,
 		LastActivityAt: session.LastActivityAt,
