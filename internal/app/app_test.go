@@ -8,10 +8,12 @@ import (
 	"testing"
 	"time"
 
+	"focus/internal/a2a"
 	"focus/internal/agents"
 	"focus/internal/config"
 	gitmodel "focus/internal/git"
 	"focus/internal/models"
+	"focus/internal/orchestrator"
 	editorplugin "focus/internal/plugins/editor"
 	gitplugin "focus/internal/plugins/git"
 	"focus/internal/store"
@@ -652,6 +654,244 @@ func TestMCPToolTaskUpdateStatusNormalizesCompletedToDone(t *testing.T) {
 	}
 	if task == nil || task.State != "done" {
 		t.Fatalf("expected task state persisted as done, got %+v", task)
+	}
+}
+
+func TestMCPTaskStatusDoneTriggersProtocolDownstreamLaunch(t *testing.T) {
+	cfg := config.DefaultConfig()
+	socketDir := t.TempDir()
+	cfg.Agent.MCPSocket = filepath.Join(socketDir, "focus-mcp.sock")
+	cfg.Agent.A2ASocket = filepath.Join(socketDir, "focus-a2a.sock")
+	cfg.Agent.ExternalTerminal = false
+
+	st, _ := store.New(":memory:")
+	m := New(cfg, st).(model)
+
+	if err := st.SaveTaskContext(models.TaskContextRecord{
+		ID:                  "task-upstream-1",
+		RepoID:              "/repo/main",
+		Title:               "Upstream protocol task",
+		State:               "active",
+		Priority:            "high",
+		PreferredWorktreeID: "/repo/feature-a",
+	}); err != nil {
+		t.Fatalf("save upstream task: %v", err)
+	}
+	if err := st.SaveTaskContext(models.TaskContextRecord{
+		ID:                  "task-downstream-1",
+		RepoID:              "/repo/main",
+		Title:               "Downstream protocol task",
+		State:               "paused",
+		Priority:            "medium",
+		PreferredWorktreeID: "/repo/feature-b",
+	}); err != nil {
+		t.Fatalf("save downstream task: %v", err)
+	}
+	if err := st.SaveTaskDependency(models.TaskDependencyRecord{
+		FromTaskID:     "task-upstream-1",
+		ToTaskID:       "task-downstream-1",
+		DependencyType: "hard",
+	}); err != nil {
+		t.Fatalf("save dependency: %v", err)
+	}
+	if err := st.SaveAgentSession(models.AgentSessionRecord{
+		ID:         "session-upstream-1",
+		Provider:   string(agents.ProviderClaude),
+		WorktreeID: "/repo/feature-a",
+		TaskID:     "task-upstream-1",
+		State:      string(agents.SessionRunning),
+		StartedAt:  time.Now().Add(-time.Minute),
+	}); err != nil {
+		t.Fatalf("save upstream session: %v", err)
+	}
+
+	out, err := m.mcpTaskUpdateStatusTool(map[string]any{
+		"task_id":    "task-upstream-1",
+		"state":      "completed",
+		"session_id": "session-upstream-1",
+		"summary":    "upstream done",
+	})
+	if err != nil {
+		t.Fatalf("task.update_status tool error: %v", err)
+	}
+	launchedIDs, ok := out["launched_task_ids"].([]string)
+	if !ok || len(launchedIDs) != 1 || launchedIDs[0] != "task-downstream-1" {
+		t.Fatalf("expected downstream task launch response, got %+v", out)
+	}
+
+	upstream, err := st.GetTaskContext("task-upstream-1")
+	if err != nil {
+		t.Fatalf("get upstream task: %v", err)
+	}
+	if upstream == nil || upstream.State != "done" {
+		t.Fatalf("expected upstream done, got %+v", upstream)
+	}
+
+	upSessions, err := st.ListAgentSessions("/repo/feature-a")
+	if err != nil {
+		t.Fatalf("list upstream sessions: %v", err)
+	}
+	if len(upSessions) != 1 || upSessions[0].State != string(agents.SessionExited) || upSessions[0].Summary != "upstream done" {
+		t.Fatalf("expected upstream session completed, got %+v", upSessions)
+	}
+
+	downstreamSessions, err := st.ListAgentSessions("/repo/feature-b")
+	if err != nil {
+		t.Fatalf("list downstream sessions: %v", err)
+	}
+	if len(downstreamSessions) != 1 {
+		t.Fatalf("expected one downstream launched session, got %+v", downstreamSessions)
+	}
+	if downstreamSessions[0].TaskID != "task-downstream-1" {
+		t.Fatalf("expected downstream session bound to task, got %+v", downstreamSessions[0])
+	}
+}
+
+func TestA2AStatusUpdateBridgesToMCPAndTriggersDownstream(t *testing.T) {
+	cfg := config.DefaultConfig()
+	socketDir := t.TempDir()
+	cfg.Agent.MCPSocket = filepath.Join(socketDir, "focus-mcp.sock")
+	cfg.Agent.A2ASocket = filepath.Join(socketDir, "focus-a2a.sock")
+	cfg.Agent.ExternalTerminal = false
+
+	st, _ := store.New(":memory:")
+	m := New(cfg, st).(model)
+
+	if err := st.SaveTaskContext(models.TaskContextRecord{
+		ID:                  "task-upstream-a2a",
+		RepoID:              "/repo/main",
+		Title:               "Upstream A2A task",
+		State:               "active",
+		Priority:            "high",
+		PreferredWorktreeID: "/repo/feature-a2a-a",
+	}); err != nil {
+		t.Fatalf("save upstream task: %v", err)
+	}
+	if err := st.SaveTaskContext(models.TaskContextRecord{
+		ID:                  "task-downstream-a2a",
+		RepoID:              "/repo/main",
+		Title:               "Downstream A2A task",
+		State:               "paused",
+		Priority:            "medium",
+		PreferredWorktreeID: "/repo/feature-a2a-b",
+	}); err != nil {
+		t.Fatalf("save downstream task: %v", err)
+	}
+	if err := st.SaveTaskDependency(models.TaskDependencyRecord{
+		FromTaskID:     "task-upstream-a2a",
+		ToTaskID:       "task-downstream-a2a",
+		DependencyType: "hard",
+	}); err != nil {
+		t.Fatalf("save dependency: %v", err)
+	}
+	if err := st.SaveAgentSession(models.AgentSessionRecord{
+		ID:         "session-a2a-up-1",
+		Provider:   string(agents.ProviderOpenCode),
+		WorktreeID: "/repo/feature-a2a-a",
+		TaskID:     "task-upstream-a2a",
+		State:      string(agents.SessionWaiting),
+		StartedAt:  time.Now().Add(-time.Minute),
+	}); err != nil {
+		t.Fatalf("save upstream session: %v", err)
+	}
+
+	if err := m.handleA2AMessage(a2a.Message{
+		From: "session-a2a-up-1",
+		Type: "status.heartbeat",
+		Payload: map[string]any{
+			"status": "running",
+		},
+	}); err != nil {
+		t.Fatalf("handle heartbeat: %v", err)
+	}
+
+	if err := m.handleA2AMessage(a2a.Message{
+		From: "session-a2a-up-1",
+		Type: "status.update",
+		Payload: map[string]any{
+			"task_id":    "task-upstream-a2a",
+			"task_state": "completed",
+			"summary":    "done by a2a",
+		},
+	}); err != nil {
+		t.Fatalf("handle status update: %v", err)
+	}
+
+	upstream, err := st.GetTaskContext("task-upstream-a2a")
+	if err != nil {
+		t.Fatalf("get upstream task: %v", err)
+	}
+	if upstream == nil || upstream.State != "done" {
+		t.Fatalf("expected upstream done after a2a status update, got %+v", upstream)
+	}
+
+	upSessions, err := st.ListAgentSessions("/repo/feature-a2a-a")
+	if err != nil {
+		t.Fatalf("list upstream sessions: %v", err)
+	}
+	if len(upSessions) != 1 || upSessions[0].State != string(agents.SessionExited) {
+		t.Fatalf("expected upstream session exited, got %+v", upSessions)
+	}
+
+	downstreamSessions, err := st.ListAgentSessions("/repo/feature-a2a-b")
+	if err != nil {
+		t.Fatalf("list downstream sessions: %v", err)
+	}
+	if len(downstreamSessions) != 1 || downstreamSessions[0].TaskID != "task-downstream-a2a" {
+		t.Fatalf("expected downstream launch via a2a bridge, got %+v", downstreamSessions)
+	}
+}
+
+func TestResolveOrchestratedProviderUsesRoleDefaults(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Agent.ResearchProvider = string(agents.ProviderKimi)
+	cfg.Agent.ArchitectureProvider = string(agents.ProviderClaude)
+	cfg.Agent.CodingProvider = "codex,kimi,claude"
+
+	st, _ := store.New(":memory:")
+	m := New(cfg, st).(model)
+
+	cases := []struct {
+		name string
+		task orchestrator.Task
+		want agents.Provider
+	}{
+		{
+			name: "explicit provider overrides role mapping",
+			task: orchestrator.Task{Name: "实现主流程", Provider: string(agents.ProviderKimi)},
+			want: agents.ProviderKimi,
+		},
+		{
+			name: "research title maps to research provider",
+			task: orchestrator.Task{Name: "调研现有接口方案"},
+			want: agents.ProviderKimi,
+		},
+		{
+			name: "architecture title maps to architecture provider",
+			task: orchestrator.Task{Name: "架构设计 ADR 拆解"},
+			want: agents.ProviderClaude,
+		},
+	}
+
+	for _, tt := range cases {
+		if got := m.resolveOrchestratedProvider(tt.task); got != tt.want {
+			t.Fatalf("%s: expected %s, got %s", tt.name, tt.want, got)
+		}
+	}
+
+	codingTask := orchestrator.Task{ID: "task-coding-1", Name: "实现 task 状态同步"}
+	providerA := m.resolveOrchestratedProvider(codingTask)
+	providerB := m.resolveOrchestratedProvider(codingTask)
+	if providerA != providerB {
+		t.Fatalf("expected stable coding provider for same task, got %s and %s", providerA, providerB)
+	}
+	allowed := map[agents.Provider]struct{}{
+		agents.ProviderCodex:  {},
+		agents.ProviderKimi:   {},
+		agents.ProviderClaude: {},
+	}
+	if _, ok := allowed[providerA]; !ok {
+		t.Fatalf("expected coding provider in codex/kimi/claude, got %s", providerA)
 	}
 }
 
