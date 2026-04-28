@@ -52,6 +52,12 @@ type Store interface {
 	ListContextNotes(taskID string, worktreeID string) ([]ContextNoteRecord, error)
 	SaveAgentSession(record AgentSessionRecord) error
 	ListAgentSessions(worktreeID string) ([]AgentSessionRecord, error)
+	SaveTaskDependency(record TaskDependencyRecord) error
+	DeleteTaskDependency(fromTaskID, toTaskID string) error
+	ListDownstreamTaskContexts(taskID string) ([]TaskContextRecord, error)
+	AreTaskPrerequisitesMet(taskID string) (bool, error)
+	MarkAgentSessionDisconnected(sessionID string, reason string) error
+	UpdateAgentSessionHeartbeat(sessionID string, at time.Time, state string) error
 }
 
 type PageSnapshotRecord struct {
@@ -72,10 +78,20 @@ type AgentSessionRecord struct {
 	State          string
 	LaunchSource   string
 	Summary        string
+	EnvSnapshot    string
 	StartedAt      time.Time
 	EndedAt        *time.Time
 	LastActivityAt *time.Time
+	LastHeartbeat  *time.Time
+	StopReason     string
 	UpdatedAt      time.Time
+}
+
+type TaskDependencyRecord struct {
+	FromTaskID     string
+	ToTaskID       string
+	DependencyType string
+	CreatedAt      time.Time
 }
 
 type TaskContextRecord struct {

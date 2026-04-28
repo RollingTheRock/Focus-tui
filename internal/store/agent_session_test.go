@@ -88,3 +88,44 @@ func TestSaveAgentSessionUpsertsState(t *testing.T) {
 		t.Fatal("expected ended_at to be persisted")
 	}
 }
+
+func TestUpdateAgentSessionHeartbeatAndDisconnect(t *testing.T) {
+	s, err := New(":memory:")
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer s.Close()
+
+	if err := s.SaveAgentSession(AgentSessionRecord{
+		ID:         "session-2",
+		Provider:   "codex",
+		WorktreeID: "/repo/feature-c",
+		State:      "running",
+		StartedAt:  time.Now().Add(-time.Minute),
+	}); err != nil {
+		t.Fatalf("seed session: %v", err)
+	}
+
+	beatAt := time.Now().UTC().Round(time.Second)
+	if err := s.UpdateAgentSessionHeartbeat("session-2", beatAt, "running"); err != nil {
+		t.Fatalf("heartbeat: %v", err)
+	}
+	records, err := s.ListAgentSessions("/repo/feature-c")
+	if err != nil {
+		t.Fatalf("list sessions: %v", err)
+	}
+	if len(records) != 1 || records[0].LastHeartbeat == nil {
+		t.Fatalf("expected heartbeat persisted, got %+v", records)
+	}
+
+	if err := s.MarkAgentSessionDisconnected("session-2", "heartbeat timeout"); err != nil {
+		t.Fatalf("mark disconnected: %v", err)
+	}
+	records, err = s.ListAgentSessions("/repo/feature-c")
+	if err != nil {
+		t.Fatalf("list sessions after disconnect: %v", err)
+	}
+	if len(records) != 1 || records[0].State != "disconnected" || records[0].StopReason != "heartbeat timeout" {
+		t.Fatalf("expected disconnected state with reason, got %+v", records)
+	}
+}

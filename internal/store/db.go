@@ -90,6 +90,37 @@ CREATE TABLE IF NOT EXISTS page_snapshots (
     updated_at    DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS adrs (
+    id            TEXT PRIMARY KEY,
+    title         TEXT NOT NULL,
+    status        TEXT NOT NULL CHECK(status IN ('proposed', 'accepted', 'deprecated', 'superseded')),
+    version       INTEGER NOT NULL DEFAULT 1,
+    context       TEXT NOT NULL,
+    decision      TEXT NOT NULL,
+    consequences  TEXT,
+    superseded_by TEXT REFERENCES adrs(id),
+    created_by    TEXT NOT NULL,
+    created_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    accepted_at   DATETIME,
+    accepted_by   TEXT,
+    updated_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_adrs_status
+    ON adrs(status, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS adr_constraints (
+    id          TEXT PRIMARY KEY,
+    adr_id      TEXT NOT NULL REFERENCES adrs(id) ON DELETE CASCADE,
+    category    TEXT NOT NULL CHECK(category IN ('must', 'must_not', 'should', 'should_not')),
+    rule        TEXT NOT NULL,
+    rationale   TEXT,
+    created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_adr_constraints_adr
+    ON adr_constraints(adr_id);
+
 CREATE TABLE IF NOT EXISTS task_contexts (
     id                    TEXT PRIMARY KEY,
     repo_id               TEXT NOT NULL,
@@ -109,6 +140,20 @@ CREATE INDEX IF NOT EXISTS idx_task_contexts_repo_state
 
 CREATE INDEX IF NOT EXISTS idx_task_contexts_preferred_worktree
     ON task_contexts(preferred_worktree_id);
+
+CREATE TABLE IF NOT EXISTS task_dependencies (
+    from_task_id    TEXT NOT NULL REFERENCES task_contexts(id) ON DELETE CASCADE,
+    to_task_id      TEXT NOT NULL REFERENCES task_contexts(id) ON DELETE CASCADE,
+    dependency_type TEXT NOT NULL DEFAULT 'hard' CHECK(dependency_type IN ('hard', 'soft')),
+    created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (from_task_id, to_task_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_task_dependencies_from
+    ON task_dependencies(from_task_id);
+
+CREATE INDEX IF NOT EXISTS idx_task_dependencies_to
+    ON task_dependencies(to_task_id);
 
 CREATE TABLE IF NOT EXISTS task_briefs (
     task_id            TEXT PRIMARY KEY REFERENCES task_contexts(id) ON DELETE CASCADE,
@@ -241,15 +286,54 @@ CREATE TABLE IF NOT EXISTS agent_sessions (
     state           TEXT NOT NULL,
     launch_source   TEXT,
     summary         TEXT,
+    env_snapshot    TEXT,
     started_at      DATETIME NOT NULL,
     ended_at        DATETIME,
     last_activity_at DATETIME,
+    last_heartbeat  DATETIME,
+    stop_reason     TEXT,
     updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX IF NOT EXISTS idx_agent_sessions_worktree ON agent_sessions(worktree_id);
 CREATE INDEX IF NOT EXISTS idx_agent_sessions_state ON agent_sessions(state);
 CREATE INDEX IF NOT EXISTS idx_agent_sessions_repo_updated ON agent_sessions(repo_id, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS agent_messages (
+    id          TEXT PRIMARY KEY,
+    from_agent  TEXT NOT NULL,
+    to_agent    TEXT NOT NULL,
+    msg_type    TEXT NOT NULL CHECK(msg_type IN (
+        'task_delegation',
+        'artifact_reference',
+        'status_update',
+        'intervention_request',
+        'intervention_response'
+    )),
+    payload     TEXT NOT NULL,
+    read_at     DATETIME,
+    created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_agent_messages_to
+    ON agent_messages(to_agent, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_agent_messages_type
+    ON agent_messages(msg_type, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS knowledge_facts (
+    id          TEXT PRIMARY KEY,
+    plan_id     TEXT REFERENCES task_plans(id) ON DELETE CASCADE,
+    subject     TEXT NOT NULL,
+    predicate   TEXT NOT NULL,
+    object      TEXT NOT NULL,
+    source      TEXT NOT NULL,
+    confidence  REAL NOT NULL DEFAULT 1.0 CHECK(confidence >= 0 AND confidence <= 1),
+    created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_knowledge_facts_plan
+    ON knowledge_facts(plan_id, created_at DESC);
 `
 	_, err := s.db.Exec(schema)
 	if err != nil {
@@ -398,9 +482,12 @@ func (s *Store) migratePlanStepsExpansionColumns() error {
 
 func (s *Store) migrateAgentSessionsWorkflowColumns() error {
 	return ensureColumns(s.db, "agent_sessions", map[string]string{
-		"task_id": "TEXT REFERENCES task_contexts(id) ON DELETE SET NULL",
-		"plan_id": "TEXT REFERENCES task_plans(id) ON DELETE SET NULL",
-		"step_id": "TEXT REFERENCES plan_steps(id) ON DELETE SET NULL",
+		"task_id":        "TEXT REFERENCES task_contexts(id) ON DELETE SET NULL",
+		"plan_id":        "TEXT REFERENCES task_plans(id) ON DELETE SET NULL",
+		"step_id":        "TEXT REFERENCES plan_steps(id) ON DELETE SET NULL",
+		"env_snapshot":   "TEXT",
+		"last_heartbeat": "DATETIME",
+		"stop_reason":    "TEXT",
 	})
 }
 
