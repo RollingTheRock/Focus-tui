@@ -1,18 +1,25 @@
 package a2a
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
+	"net"
+	"os"
+	"path/filepath"
 	"sync"
+	"syscall"
 	"time"
 )
 
 type Message struct {
-	ID        string
-	From      string
-	To        string
-	Type      string
-	Payload   map[string]any
-	Timestamp time.Time
+	ID        string         `json:"id"`
+	From      string         `json:"from"`
+	To        string         `json:"to"`
+	Type      string         `json:"type"`
+	Payload   map[string]any `json:"payload"`
+	Timestamp time.Time      `json:"timestamp"`
 }
 
 type Router struct {
@@ -21,12 +28,16 @@ type Router struct {
 	mu          sync.RWMutex
 	running     bool
 	subscribers map[string]map[chan Message]struct{}
+	listener    net.Listener
+	conns       map[net.Conn]struct{}
+	wg          sync.WaitGroup
 }
 
 func NewRouter(socketPath string) *Router {
 	return &Router{
 		socketPath:  socketPath,
 		subscribers: make(map[string]map[chan Message]struct{}),
+		conns:       make(map[net.Conn]struct{}),
 	}
 }
 
@@ -36,20 +47,55 @@ func (r *Router) Start() error {
 	if r.socketPath == "" {
 		return fmt.Errorf("a2a socket path required")
 	}
+	if r.running {
+		return nil
+	}
+
+	listener, err := listenUnixSocket(r.socketPath)
+	if err != nil {
+		return err
+	}
+
+	r.listener = listener
 	r.running = true
+	r.wg.Add(1)
+	go r.acceptLoop(listener)
 	return nil
 }
 
 func (r *Router) Stop() error {
 	r.mu.Lock()
-	defer r.mu.Unlock()
+	if !r.running {
+		r.mu.Unlock()
+		return nil
+	}
 	r.running = false
+	listener := r.listener
+	r.listener = nil
+	conns := make([]net.Conn, 0, len(r.conns))
+	for conn := range r.conns {
+		conns = append(conns, conn)
+	}
+	r.conns = make(map[net.Conn]struct{})
 	for _, set := range r.subscribers {
 		for ch := range set {
 			close(ch)
 		}
 	}
 	r.subscribers = make(map[string]map[chan Message]struct{})
+	r.mu.Unlock()
+
+	if listener != nil {
+		_ = listener.Close()
+	}
+	for _, conn := range conns {
+		_ = conn.Close()
+	}
+	r.wg.Wait()
+
+	if err := os.Remove(r.socketPath); err != nil && !os.IsNotExist(err) {
+		return err
+	}
 	return nil
 }
 
@@ -125,4 +171,82 @@ func (r *Router) Publish(msg Message) error {
 		dispatch("broadcast")
 	}
 	return nil
+}
+
+func (r *Router) acceptLoop(listener net.Listener) {
+	defer r.wg.Done()
+	for {
+		conn, err := listener.Accept()
+		if err != nil {
+			if errors.Is(err, net.ErrClosed) {
+				return
+			}
+			r.mu.RLock()
+			running := r.running
+			r.mu.RUnlock()
+			if !running {
+				return
+			}
+			continue
+		}
+		r.mu.Lock()
+		if !r.running {
+			r.mu.Unlock()
+			_ = conn.Close()
+			return
+		}
+		r.conns[conn] = struct{}{}
+		r.wg.Add(1)
+		r.mu.Unlock()
+		go r.handleConn(conn)
+	}
+}
+
+func (r *Router) handleConn(conn net.Conn) {
+	defer r.wg.Done()
+	defer func() {
+		_ = conn.Close()
+		r.mu.Lock()
+		delete(r.conns, conn)
+		r.mu.Unlock()
+	}()
+
+	decoder := json.NewDecoder(conn)
+	for {
+		var msg Message
+		if err := decoder.Decode(&msg); err != nil {
+			if errors.Is(err, io.EOF) || errors.Is(err, net.ErrClosed) {
+				return
+			}
+			return
+		}
+		_ = r.Publish(msg)
+	}
+}
+
+func listenUnixSocket(socketPath string) (net.Listener, error) {
+	if socketPath == "" {
+		return nil, fmt.Errorf("socket path required")
+	}
+	if err := os.MkdirAll(filepath.Dir(socketPath), 0o755); err != nil {
+		return nil, err
+	}
+
+	listener, err := net.Listen("unix", socketPath)
+	if err == nil {
+		return listener, nil
+	}
+	if !errors.Is(err, syscall.EADDRINUSE) {
+		return nil, err
+	}
+
+	conn, dialErr := net.DialTimeout("unix", socketPath, 250*time.Millisecond)
+	if dialErr == nil {
+		_ = conn.Close()
+		return nil, fmt.Errorf("socket already in use: %s", socketPath)
+	}
+	if removeErr := os.Remove(socketPath); removeErr != nil && !os.IsNotExist(removeErr) {
+		return nil, removeErr
+	}
+	return net.Listen("unix", socketPath)
 }

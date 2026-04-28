@@ -140,6 +140,7 @@ func New(cfg config.Config, store models.Store) tea.Model {
 		mcpServer:          mcp.NewServer(cfg.Agent.MCPSocket),
 		a2aRouter:          a2a.NewRouter(cfg.Agent.A2ASocket),
 	}
+	m.registerMCPTools()
 	_ = m.mcpServer.Start()
 	_ = m.a2aRouter.Start()
 
@@ -162,6 +163,128 @@ func New(cfg config.Config, store models.Store) tea.Model {
 	m.syncWorktreeActivities()
 
 	return m
+}
+
+func (m *model) registerMCPTools() {
+	if m == nil || m.mcpServer == nil {
+		return
+	}
+	_ = m.mcpServer.RegisterTool("session.heartbeat", m.mcpSessionHeartbeatTool)
+	_ = m.mcpServer.RegisterTool("task.get", m.mcpTaskGetTool)
+	_ = m.mcpServer.RegisterTool("task.update_status", m.mcpTaskUpdateStatusTool)
+}
+
+func (m *model) mcpSessionHeartbeatTool(params map[string]any) (map[string]any, error) {
+	sessionID := toolStringParam(params, "session_id")
+	if sessionID == "" {
+		return nil, fmt.Errorf("session_id required")
+	}
+	state := toolStringParam(params, "status")
+	if state == "" {
+		state = toolStringParam(params, "state")
+	}
+	now := time.Now()
+	if atRaw := toolStringParam(params, "at"); atRaw != "" {
+		if parsed, err := time.Parse(time.RFC3339, atRaw); err == nil {
+			now = parsed
+		}
+	}
+	if m.common == nil || m.common.Store == nil {
+		return nil, fmt.Errorf("store unavailable")
+	}
+	if err := m.common.Store.UpdateAgentSessionHeartbeat(sessionID, now, state); err != nil {
+		return nil, err
+	}
+	return map[string]any{
+		"success":    true,
+		"session_id": sessionID,
+		"status":     state,
+		"at":         now.UTC().Format(time.RFC3339),
+	}, nil
+}
+
+func (m *model) mcpTaskGetTool(params map[string]any) (map[string]any, error) {
+	taskID := toolStringParam(params, "task_id")
+	if taskID == "" {
+		return nil, fmt.Errorf("task_id required")
+	}
+	if m.common == nil || m.common.Store == nil {
+		return nil, fmt.Errorf("store unavailable")
+	}
+	record, err := m.common.Store.GetTaskContext(taskID)
+	if err != nil {
+		return nil, err
+	}
+	if record == nil {
+		return nil, fmt.Errorf("task %q not found", taskID)
+	}
+	task := map[string]any{
+		"id":                    record.ID,
+		"repo_id":               record.RepoID,
+		"title":                 record.Title,
+		"goal":                  record.Goal,
+		"next_step":             record.NextStep,
+		"state":                 record.State,
+		"priority":              record.Priority,
+		"preferred_worktree_id": record.PreferredWorktreeID,
+	}
+	return map[string]any{
+		"task": task,
+	}, nil
+}
+
+func (m *model) mcpTaskUpdateStatusTool(params map[string]any) (map[string]any, error) {
+	taskID := toolStringParam(params, "task_id")
+	if taskID == "" {
+		return nil, fmt.Errorf("task_id required")
+	}
+	nextState := normalizeToolTaskState(toolStringParam(params, "state"))
+	if nextState == "" {
+		return nil, fmt.Errorf("state required")
+	}
+	if m.common == nil || m.common.Store == nil {
+		return nil, fmt.Errorf("store unavailable")
+	}
+	record, err := m.common.Store.GetTaskContext(taskID)
+	if err != nil {
+		return nil, err
+	}
+	if record == nil {
+		return nil, fmt.Errorf("task %q not found", taskID)
+	}
+	prevState := record.State
+	record.State = nextState
+	if err := m.common.Store.SaveTaskContext(*record); err != nil {
+		return nil, err
+	}
+	return map[string]any{
+		"success":        true,
+		"task_id":        taskID,
+		"previous_state": prevState,
+		"state":          nextState,
+	}, nil
+}
+
+func toolStringParam(params map[string]any, key string) string {
+	if params == nil {
+		return ""
+	}
+	value, exists := params[key]
+	if !exists || value == nil {
+		return ""
+	}
+	return strings.TrimSpace(fmt.Sprintf("%v", value))
+}
+
+func normalizeToolTaskState(state string) string {
+	switch strings.ToLower(strings.TrimSpace(state)) {
+	case "completed":
+		return "done"
+	case "in_progress":
+		return "active"
+	default:
+		return strings.TrimSpace(state)
+	}
 }
 
 func (m *model) registerPane(id models.PaneID, panel models.Panel, meta models.PaneMeta) {

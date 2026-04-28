@@ -570,6 +570,91 @@ func TestHandleExternalLaunchResultUpdatesState(t *testing.T) {
 	}
 }
 
+func TestMCPToolSessionHeartbeatUpdatesSessionRecord(t *testing.T) {
+	cfg := config.DefaultConfig()
+	socketDir := t.TempDir()
+	cfg.Agent.MCPSocket = filepath.Join(socketDir, "focus-mcp.sock")
+	cfg.Agent.A2ASocket = filepath.Join(socketDir, "focus-a2a.sock")
+
+	st, _ := store.New(":memory:")
+	m := New(cfg, st).(model)
+
+	if err := st.SaveAgentSession(models.AgentSessionRecord{
+		ID:         "session-heartbeat-1",
+		Provider:   string(agents.ProviderClaude),
+		WorktreeID: "/repo/feature-heartbeat",
+		State:      string(agents.SessionWaiting),
+		StartedAt:  time.Now().Add(-2 * time.Minute),
+	}); err != nil {
+		t.Fatalf("seed session: %v", err)
+	}
+
+	out, err := m.mcpSessionHeartbeatTool(map[string]any{
+		"session_id": "session-heartbeat-1",
+		"status":     string(agents.SessionRunning),
+	})
+	if err != nil {
+		t.Fatalf("session.heartbeat tool error: %v", err)
+	}
+	if out["success"] != true {
+		t.Fatalf("expected success response, got %+v", out)
+	}
+
+	records, err := st.ListAgentSessions("/repo/feature-heartbeat")
+	if err != nil {
+		t.Fatalf("list sessions: %v", err)
+	}
+	if len(records) != 1 {
+		t.Fatalf("expected one session record, got %+v", records)
+	}
+	if records[0].State != string(agents.SessionRunning) {
+		t.Fatalf("expected running state after heartbeat, got %+v", records[0])
+	}
+	if records[0].LastHeartbeat == nil {
+		t.Fatalf("expected heartbeat timestamp, got %+v", records[0])
+	}
+}
+
+func TestMCPToolTaskUpdateStatusNormalizesCompletedToDone(t *testing.T) {
+	cfg := config.DefaultConfig()
+	socketDir := t.TempDir()
+	cfg.Agent.MCPSocket = filepath.Join(socketDir, "focus-mcp.sock")
+	cfg.Agent.A2ASocket = filepath.Join(socketDir, "focus-a2a.sock")
+
+	st, _ := store.New(":memory:")
+	m := New(cfg, st).(model)
+
+	if err := st.SaveTaskContext(models.TaskContextRecord{
+		ID:                  "task-status-1",
+		RepoID:              "/repo/main",
+		Title:               "Status update target",
+		State:               "paused",
+		Priority:            "medium",
+		PreferredWorktreeID: "/repo/feature-status",
+	}); err != nil {
+		t.Fatalf("seed task: %v", err)
+	}
+
+	out, err := m.mcpTaskUpdateStatusTool(map[string]any{
+		"task_id": "task-status-1",
+		"state":   "completed",
+	})
+	if err != nil {
+		t.Fatalf("task.update_status tool error: %v", err)
+	}
+	if out["state"] != "done" {
+		t.Fatalf("expected normalized done state in response, got %+v", out)
+	}
+
+	task, err := st.GetTaskContext("task-status-1")
+	if err != nil {
+		t.Fatalf("get task: %v", err)
+	}
+	if task == nil || task.State != "done" {
+		t.Fatalf("expected task state persisted as done, got %+v", task)
+	}
+}
+
 func TestSwitchToWorktreePagePersistsWorktreeContext(t *testing.T) {
 	cfg := config.DefaultConfig()
 	st, _ := store.New(":memory:")
