@@ -1,6 +1,7 @@
 package app
 
 import (
+	"fmt"
 	"strings"
 
 	"focus/internal/models"
@@ -10,6 +11,7 @@ import (
 )
 
 type overviewDetailSelection struct {
+	TaskID            string
 	Title             string
 	Branch            string
 	WorktreePath      string
@@ -37,6 +39,12 @@ type overviewDetailSelection struct {
 	GitPressure       string
 	RuntimeSummary    string
 	Upstream          string
+	DAGSummary        string
+	DAGLanes          []string
+	DAGEdges          []string
+	UpstreamTasks     []string
+	DownstreamTasks   []string
+	SharedContext     []string
 	PinnedNote        string
 	BlockerNote       string
 	HandoffNote       string
@@ -134,6 +142,58 @@ func (p *overviewDetailPane) View() string {
 			for _, step := range selection.PlanSteps {
 				lines = append(lines, overviewDetailBodyStyle.Render("  "+step))
 			}
+		}
+	}
+	if selection.DAGSummary != "" || len(selection.DAGLanes) > 0 || len(selection.DAGEdges) > 0 {
+		lines = append(lines,
+			"",
+			overviewDetailSectionStyle.Render("DAG"),
+		)
+		if selection.DAGSummary != "" {
+			lines = append(lines, overviewDetailBodyStyle.Render(selection.DAGSummary))
+		}
+		for i, lane := range selection.DAGLanes {
+			if i >= 4 {
+				remaining := len(selection.DAGLanes) - i
+				lines = append(lines, overviewDetailMutedStyle.Render(fmt.Sprintf("...+%d more lanes", remaining)))
+				break
+			}
+			lines = append(lines, overviewDetailBodyStyle.Render(lane))
+		}
+		for i, edge := range selection.DAGEdges {
+			if i >= 4 {
+				remaining := len(selection.DAGEdges) - i
+				lines = append(lines, overviewDetailMutedStyle.Render(fmt.Sprintf("...+%d more edges", remaining)))
+				break
+			}
+			lines = append(lines, overviewDetailMutedStyle.Render(edge))
+		}
+	}
+	if len(selection.UpstreamTasks) > 0 || len(selection.DownstreamTasks) > 0 {
+		lines = append(lines,
+			"",
+			overviewDetailSectionStyle.Render("Dependencies"),
+		)
+		if len(selection.UpstreamTasks) > 0 {
+			lines = append(lines, overviewDetailBodyStyle.Render("upstream:"))
+			for _, row := range selection.UpstreamTasks {
+				lines = append(lines, overviewDetailBodyStyle.Render("  - "+row))
+			}
+		}
+		if len(selection.DownstreamTasks) > 0 {
+			lines = append(lines, overviewDetailBodyStyle.Render("downstream:"))
+			for _, row := range selection.DownstreamTasks {
+				lines = append(lines, overviewDetailBodyStyle.Render("  - "+row))
+			}
+		}
+	}
+	if len(selection.SharedContext) > 0 {
+		lines = append(lines,
+			"",
+			overviewDetailSectionStyle.Render("Shared Context"),
+		)
+		for _, row := range selection.SharedContext {
+			lines = append(lines, overviewDetailBodyStyle.Render(row))
 		}
 	}
 	if selection.Attention != "" || selection.RecentArtifact != "" {

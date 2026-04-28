@@ -44,6 +44,7 @@ const (
 	paneShell           models.PaneID = "shell-main"
 	paneWorktree        models.PaneID = "worktree-main"
 	paneOverviewSummary models.PaneID = "overview-summary-main"
+	paneOverviewDAG     models.PaneID = "overview-dag-main"
 	paneOverviewDetail  models.PaneID = "overview-detail-main"
 	paneGitStatus       models.PaneID = "git-status-main"
 	paneGitDiff         models.PaneID = "git-diff-pane"
@@ -62,6 +63,7 @@ const (
 	paneTypeTaskEdit        models.PaneType = "task-edit"
 	paneTypePlanEdit        models.PaneType = "plan-edit"
 	paneTypeOverviewSummary models.PaneType = "overview-summary"
+	paneTypeOverviewDAG     models.PaneType = "overview-dag"
 	paneTypeOverviewDetail  models.PaneType = "overview-detail"
 
 	splitRatioStep = 5
@@ -1776,6 +1778,9 @@ func (m model) renderHelpLine(w int) string {
 	case paneTypeOverviewDetail:
 		left = "[tab]next  [1-4]/[]tabs  [enter]resume  [e]edit task  [f]follow-up  [s]cycle state"
 		compact = "[tab]next  [1-4]tabs  [enter]resume"
+	case paneTypeOverviewDAG:
+		left = "[tab]next  [1-4]/[]tabs  [enter]resume  [ctrl+g]overview"
+		compact = "[tab]next  [enter]resume  [ctrl+g]overview"
 	case models.PaneTypeAgentSession:
 		left = "[j/k]move  [enter]focus worktree  [a]relaunch  [x]kill  [r]refresh"
 		compact = "[enter]focus  [a]relaunch  [x]kill"
