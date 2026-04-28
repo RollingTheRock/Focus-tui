@@ -19,14 +19,22 @@ const (
 type SessionState string
 
 const (
-	SessionRunning SessionState = "running"
-	SessionExited  SessionState = "exited"
-	SessionFailed  SessionState = "failed"
-	SessionWaiting SessionState = "waiting"
-	SessionUnknown SessionState = "unknown"
+	SessionRunning      SessionState = "running"
+	SessionExited       SessionState = "exited"
+	SessionFailed       SessionState = "failed"
+	SessionWaiting      SessionState = "waiting"
+	SessionDisconnected SessionState = "disconnected"
+	SessionUnknown      SessionState = "unknown"
 )
 
-const SessionIDEnvVar = "FOCUS_AGENT_SESSION_ID"
+const (
+	SessionIDEnvVar       = "FOCUS_SESSION_ID"
+	LegacySessionIDEnvVar = "FOCUS_AGENT_SESSION_ID"
+	TaskIDEnvVar          = "FOCUS_TASK_ID"
+	PlanIDEnvVar          = "FOCUS_PLAN_ID"
+	MCPSocketEnvVar       = "FOCUS_MCP_SOCKET"
+	A2ASocketEnvVar       = "FOCUS_A2A_SOCKET"
+)
 
 type Session struct {
 	ID             string
@@ -41,6 +49,7 @@ type Session struct {
 	State          SessionState
 	LaunchSource   string
 	Summary        string
+	EnvSnapshot    string
 	StartedAt      time.Time
 	EndedAt        *time.Time
 	LastActivityAt *time.Time
