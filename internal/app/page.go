@@ -104,6 +104,7 @@ func newOverviewPage(common *models.CommonModel, pluginRegistry *plugins.Registr
 
 	worktreePaneMeta := models.PaneMeta{ID: paneWorktree, Name: "Worktrees", Type: models.PaneTypeWorktree, CWD: cwd, RepoID: cwd, WorktreeID: cwd, Status: models.PaneStatusIdle, Closable: false}
 	overviewSummaryMeta := models.PaneMeta{ID: paneOverviewSummary, Name: "Overview Summary", Type: paneTypeOverviewSummary, CWD: cwd, RepoID: cwd, WorktreeID: cwd, Status: models.PaneStatusIdle, Closable: false}
+	overviewDAGMeta := models.PaneMeta{ID: paneOverviewDAG, Name: "Task DAG", Type: paneTypeOverviewDAG, CWD: cwd, RepoID: cwd, WorktreeID: cwd, Status: models.PaneStatusIdle, Closable: false}
 	overviewDetailMeta := models.PaneMeta{ID: paneOverviewDetail, Name: "Context Detail", Type: paneTypeOverviewDetail, CWD: cwd, RepoID: cwd, WorktreeID: cwd, Status: models.PaneStatusIdle, Closable: false}
 	agentSessionMeta := models.PaneMeta{ID: paneAgentSession, Name: "Agents", Type: models.PaneTypeAgentSession, CWD: cwd, RepoID: cwd, WorktreeID: cwd, Status: models.PaneStatusIdle, Closable: false}
 
@@ -120,6 +121,9 @@ func newOverviewPage(common *models.CommonModel, pluginRegistry *plugins.Registr
 		overviewSummaryMeta.CWD = repoRoot
 		overviewSummaryMeta.RepoID = repoRoot
 		overviewSummaryMeta.WorktreeID = repoRoot
+		overviewDAGMeta.CWD = repoRoot
+		overviewDAGMeta.RepoID = repoRoot
+		overviewDAGMeta.WorktreeID = repoRoot
 		overviewDetailMeta.CWD = repoRoot
 		overviewDetailMeta.RepoID = repoRoot
 		overviewDetailMeta.WorktreeID = repoRoot
@@ -132,26 +136,30 @@ func newOverviewPage(common *models.CommonModel, pluginRegistry *plugins.Registr
 		if panel, err := pluginRegistry.CreatePane(models.PaneTypeAgentSession, paneAgentSession, agentSessionMeta, *common); err == nil {
 			p.registerPane(paneAgentSession, panel, agentSessionMeta)
 		}
-		p.registerPane(paneOverviewSummary, newOverviewSummaryPane(paneOverviewSummary, overviewSummaryMeta, func() workbenchOverviewContext {
+		overviewRepoID := repoRoot
+		if overviewRepoID == "" {
+			overviewRepoID = cwd
+		}
+		overviewProvider := func() workbenchOverviewContext {
 			if wp, ok := p.pane(paneWorktree).(*gitplugin.WorktreePane); ok {
-				return buildWorkbenchOverviewContext(wp)
+				return buildWorkbenchOverviewContext(wp, common.Store, overviewRepoID)
 			}
 			return workbenchOverviewContext{}
-		}), overviewSummaryMeta)
-		p.registerPane(paneOverviewDetail, newOverviewDetailPane(paneOverviewDetail, overviewDetailMeta, func() workbenchOverviewContext {
-			if wp, ok := p.pane(paneWorktree).(*gitplugin.WorktreePane); ok {
-				return buildWorkbenchOverviewContext(wp)
-			}
-			return workbenchOverviewContext{}
-		}), overviewDetailMeta)
+		}
+		p.registerPane(paneOverviewSummary, newOverviewSummaryPane(paneOverviewSummary, overviewSummaryMeta, overviewProvider), overviewSummaryMeta)
+		p.registerPane(paneOverviewDAG, newOverviewDAGPane(paneOverviewDAG, overviewDAGMeta, overviewProvider), overviewDAGMeta)
+		p.registerPane(paneOverviewDetail, newOverviewDetailPane(paneOverviewDetail, overviewDetailMeta, overviewProvider), overviewDetailMeta)
 		p.bodyTree = layout.Split(
 			layout.SplitVertical,
 			74,
 			layout.Split(layout.SplitVertical, 20,
 				layout.Leaf(paneOverviewSummary),
-				layout.Split(layout.SplitHorizontal, 40,
+				layout.Split(layout.SplitHorizontal, 36,
 					layout.Leaf(paneWorktree),
-					layout.Split(layout.SplitHorizontal, 58, layout.Leaf(paneOverviewDetail), layout.Leaf(paneAgentSession)),
+					layout.Split(layout.SplitVertical, 54,
+						layout.Leaf(paneOverviewDAG),
+						layout.Split(layout.SplitHorizontal, 58, layout.Leaf(paneOverviewDetail), layout.Leaf(paneAgentSession)),
+					),
 				),
 			),
 			layout.Leaf(paneShell),

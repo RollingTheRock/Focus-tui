@@ -63,6 +63,35 @@ func (s *Store) ListDownstreamTaskContexts(taskID string) ([]TaskContextRecord, 
 	return records, rows.Err()
 }
 
+func (s *Store) ListUpstreamTaskContexts(taskID string) ([]TaskContextRecord, error) {
+	if taskID == "" {
+		return nil, nil
+	}
+	const q = `
+		SELECT tc.id, tc.repo_id, tc.title, tc.goal, tc.next_step, tc.state, tc.priority,
+		       tc.parent_task_id, tc.preferred_worktree_id, tc.created_at, tc.updated_at
+		FROM task_dependencies d
+		JOIN task_contexts tc ON tc.id = d.from_task_id
+		WHERE d.to_task_id = ?
+		ORDER BY tc.updated_at DESC, tc.created_at DESC
+	`
+	rows, err := s.db.Query(q, taskID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	records := make([]TaskContextRecord, 0)
+	for rows.Next() {
+		record, err := scanTaskContextRows(rows)
+		if err != nil {
+			return nil, err
+		}
+		records = append(records, *record)
+	}
+	return records, rows.Err()
+}
+
 func (s *Store) AreTaskPrerequisitesMet(taskID string) (bool, error) {
 	if taskID == "" {
 		return false, fmt.Errorf("task id required")

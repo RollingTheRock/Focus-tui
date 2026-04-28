@@ -33,10 +33,13 @@ type Config struct {
 	} `yaml:"pomodoro"`
 	TimeFormat string `yaml:"time_format"`
 	Agent      struct {
-		ExternalTerminal bool   `yaml:"external_terminal"`
-		TerminalEmulator string `yaml:"terminal_emulator"`
-		MCPSocket        string `yaml:"mcp_socket"`
-		A2ASocket        string `yaml:"a2a_socket"`
+		ExternalTerminal     bool   `yaml:"external_terminal"`
+		TerminalEmulator     string `yaml:"terminal_emulator"`
+		MCPSocket            string `yaml:"mcp_socket"`
+		A2ASocket            string `yaml:"a2a_socket"`
+		ResearchProvider     string `yaml:"research_provider"`
+		ArchitectureProvider string `yaml:"architecture_provider"`
+		CodingProvider       string `yaml:"coding_provider"`
 	} `yaml:"agent"`
 	Experimental struct {
 		UseCanvasCompositor bool `yaml:"use_canvas_compositor"`
@@ -59,6 +62,9 @@ func DefaultConfig() Config {
 	cfg.Agent.TerminalEmulator = "kitty"
 	cfg.Agent.MCPSocket = "/tmp/focus-mcp.sock"
 	cfg.Agent.A2ASocket = "/tmp/focus-a2a.sock"
+	cfg.Agent.ResearchProvider = "kimi"
+	cfg.Agent.ArchitectureProvider = "claude"
+	cfg.Agent.CodingProvider = "codex,kimi,claude"
 	return cfg
 }
 

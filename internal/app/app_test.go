@@ -8,10 +8,12 @@ import (
 	"testing"
 	"time"
 
+	"focus/internal/a2a"
 	"focus/internal/agents"
 	"focus/internal/config"
 	gitmodel "focus/internal/git"
 	"focus/internal/models"
+	"focus/internal/orchestrator"
 	editorplugin "focus/internal/plugins/editor"
 	gitplugin "focus/internal/plugins/git"
 	"focus/internal/store"
@@ -172,11 +174,11 @@ func TestOverviewPageBodyTreeIsOrchestrationHub(t *testing.T) {
 		t.Fatalf("expected overview shell to be demoted to a small lower section, got ratio %d", m.activePage.bodyTree.Ratio)
 	}
 	leaves := layout.LeafOrder(m.activePage.bodyTree)
-	if len(leaves) != 5 {
-		t.Fatalf("expected overview page to have 5 leaves, got %d", len(leaves))
+	if len(leaves) != 6 {
+		t.Fatalf("expected overview page to have 6 leaves, got %d", len(leaves))
 	}
-	if leaves[0] != paneOverviewSummary || leaves[1] != paneWorktree || leaves[2] != paneOverviewDetail || leaves[3] != paneAgentSession || leaves[4] != paneShell {
-		t.Fatalf("expected overview leaves [summary worktree detail agent shell], got %v", leaves)
+	if leaves[0] != paneOverviewSummary || leaves[1] != paneWorktree || leaves[2] != paneOverviewDAG || leaves[3] != paneOverviewDetail || leaves[4] != paneAgentSession || leaves[5] != paneShell {
+		t.Fatalf("expected overview leaves [summary worktree dag detail agent shell], got %v", leaves)
 	}
 }
 
@@ -188,6 +190,7 @@ func TestOverviewLayoutPrioritizesWorktreeOverShellHeight(t *testing.T) {
 	frames := layout.ComputeFrames(m.activePage.bodyTree, models.PaneFrame{X: 0, Y: 0, W: 120, H: 40})
 	summaryFrame := frames[paneOverviewSummary]
 	worktreeFrame := frames[paneWorktree]
+	dagFrame := frames[paneOverviewDAG]
 	detailFrame := frames[paneOverviewDetail]
 	agentFrame := frames[paneAgentSession]
 	shellFrame := frames[paneShell]
@@ -202,6 +205,9 @@ func TestOverviewLayoutPrioritizesWorktreeOverShellHeight(t *testing.T) {
 	}
 	if detailFrame.W <= 0 || detailFrame.H <= 0 {
 		t.Fatalf("expected overview detail pane frame to exist, got %+v", detailFrame)
+	}
+	if dagFrame.W <= 0 || dagFrame.H <= 0 {
+		t.Fatalf("expected overview dag pane frame to exist, got %+v", dagFrame)
 	}
 	if agentFrame.W <= 0 || agentFrame.H <= 0 {
 		t.Fatalf("expected overview agent pane frame to exist, got %+v", agentFrame)
@@ -312,8 +318,8 @@ func TestWorktreePageSplitDoesNotAffectOverview(t *testing.T) {
 	}
 	m.switchToOverviewPage()
 	overviewLeaves := len(layout.LeafOrder(m.activePage.bodyTree))
-	if overviewLeaves != 5 {
-		t.Fatalf("expected overview page to have 5 leaves, got %d", overviewLeaves)
+	if overviewLeaves != 6 {
+		t.Fatalf("expected overview page to have 6 leaves, got %d", overviewLeaves)
 	}
 }
 
@@ -417,8 +423,8 @@ func TestSplitFocusedHorizontal(t *testing.T) {
 	m := New(cfg, st).(model)
 
 	initialOrder := layout.LeafOrder(m.activePage.bodyTree)
-	if len(initialOrder) != 5 {
-		t.Fatalf("expected 5 panes initially (summary + worktree + detail + agents + shell), got %d", len(initialOrder))
+	if len(initialOrder) != 6 {
+		t.Fatalf("expected 6 panes initially (summary + worktree + dag + detail + agents + shell), got %d", len(initialOrder))
 	}
 
 	m.setFocus(paneShell)
@@ -429,13 +435,13 @@ func TestSplitFocusedHorizontal(t *testing.T) {
 	m = newM.(model)
 
 	newOrder := layout.LeafOrder(m.activePage.bodyTree)
-	if len(newOrder) != 6 {
-		t.Fatalf("expected 6 panes after split, got %d", len(newOrder))
+	if len(newOrder) != 7 {
+		t.Fatalf("expected 7 panes after split, got %d", len(newOrder))
 	}
 
 	foundNewPane := false
 	for _, id := range newOrder {
-		if string(id) != string(paneShell) && string(id) != string(paneWorktree) && string(id) != string(paneOverviewDetail) && string(id) != string(paneOverviewSummary) && string(id) != string(paneAgentSession) {
+		if string(id) != string(paneShell) && string(id) != string(paneWorktree) && string(id) != string(paneOverviewDAG) && string(id) != string(paneOverviewDetail) && string(id) != string(paneOverviewSummary) && string(id) != string(paneAgentSession) {
 			foundNewPane = true
 			if m.activePage.focused != id {
 				t.Fatalf("expected focus on new pane %s, got %s", id, m.activePage.focused)
@@ -567,6 +573,542 @@ func TestHandleExternalLaunchResultUpdatesState(t *testing.T) {
 	}
 	if len(records) != 1 || records[0].State != string(agents.SessionFailed) || records[0].StopReason == "" {
 		t.Fatalf("expected failed session with stop reason, got %+v", records)
+	}
+}
+
+func TestMCPToolSessionHeartbeatUpdatesSessionRecord(t *testing.T) {
+	cfg := config.DefaultConfig()
+	socketDir := t.TempDir()
+	cfg.Agent.MCPSocket = filepath.Join(socketDir, "focus-mcp.sock")
+	cfg.Agent.A2ASocket = filepath.Join(socketDir, "focus-a2a.sock")
+
+	st, _ := store.New(":memory:")
+	m := New(cfg, st).(model)
+
+	if err := st.SaveAgentSession(models.AgentSessionRecord{
+		ID:         "session-heartbeat-1",
+		Provider:   string(agents.ProviderClaude),
+		WorktreeID: "/repo/feature-heartbeat",
+		State:      string(agents.SessionWaiting),
+		StartedAt:  time.Now().Add(-2 * time.Minute),
+	}); err != nil {
+		t.Fatalf("seed session: %v", err)
+	}
+
+	out, err := m.mcpSessionHeartbeatTool(map[string]any{
+		"session_id": "session-heartbeat-1",
+		"status":     string(agents.SessionRunning),
+	})
+	if err != nil {
+		t.Fatalf("session.heartbeat tool error: %v", err)
+	}
+	if out["success"] != true {
+		t.Fatalf("expected success response, got %+v", out)
+	}
+
+	records, err := st.ListAgentSessions("/repo/feature-heartbeat")
+	if err != nil {
+		t.Fatalf("list sessions: %v", err)
+	}
+	if len(records) != 1 {
+		t.Fatalf("expected one session record, got %+v", records)
+	}
+	if records[0].State != string(agents.SessionRunning) {
+		t.Fatalf("expected running state after heartbeat, got %+v", records[0])
+	}
+	if records[0].LastHeartbeat == nil {
+		t.Fatalf("expected heartbeat timestamp, got %+v", records[0])
+	}
+}
+
+func TestMCPToolTaskUpdateStatusNormalizesCompletedToDone(t *testing.T) {
+	cfg := config.DefaultConfig()
+	socketDir := t.TempDir()
+	cfg.Agent.MCPSocket = filepath.Join(socketDir, "focus-mcp.sock")
+	cfg.Agent.A2ASocket = filepath.Join(socketDir, "focus-a2a.sock")
+
+	st, _ := store.New(":memory:")
+	m := New(cfg, st).(model)
+
+	if err := st.SaveTaskContext(models.TaskContextRecord{
+		ID:                  "task-status-1",
+		RepoID:              "/repo/main",
+		Title:               "Status update target",
+		State:               "paused",
+		Priority:            "medium",
+		PreferredWorktreeID: "/repo/feature-status",
+	}); err != nil {
+		t.Fatalf("seed task: %v", err)
+	}
+
+	out, err := m.mcpTaskUpdateStatusTool(map[string]any{
+		"task_id": "task-status-1",
+		"state":   "completed",
+	})
+	if err != nil {
+		t.Fatalf("task.update_status tool error: %v", err)
+	}
+	if out["state"] != "done" {
+		t.Fatalf("expected normalized done state in response, got %+v", out)
+	}
+
+	task, err := st.GetTaskContext("task-status-1")
+	if err != nil {
+		t.Fatalf("get task: %v", err)
+	}
+	if task == nil || task.State != "done" {
+		t.Fatalf("expected task state persisted as done, got %+v", task)
+	}
+}
+
+func TestMCPTaskStatusDoneTriggersProtocolDownstreamLaunch(t *testing.T) {
+	cfg := config.DefaultConfig()
+	socketDir := t.TempDir()
+	cfg.Agent.MCPSocket = filepath.Join(socketDir, "focus-mcp.sock")
+	cfg.Agent.A2ASocket = filepath.Join(socketDir, "focus-a2a.sock")
+	cfg.Agent.ExternalTerminal = false
+
+	st, _ := store.New(":memory:")
+	m := New(cfg, st).(model)
+
+	if err := st.SaveTaskContext(models.TaskContextRecord{
+		ID:                  "task-upstream-1",
+		RepoID:              "/repo/main",
+		Title:               "Upstream protocol task",
+		State:               "active",
+		Priority:            "high",
+		PreferredWorktreeID: "/repo/feature-a",
+	}); err != nil {
+		t.Fatalf("save upstream task: %v", err)
+	}
+	if err := st.SaveTaskContext(models.TaskContextRecord{
+		ID:                  "task-downstream-1",
+		RepoID:              "/repo/main",
+		Title:               "Downstream protocol task",
+		State:               "paused",
+		Priority:            "medium",
+		PreferredWorktreeID: "/repo/feature-b",
+	}); err != nil {
+		t.Fatalf("save downstream task: %v", err)
+	}
+	if err := st.SaveTaskDependency(models.TaskDependencyRecord{
+		FromTaskID:     "task-upstream-1",
+		ToTaskID:       "task-downstream-1",
+		DependencyType: "hard",
+	}); err != nil {
+		t.Fatalf("save dependency: %v", err)
+	}
+	if err := st.SaveAgentSession(models.AgentSessionRecord{
+		ID:         "session-upstream-1",
+		Provider:   string(agents.ProviderClaude),
+		WorktreeID: "/repo/feature-a",
+		TaskID:     "task-upstream-1",
+		State:      string(agents.SessionRunning),
+		StartedAt:  time.Now().Add(-time.Minute),
+	}); err != nil {
+		t.Fatalf("save upstream session: %v", err)
+	}
+
+	out, err := m.mcpTaskUpdateStatusTool(map[string]any{
+		"task_id":    "task-upstream-1",
+		"state":      "completed",
+		"session_id": "session-upstream-1",
+		"summary":    "upstream done",
+	})
+	if err != nil {
+		t.Fatalf("task.update_status tool error: %v", err)
+	}
+	launchedIDs, ok := out["launched_task_ids"].([]string)
+	if !ok || len(launchedIDs) != 1 || launchedIDs[0] != "task-downstream-1" {
+		t.Fatalf("expected downstream task launch response, got %+v", out)
+	}
+
+	upstream, err := st.GetTaskContext("task-upstream-1")
+	if err != nil {
+		t.Fatalf("get upstream task: %v", err)
+	}
+	if upstream == nil || upstream.State != "done" {
+		t.Fatalf("expected upstream done, got %+v", upstream)
+	}
+
+	upSessions, err := st.ListAgentSessions("/repo/feature-a")
+	if err != nil {
+		t.Fatalf("list upstream sessions: %v", err)
+	}
+	if len(upSessions) != 1 || upSessions[0].State != string(agents.SessionExited) || upSessions[0].Summary != "upstream done" {
+		t.Fatalf("expected upstream session completed, got %+v", upSessions)
+	}
+
+	downstreamSessions, err := st.ListAgentSessions("/repo/feature-b")
+	if err != nil {
+		t.Fatalf("list downstream sessions: %v", err)
+	}
+	if len(downstreamSessions) != 1 {
+		t.Fatalf("expected one downstream launched session, got %+v", downstreamSessions)
+	}
+	if downstreamSessions[0].TaskID != "task-downstream-1" {
+		t.Fatalf("expected downstream session bound to task, got %+v", downstreamSessions[0])
+	}
+}
+
+func TestA2AStatusUpdateBridgesToMCPAndTriggersDownstream(t *testing.T) {
+	cfg := config.DefaultConfig()
+	socketDir := t.TempDir()
+	cfg.Agent.MCPSocket = filepath.Join(socketDir, "focus-mcp.sock")
+	cfg.Agent.A2ASocket = filepath.Join(socketDir, "focus-a2a.sock")
+	cfg.Agent.ExternalTerminal = false
+
+	st, _ := store.New(":memory:")
+	m := New(cfg, st).(model)
+
+	if err := st.SaveTaskContext(models.TaskContextRecord{
+		ID:                  "task-upstream-a2a",
+		RepoID:              "/repo/main",
+		Title:               "Upstream A2A task",
+		State:               "active",
+		Priority:            "high",
+		PreferredWorktreeID: "/repo/feature-a2a-a",
+	}); err != nil {
+		t.Fatalf("save upstream task: %v", err)
+	}
+	if err := st.SaveTaskContext(models.TaskContextRecord{
+		ID:                  "task-downstream-a2a",
+		RepoID:              "/repo/main",
+		Title:               "Downstream A2A task",
+		State:               "paused",
+		Priority:            "medium",
+		PreferredWorktreeID: "/repo/feature-a2a-b",
+	}); err != nil {
+		t.Fatalf("save downstream task: %v", err)
+	}
+	if err := st.SaveTaskDependency(models.TaskDependencyRecord{
+		FromTaskID:     "task-upstream-a2a",
+		ToTaskID:       "task-downstream-a2a",
+		DependencyType: "hard",
+	}); err != nil {
+		t.Fatalf("save dependency: %v", err)
+	}
+	if err := st.SaveAgentSession(models.AgentSessionRecord{
+		ID:         "session-a2a-up-1",
+		Provider:   string(agents.ProviderOpenCode),
+		WorktreeID: "/repo/feature-a2a-a",
+		TaskID:     "task-upstream-a2a",
+		State:      string(agents.SessionWaiting),
+		StartedAt:  time.Now().Add(-time.Minute),
+	}); err != nil {
+		t.Fatalf("save upstream session: %v", err)
+	}
+
+	if err := m.handleA2AMessage(a2a.Message{
+		From: "session-a2a-up-1",
+		Type: "status.heartbeat",
+		Payload: map[string]any{
+			"status": "running",
+		},
+	}); err != nil {
+		t.Fatalf("handle heartbeat: %v", err)
+	}
+
+	if err := m.handleA2AMessage(a2a.Message{
+		From: "session-a2a-up-1",
+		Type: "status.update",
+		Payload: map[string]any{
+			"task_id":    "task-upstream-a2a",
+			"task_state": "completed",
+			"summary":    "done by a2a",
+		},
+	}); err != nil {
+		t.Fatalf("handle status update: %v", err)
+	}
+
+	upstream, err := st.GetTaskContext("task-upstream-a2a")
+	if err != nil {
+		t.Fatalf("get upstream task: %v", err)
+	}
+	if upstream == nil || upstream.State != "done" {
+		t.Fatalf("expected upstream done after a2a status update, got %+v", upstream)
+	}
+
+	upSessions, err := st.ListAgentSessions("/repo/feature-a2a-a")
+	if err != nil {
+		t.Fatalf("list upstream sessions: %v", err)
+	}
+	if len(upSessions) != 1 || upSessions[0].State != string(agents.SessionExited) {
+		t.Fatalf("expected upstream session exited, got %+v", upSessions)
+	}
+
+	downstreamSessions, err := st.ListAgentSessions("/repo/feature-a2a-b")
+	if err != nil {
+		t.Fatalf("list downstream sessions: %v", err)
+	}
+	if len(downstreamSessions) != 1 || downstreamSessions[0].TaskID != "task-downstream-a2a" {
+		t.Fatalf("expected downstream launch via a2a bridge, got %+v", downstreamSessions)
+	}
+}
+
+func TestMCPContextGetForTaskIncludesUpstreamOutputsAndFacts(t *testing.T) {
+	cfg := config.DefaultConfig()
+	socketDir := t.TempDir()
+	cfg.Agent.MCPSocket = filepath.Join(socketDir, "focus-mcp.sock")
+	cfg.Agent.A2ASocket = filepath.Join(socketDir, "focus-a2a.sock")
+
+	st, _ := store.New(":memory:")
+	m := New(cfg, st).(model)
+
+	if err := st.SaveTaskContext(models.TaskContextRecord{
+		ID:                  "task-upstream-ctx",
+		RepoID:              "/repo/main",
+		Title:               "Upstream context task",
+		State:               "done",
+		Priority:            "high",
+		PreferredWorktreeID: "/repo/feature-ctx-a",
+	}); err != nil {
+		t.Fatalf("save upstream task: %v", err)
+	}
+	if err := st.SaveTaskContext(models.TaskContextRecord{
+		ID:                  "task-downstream-ctx",
+		RepoID:              "/repo/main",
+		Title:               "Downstream context task",
+		State:               "paused",
+		Priority:            "medium",
+		PreferredWorktreeID: "/repo/feature-ctx-b",
+	}); err != nil {
+		t.Fatalf("save downstream task: %v", err)
+	}
+	if err := st.SaveTaskDependency(models.TaskDependencyRecord{
+		FromTaskID:     "task-upstream-ctx",
+		ToTaskID:       "task-downstream-ctx",
+		DependencyType: "hard",
+	}); err != nil {
+		t.Fatalf("save dependency: %v", err)
+	}
+	if err := st.SaveTaskPlan(models.TaskPlanRecord{
+		ID:     "plan-downstream-ctx",
+		TaskID: "task-downstream-ctx",
+		Title:  "Downstream plan",
+		Status: "active",
+	}); err != nil {
+		t.Fatalf("save downstream plan: %v", err)
+	}
+	if _, err := m.mcpTaskCreateOutputTool(map[string]any{
+		"task_id": "task-upstream-ctx",
+		"output":  "Upstream implementation complete",
+		"actor":   "agent-claude",
+	}); err != nil {
+		t.Fatalf("create output: %v", err)
+	}
+	if _, err := m.mcpKnowledgeAddFactTool(map[string]any{
+		"plan_id":    "plan-downstream-ctx",
+		"subject":    "router",
+		"predicate":  "uses",
+		"object":     "json-rpc",
+		"source":     "agent-kimi",
+		"confidence": 0.9,
+	}); err != nil {
+		t.Fatalf("add fact: %v", err)
+	}
+
+	ctx, err := m.mcpContextGetForTaskTool(map[string]any{
+		"task_id": "task-downstream-ctx",
+	})
+	if err != nil {
+		t.Fatalf("context.get_for_task: %v", err)
+	}
+	upstreamOutputs, ok := ctx["upstream_outputs"].([]map[string]any)
+	if !ok || len(upstreamOutputs) == 0 {
+		t.Fatalf("expected upstream outputs in context, got %+v", ctx["upstream_outputs"])
+	}
+	knowledgeFacts, ok := ctx["knowledge_facts"].([]map[string]any)
+	if !ok || len(knowledgeFacts) == 0 {
+		t.Fatalf("expected knowledge facts in context, got %+v", ctx["knowledge_facts"])
+	}
+}
+
+func TestProtocolClosedLoopSmoke(t *testing.T) {
+	cfg := config.DefaultConfig()
+	socketDir := t.TempDir()
+	cfg.Agent.MCPSocket = filepath.Join(socketDir, "focus-mcp.sock")
+	cfg.Agent.A2ASocket = filepath.Join(socketDir, "focus-a2a.sock")
+	cfg.Agent.ExternalTerminal = false
+
+	st, _ := store.New(":memory:")
+	m := New(cfg, st).(model)
+
+	if err := st.SaveTaskContext(models.TaskContextRecord{
+		ID:                  "task-smoke-up",
+		RepoID:              "/repo/main",
+		Title:               "Upstream smoke task",
+		State:               "active",
+		Priority:            "high",
+		PreferredWorktreeID: "/repo/smoke-up",
+	}); err != nil {
+		t.Fatalf("save upstream: %v", err)
+	}
+	if err := st.SaveTaskContext(models.TaskContextRecord{
+		ID:                  "task-smoke-down",
+		RepoID:              "/repo/main",
+		Title:               "Downstream smoke task",
+		State:               "paused",
+		Priority:            "medium",
+		PreferredWorktreeID: "/repo/smoke-down",
+	}); err != nil {
+		t.Fatalf("save downstream: %v", err)
+	}
+	if err := st.SaveTaskDependency(models.TaskDependencyRecord{
+		FromTaskID:     "task-smoke-up",
+		ToTaskID:       "task-smoke-down",
+		DependencyType: "hard",
+	}); err != nil {
+		t.Fatalf("save dependency: %v", err)
+	}
+	if err := st.SaveTaskPlan(models.TaskPlanRecord{
+		ID:     "plan-smoke-down",
+		TaskID: "task-smoke-down",
+		Title:  "Downstream smoke plan",
+		Status: "active",
+	}); err != nil {
+		t.Fatalf("save plan: %v", err)
+	}
+	if err := st.SaveAgentSession(models.AgentSessionRecord{
+		ID:         "session-smoke-up",
+		Provider:   string(agents.ProviderClaude),
+		WorktreeID: "/repo/smoke-up",
+		TaskID:     "task-smoke-up",
+		State:      string(agents.SessionRunning),
+		StartedAt:  time.Now().Add(-time.Minute),
+	}); err != nil {
+		t.Fatalf("save upstream session: %v", err)
+	}
+
+	if _, err := m.mcpTaskCreateOutputTool(map[string]any{
+		"task_id": "task-smoke-up",
+		"output":  "upstream outcome payload",
+		"actor":   "session-smoke-up",
+	}); err != nil {
+		t.Fatalf("create output: %v", err)
+	}
+	if _, err := m.mcpKnowledgeAddFactTool(map[string]any{
+		"plan_id":   "plan-smoke-down",
+		"subject":   "api",
+		"predicate": "requires",
+		"object":    "idempotent retries",
+		"source":    "session-smoke-up",
+	}); err != nil {
+		t.Fatalf("add fact: %v", err)
+	}
+
+	if err := m.handleA2AMessage(a2a.Message{
+		ID:   "msg-smoke-heartbeat",
+		From: "session-smoke-up",
+		To:   "orchestrator",
+		Type: "status.heartbeat",
+		Payload: map[string]any{
+			"status": "running",
+		},
+	}); err != nil {
+		t.Fatalf("handle heartbeat: %v", err)
+	}
+	if err := m.handleA2AMessage(a2a.Message{
+		ID:   "msg-smoke-status",
+		From: "session-smoke-up",
+		To:   "orchestrator",
+		Type: "status.update",
+		Payload: map[string]any{
+			"task_id":    "task-smoke-up",
+			"task_state": "completed",
+			"summary":    "smoke task done",
+		},
+	}); err != nil {
+		t.Fatalf("handle status update: %v", err)
+	}
+
+	downSessions, err := st.ListAgentSessions("/repo/smoke-down")
+	if err != nil {
+		t.Fatalf("list downstream sessions: %v", err)
+	}
+	if len(downSessions) != 1 || downSessions[0].TaskID != "task-smoke-down" {
+		t.Fatalf("expected downstream session launch, got %+v", downSessions)
+	}
+
+	ctx, err := m.mcpContextGetForTaskTool(map[string]any{"task_id": "task-smoke-down"})
+	if err != nil {
+		t.Fatalf("context.get_for_task: %v", err)
+	}
+	upstreamOutputs, ok := ctx["upstream_outputs"].([]map[string]any)
+	if !ok || len(upstreamOutputs) == 0 {
+		t.Fatalf("expected upstream outputs in smoke context, got %+v", ctx["upstream_outputs"])
+	}
+	facts, ok := ctx["knowledge_facts"].([]map[string]any)
+	if !ok || len(facts) == 0 {
+		t.Fatalf("expected knowledge facts in smoke context, got %+v", ctx["knowledge_facts"])
+	}
+
+	msgs, err := st.ListAgentMessages("orchestrator", "status_update", 10)
+	if err != nil {
+		t.Fatalf("list status messages: %v", err)
+	}
+	if len(msgs) == 0 {
+		t.Fatal("expected persisted status messages")
+	}
+	delegations, err := st.ListAgentMessages("", "task_delegation", 20)
+	if err != nil {
+		t.Fatalf("list delegation messages: %v", err)
+	}
+	if len(delegations) == 0 {
+		t.Fatal("expected task delegation message persisted")
+	}
+}
+
+func TestResolveOrchestratedProviderUsesRoleDefaults(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Agent.ResearchProvider = string(agents.ProviderKimi)
+	cfg.Agent.ArchitectureProvider = string(agents.ProviderClaude)
+	cfg.Agent.CodingProvider = "codex,kimi,claude"
+
+	st, _ := store.New(":memory:")
+	m := New(cfg, st).(model)
+
+	cases := []struct {
+		name string
+		task orchestrator.Task
+		want agents.Provider
+	}{
+		{
+			name: "explicit provider overrides role mapping",
+			task: orchestrator.Task{Name: "实现主流程", Provider: string(agents.ProviderKimi)},
+			want: agents.ProviderKimi,
+		},
+		{
+			name: "research title maps to research provider",
+			task: orchestrator.Task{Name: "调研现有接口方案"},
+			want: agents.ProviderKimi,
+		},
+		{
+			name: "architecture title maps to architecture provider",
+			task: orchestrator.Task{Name: "架构设计 ADR 拆解"},
+			want: agents.ProviderClaude,
+		},
+	}
+
+	for _, tt := range cases {
+		if got := m.resolveOrchestratedProvider(tt.task); got != tt.want {
+			t.Fatalf("%s: expected %s, got %s", tt.name, tt.want, got)
+		}
+	}
+
+	codingTask := orchestrator.Task{ID: "task-coding-1", Name: "实现 task 状态同步"}
+	providerA := m.resolveOrchestratedProvider(codingTask)
+	providerB := m.resolveOrchestratedProvider(codingTask)
+	if providerA != providerB {
+		t.Fatalf("expected stable coding provider for same task, got %s and %s", providerA, providerB)
+	}
+	allowed := map[agents.Provider]struct{}{
+		agents.ProviderCodex:  {},
+		agents.ProviderKimi:   {},
+		agents.ProviderClaude: {},
+	}
+	if _, ok := allowed[providerA]; !ok {
+		t.Fatalf("expected coding provider in codex/kimi/claude, got %s", providerA)
 	}
 }
 
@@ -1157,7 +1699,7 @@ func TestBuildWorkbenchOverviewContextTranslatesTruthToSummaryAndDetail(t *testi
 		selectedSummary:  gitmodel.WorktreeResumeSummary{TaskID: "task-1", TaskTitle: "Refactor overview translation", TaskGoal: "Make overview reflect context truth", TaskWhyNow: "The overview needs a plan-first entry point.", TaskSuccess: "A programmer can restart work from the saved brief.", TaskOutOfScope: "Full graph orchestration.", TaskKnownRisks: "Too much density could hurt scanning.", NextStep: "Centralize workbench context builder", TaskState: "active", TaskPriority: "high", PlanTitle: "Phase 1 rollout", PlanStatus: "active", CurrentPlanStep: "Wire overview summary", PlanBody: "Main lane\nValidation lane\nRisk lane", PlanSteps: []string{"[in_progress] Wire overview summary", "[pending] Validation lane", "[pending] Risk lane"}, HandoffEntrypoint: "Open overview detail pane", QueuedTaskTitle: "Follow-up queue cleanup", QueuedTaskCount: 2, AttentionAnchor: "editing", RecentArtifact: "internal/app/workbench_context.go", PinnedNote: "Keep truth and projection separate", BlockerNote: "Need better auto inference", HandoffNote: "Resume from shared builder wiring", GitPressure: "diverged+dirty", LastAgentSummary: "opencode running", ResumeReason: "active task · next step ready", LastResumeHint: "Continue: Centralize workbench context builder", ResumeScore: 95},
 		selectedActivity: gitmodel.WorktreeActivity{OpenEditors: 2, HasShell: true, AgentCount: 1, LastActive: "now"},
 	}
-	ctx := buildWorkbenchOverviewContext(source)
+	ctx := buildWorkbenchOverviewContext(source, nil, "/repo/main")
 	if ctx.Stats.Total != 2 || ctx.Stats.Active != 1 || ctx.Stats.Queued != 2 || ctx.Stats.Dirty != 1 || ctx.Stats.RunningAgent != 1 {
 		t.Fatalf("unexpected overview stats: %+v", ctx.Stats)
 	}

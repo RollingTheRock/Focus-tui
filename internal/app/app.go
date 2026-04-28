@@ -1,6 +1,7 @@
 package app
 
 import (
+	"encoding/json"
 	"fmt"
 	"focus/internal/a2a"
 	"focus/internal/adapters"
@@ -23,6 +24,7 @@ import (
 	"focus/internal/ui/pomodoro"
 	"focus/internal/ui/shell"
 	"focus/internal/ui/todo"
+	"hash/fnv"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -42,6 +44,7 @@ const (
 	paneShell           models.PaneID = "shell-main"
 	paneWorktree        models.PaneID = "worktree-main"
 	paneOverviewSummary models.PaneID = "overview-summary-main"
+	paneOverviewDAG     models.PaneID = "overview-dag-main"
 	paneOverviewDetail  models.PaneID = "overview-detail-main"
 	paneGitStatus       models.PaneID = "git-status-main"
 	paneGitDiff         models.PaneID = "git-diff-pane"
@@ -60,6 +63,7 @@ const (
 	paneTypeTaskEdit        models.PaneType = "task-edit"
 	paneTypePlanEdit        models.PaneType = "plan-edit"
 	paneTypeOverviewSummary models.PaneType = "overview-summary"
+	paneTypeOverviewDAG     models.PaneType = "overview-dag"
 	paneTypeOverviewDetail  models.PaneType = "overview-detail"
 
 	splitRatioStep = 5
@@ -140,8 +144,10 @@ func New(cfg config.Config, store models.Store) tea.Model {
 		mcpServer:          mcp.NewServer(cfg.Agent.MCPSocket),
 		a2aRouter:          a2a.NewRouter(cfg.Agent.A2ASocket),
 	}
+	m.registerMCPTools()
 	_ = m.mcpServer.Start()
 	_ = m.a2aRouter.Start()
+	m.startA2AIngestor()
 
 	gitAdapter := adapters.NewGitLocalAdapter()
 	_ = m.adapterManager.Register(gitAdapter.Name(), gitAdapter)
@@ -162,6 +168,577 @@ func New(cfg config.Config, store models.Store) tea.Model {
 	m.syncWorktreeActivities()
 
 	return m
+}
+
+func (m *model) registerMCPTools() {
+	if m == nil || m.mcpServer == nil {
+		return
+	}
+	_ = m.mcpServer.RegisterTool("session.heartbeat", m.mcpSessionHeartbeatTool)
+	_ = m.mcpServer.RegisterTool("session.request_intervention", m.mcpSessionRequestInterventionTool)
+	_ = m.mcpServer.RegisterTool("task.get", m.mcpTaskGetTool)
+	_ = m.mcpServer.RegisterTool("task.create_output", m.mcpTaskCreateOutputTool)
+	_ = m.mcpServer.RegisterTool("task.update_status", m.mcpTaskUpdateStatusTool)
+	_ = m.mcpServer.RegisterTool("kg.add_fact", m.mcpKnowledgeAddFactTool)
+	_ = m.mcpServer.RegisterTool("context.get_for_task", m.mcpContextGetForTaskTool)
+}
+
+func (m *model) startA2AIngestor() {
+	if m == nil || m.a2aRouter == nil || !m.a2aRouter.Running() {
+		return
+	}
+	ch, _, err := m.a2aRouter.Subscribe("broadcast", 128)
+	if err != nil {
+		return
+	}
+	go func() {
+		for msg := range ch {
+			_ = m.handleA2AMessage(msg)
+		}
+	}()
+}
+
+func (m *model) handleA2AMessage(msg a2a.Message) error {
+	_ = m.logA2AMessage(msg)
+	if !shouldProcessOrchestratorMessage(msg) {
+		return nil
+	}
+	switch msg.Type {
+	case "session.heartbeat", "status.heartbeat":
+		sessionID := toolStringParam(msg.Payload, "session_id")
+		if sessionID == "" {
+			sessionID = strings.TrimSpace(msg.From)
+		}
+		_, err := m.mcpSessionHeartbeatTool(map[string]any{
+			"session_id": sessionID,
+			"status":     toolStringParam(msg.Payload, "status"),
+		})
+		return err
+	case "status.update":
+		taskID := toolStringParam(msg.Payload, "task_id")
+		if taskID == "" {
+			return nil
+		}
+		state := toolStringParam(msg.Payload, "task_state")
+		if state == "" {
+			state = toolStringParam(msg.Payload, "state")
+		}
+		if state == "" {
+			return nil
+		}
+		sessionID := toolStringParam(msg.Payload, "session_id")
+		if sessionID == "" {
+			sessionID = strings.TrimSpace(msg.From)
+		}
+		_, err := m.mcpTaskUpdateStatusTool(map[string]any{
+			"task_id":    taskID,
+			"state":      state,
+			"session_id": sessionID,
+			"actor":      toolStringParam(msg.Payload, "actor"),
+			"summary":    toolStringParam(msg.Payload, "summary"),
+		})
+		return err
+	default:
+		return nil
+	}
+}
+
+func shouldProcessOrchestratorMessage(msg a2a.Message) bool {
+	target := strings.TrimSpace(msg.To)
+	if target == "" || target == "orchestrator" || target == "broadcast" {
+		return true
+	}
+	return false
+}
+
+func (m *model) logA2AMessage(msg a2a.Message) error {
+	if m == nil || m.common == nil || m.common.Store == nil {
+		return nil
+	}
+	msgType := normalizeA2AMessageType(msg.Type)
+	if msgType == "" {
+		return nil
+	}
+	payloadJSON := toJSONString(msg.Payload)
+	if payloadJSON == "" {
+		payloadJSON = "{}"
+	}
+	msgID := strings.TrimSpace(msg.ID)
+	if msgID == "" {
+		msgID = uuid.NewString()
+	}
+	from := strings.TrimSpace(msg.From)
+	if from == "" {
+		from = "unknown"
+	}
+	to := strings.TrimSpace(msg.To)
+	if to == "" {
+		to = "orchestrator"
+	}
+	createdAt := msg.Timestamp
+	if createdAt.IsZero() {
+		createdAt = time.Now()
+	}
+	return m.common.Store.SaveAgentMessage(models.AgentMessageRecord{
+		ID:        msgID,
+		FromAgent: from,
+		ToAgent:   to,
+		MsgType:   msgType,
+		Payload:   payloadJSON,
+		CreatedAt: createdAt,
+	})
+}
+
+func normalizeA2AMessageType(messageType string) string {
+	switch strings.TrimSpace(messageType) {
+	case "task.delegation":
+		return "task_delegation"
+	case "artifact.reference":
+		return "artifact_reference"
+	case "intervention.request":
+		return "intervention_request"
+	case "intervention.response":
+		return "intervention_response"
+	case "status.update", "status.heartbeat", "session.heartbeat":
+		return "status_update"
+	default:
+		return ""
+	}
+}
+
+func (m *model) mcpSessionHeartbeatTool(params map[string]any) (map[string]any, error) {
+	sessionID := toolStringParam(params, "session_id")
+	if sessionID == "" {
+		return nil, fmt.Errorf("session_id required")
+	}
+	state := toolStringParam(params, "status")
+	if state == "" {
+		state = toolStringParam(params, "state")
+	}
+	now := time.Now()
+	if atRaw := toolStringParam(params, "at"); atRaw != "" {
+		if parsed, err := time.Parse(time.RFC3339, atRaw); err == nil {
+			now = parsed
+		}
+	}
+	if m.common == nil || m.common.Store == nil {
+		return nil, fmt.Errorf("store unavailable")
+	}
+	if err := m.common.Store.UpdateAgentSessionHeartbeat(sessionID, now, state); err != nil {
+		return nil, err
+	}
+	return map[string]any{
+		"success":    true,
+		"session_id": sessionID,
+		"status":     state,
+		"at":         now.UTC().Format(time.RFC3339),
+	}, nil
+}
+
+func (m *model) mcpTaskGetTool(params map[string]any) (map[string]any, error) {
+	taskID := toolStringParam(params, "task_id")
+	if taskID == "" {
+		return nil, fmt.Errorf("task_id required")
+	}
+	if m.common == nil || m.common.Store == nil {
+		return nil, fmt.Errorf("store unavailable")
+	}
+	record, err := m.common.Store.GetTaskContext(taskID)
+	if err != nil {
+		return nil, err
+	}
+	if record == nil {
+		return nil, fmt.Errorf("task %q not found", taskID)
+	}
+	task := map[string]any{
+		"id":                    record.ID,
+		"repo_id":               record.RepoID,
+		"title":                 record.Title,
+		"goal":                  record.Goal,
+		"next_step":             record.NextStep,
+		"state":                 record.State,
+		"priority":              record.Priority,
+		"preferred_worktree_id": record.PreferredWorktreeID,
+	}
+	return map[string]any{
+		"task": task,
+	}, nil
+}
+
+func (m *model) mcpTaskCreateOutputTool(params map[string]any) (map[string]any, error) {
+	taskID := toolStringParam(params, "task_id")
+	if taskID == "" {
+		return nil, fmt.Errorf("task_id required")
+	}
+	output := strings.TrimSpace(toolStringParam(params, "output"))
+	if output == "" {
+		output = strings.TrimSpace(toolStringParam(params, "content"))
+	}
+	if output == "" {
+		return nil, fmt.Errorf("output required")
+	}
+	if m.common == nil || m.common.Store == nil {
+		return nil, fmt.Errorf("store unavailable")
+	}
+	record, err := m.common.Store.GetTaskContext(taskID)
+	if err != nil {
+		return nil, err
+	}
+	if record == nil {
+		return nil, fmt.Errorf("task %q not found", taskID)
+	}
+	outputID := "out-" + uuid.NewString()
+	actor := resolveToolActor(params)
+	if err := m.common.Store.SaveTaskOutput(models.TaskOutputRecord{
+		ID:      outputID,
+		TaskID:  taskID,
+		Content: output,
+		Actor:   actor,
+	}); err != nil {
+		return nil, err
+	}
+	return map[string]any{
+		"success":    true,
+		"task_id":    taskID,
+		"output_id":  outputID,
+		"output_ref": fmt.Sprintf("mcp://task-board/%s/output/%s", taskID, outputID),
+	}, nil
+}
+
+func (m *model) mcpTaskUpdateStatusTool(params map[string]any) (map[string]any, error) {
+	taskID := toolStringParam(params, "task_id")
+	if taskID == "" {
+		return nil, fmt.Errorf("task_id required")
+	}
+	nextState := normalizeToolTaskState(toolStringParam(params, "state"))
+	if nextState == "" {
+		return nil, fmt.Errorf("state required")
+	}
+	if m.common == nil || m.common.Store == nil {
+		return nil, fmt.Errorf("store unavailable")
+	}
+	record, err := m.common.Store.GetTaskContext(taskID)
+	if err != nil {
+		return nil, err
+	}
+	if record == nil {
+		return nil, fmt.Errorf("task %q not found", taskID)
+	}
+	prevState := record.State
+	record.State = nextState
+	if err := m.common.Store.SaveTaskContext(*record); err != nil {
+		return nil, err
+	}
+	createdOutputID := ""
+	summary := strings.TrimSpace(toolStringParam(params, "summary"))
+	if summary != "" {
+		created, err := m.mcpTaskCreateOutputTool(map[string]any{
+			"task_id": taskID,
+			"output":  summary,
+			"actor":   resolveToolActor(params),
+		})
+		if err != nil {
+			return nil, err
+		}
+		createdOutputID = toolStringParam(created, "output_id")
+	}
+	launchedTaskIDs := make([]string, 0)
+	if prevState != "done" && nextState == "done" {
+		triggered, err := m.launchDownstreamTasksProtocol(taskID)
+		if err != nil {
+			return nil, err
+		}
+		launchedTaskIDs = append(launchedTaskIDs, triggered...)
+	}
+	if sessionID := toolStringParam(params, "session_id"); sessionID != "" && nextState == "done" {
+		m.markSessionCompleted(sessionID, toolStringParam(params, "summary"))
+	}
+	return map[string]any{
+		"success":             true,
+		"task_id":             taskID,
+		"previous_state":      prevState,
+		"state":               nextState,
+		"summary_output_id":   createdOutputID,
+		"launched_task_ids":   launchedTaskIDs,
+		"launched_task_count": len(launchedTaskIDs),
+	}, nil
+}
+
+func (m *model) mcpKnowledgeAddFactTool(params map[string]any) (map[string]any, error) {
+	subject := strings.TrimSpace(toolStringParam(params, "subject"))
+	predicate := strings.TrimSpace(toolStringParam(params, "predicate"))
+	object := strings.TrimSpace(toolStringParam(params, "object"))
+	if subject == "" || predicate == "" || object == "" {
+		return nil, fmt.Errorf("subject/predicate/object required")
+	}
+	if m.common == nil || m.common.Store == nil {
+		return nil, fmt.Errorf("store unavailable")
+	}
+
+	planID := strings.TrimSpace(toolStringParam(params, "plan_id"))
+	if planID == "" {
+		planID = m.resolvePlanIDForTask(toolStringParam(params, "task_id"))
+	}
+	factID := "fact-" + uuid.NewString()
+	if err := m.common.Store.SaveKnowledgeFact(models.KnowledgeFactRecord{
+		ID:         factID,
+		PlanID:     planID,
+		Subject:    subject,
+		Predicate:  predicate,
+		Object:     object,
+		Source:     resolveToolActor(params),
+		Confidence: toolFloatParam(params, "confidence", 1),
+	}); err != nil {
+		return nil, err
+	}
+	return map[string]any{
+		"success": true,
+		"fact_id": factID,
+		"plan_id": planID,
+	}, nil
+}
+
+func (m *model) mcpSessionRequestInterventionTool(params map[string]any) (map[string]any, error) {
+	sessionID := strings.TrimSpace(toolStringParam(params, "session_id"))
+	reason := strings.TrimSpace(toolStringParam(params, "reason"))
+	if sessionID == "" {
+		return nil, fmt.Errorf("session_id required")
+	}
+	if reason == "" {
+		return nil, fmt.Errorf("reason required")
+	}
+	if m.common == nil || m.common.Store == nil {
+		return nil, fmt.Errorf("store unavailable")
+	}
+	interventionID := "int-" + uuid.NewString()
+	payloadJSON := toJSONString(map[string]any{
+		"session_id": sessionID,
+		"reason":     reason,
+		"actor":      resolveToolActor(params),
+	})
+	if err := m.common.Store.SaveAgentMessage(models.AgentMessageRecord{
+		ID:        interventionID,
+		FromAgent: sessionID,
+		ToAgent:   "human",
+		MsgType:   "intervention_request",
+		Payload:   payloadJSON,
+	}); err != nil {
+		return nil, err
+	}
+	return map[string]any{
+		"success":         true,
+		"intervention_id": interventionID,
+	}, nil
+}
+
+func (m *model) mcpContextGetForTaskTool(params map[string]any) (map[string]any, error) {
+	taskID := strings.TrimSpace(toolStringParam(params, "task_id"))
+	if taskID == "" {
+		return nil, fmt.Errorf("task_id required")
+	}
+	if m.common == nil || m.common.Store == nil {
+		return nil, fmt.Errorf("store unavailable")
+	}
+	task, err := m.common.Store.GetTaskContext(taskID)
+	if err != nil {
+		return nil, err
+	}
+	if task == nil {
+		return nil, fmt.Errorf("task %q not found", taskID)
+	}
+	brief, _ := m.common.Store.GetTaskBrief(taskID)
+	upstreamTasks, _ := m.common.Store.ListUpstreamTaskContexts(taskID)
+
+	upstreamOutputs := make([]map[string]any, 0)
+	for _, upstream := range upstreamTasks {
+		outputs, err := m.common.Store.ListTaskOutputs(upstream.ID)
+		if err != nil {
+			continue
+		}
+		for _, output := range outputs {
+			upstreamOutputs = append(upstreamOutputs, map[string]any{
+				"id":         output.ID,
+				"task_id":    output.TaskID,
+				"task_title": upstream.Title,
+				"content":    output.Content,
+				"actor":      output.Actor,
+				"created_at": output.CreatedAt.UTC().Format(time.RFC3339),
+			})
+		}
+	}
+
+	planID := m.resolvePlanIDForTask(taskID)
+	facts, _ := m.common.Store.ListKnowledgeFacts(planID)
+	knowledgeFacts := make([]map[string]any, 0, len(facts))
+	for _, fact := range facts {
+		knowledgeFacts = append(knowledgeFacts, map[string]any{
+			"id":         fact.ID,
+			"plan_id":    fact.PlanID,
+			"subject":    fact.Subject,
+			"predicate":  fact.Predicate,
+			"object":     fact.Object,
+			"source":     fact.Source,
+			"confidence": fact.Confidence,
+		})
+	}
+
+	worktreeInfo := map[string]any{}
+	if task.PreferredWorktreeID != "" {
+		if wc, err := m.common.Store.GetWorktreeContext(task.PreferredWorktreeID); err == nil && wc != nil {
+			worktreeInfo["worktree_id"] = wc.WorktreeID
+			worktreeInfo["repo_id"] = wc.RepoID
+			worktreeInfo["task_mode"] = wc.TaskMode
+			worktreeInfo["task_name"] = wc.TaskName
+			worktreeInfo["branch_snapshot"] = wc.BranchSnapshot
+		}
+	}
+
+	taskBrief := map[string]any{}
+	if brief != nil {
+		taskBrief["why_now"] = brief.WhyNow
+		taskBrief["success_criteria"] = brief.SuccessCriteria
+		taskBrief["out_of_scope"] = brief.OutOfScope
+		taskBrief["known_risks"] = brief.KnownRisks
+	}
+
+	upstreamTaskPayload := make([]map[string]any, 0, len(upstreamTasks))
+	for _, upstream := range upstreamTasks {
+		upstreamTaskPayload = append(upstreamTaskPayload, map[string]any{
+			"id":        upstream.ID,
+			"title":     upstream.Title,
+			"state":     upstream.State,
+			"next_step": upstream.NextStep,
+		})
+	}
+
+	return map[string]any{
+		"task": map[string]any{
+			"id":                    task.ID,
+			"repo_id":               task.RepoID,
+			"title":                 task.Title,
+			"goal":                  task.Goal,
+			"next_step":             task.NextStep,
+			"state":                 task.State,
+			"priority":              task.Priority,
+			"preferred_worktree_id": task.PreferredWorktreeID,
+		},
+		"task_brief":       taskBrief,
+		"plan_id":          planID,
+		"upstream_tasks":   upstreamTaskPayload,
+		"upstream_outputs": upstreamOutputs,
+		"knowledge_facts":  knowledgeFacts,
+		"worktree_info":    worktreeInfo,
+		"adr_constraints":  []any{},
+	}, nil
+}
+
+func (m *model) launchDownstreamTasksProtocol(taskID string) ([]string, error) {
+	if m.common == nil || m.common.Store == nil || taskID == "" {
+		return nil, nil
+	}
+	launcher := &protocolOrchestratorLauncher{model: m}
+	engine := orchestrator.New(appOrchestratorStore{model: m}, launcher)
+	return engine.OnTaskCompleted(taskID)
+}
+
+func (m *model) markSessionCompleted(sessionID, summary string) {
+	if sessionID == "" {
+		return
+	}
+	record := m.agentSessionRecord(sessionID)
+	if record.ID == "" || record.WorktreeID == "" {
+		return
+	}
+	now := time.Now()
+	record.State = string(agents.SessionExited)
+	record.PID = 0
+	record.StopReason = ""
+	record.EndedAt = &now
+	record.LastActivityAt = &now
+	record.LastHeartbeat = &now
+	record.UpdatedAt = now
+	if strings.TrimSpace(summary) != "" {
+		record.Summary = strings.TrimSpace(summary)
+	}
+	m.saveAgentSessionRecord(record)
+}
+
+func (m *model) resolvePlanIDForTask(taskID string) string {
+	if m == nil || m.common == nil || m.common.Store == nil || strings.TrimSpace(taskID) == "" {
+		return ""
+	}
+	plans, err := m.common.Store.ListTaskPlans(taskID)
+	if err != nil || len(plans) == 0 {
+		return ""
+	}
+	return plans[0].ID
+}
+
+func resolveToolActor(params map[string]any) string {
+	for _, key := range []string{"actor", "source", "session_id"} {
+		if value := strings.TrimSpace(toolStringParam(params, key)); value != "" {
+			return value
+		}
+	}
+	return "unknown"
+}
+
+func toolFloatParam(params map[string]any, key string, fallback float64) float64 {
+	if params == nil {
+		return fallback
+	}
+	value, exists := params[key]
+	if !exists || value == nil {
+		return fallback
+	}
+	switch typed := value.(type) {
+	case float64:
+		return typed
+	case float32:
+		return float64(typed)
+	case int:
+		return float64(typed)
+	case int64:
+		return float64(typed)
+	case string:
+		if parsed, err := strconv.ParseFloat(strings.TrimSpace(typed), 64); err == nil {
+			return parsed
+		}
+	}
+	return fallback
+}
+
+func toJSONString(payload map[string]any) string {
+	if payload == nil {
+		return "{}"
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return "{}"
+	}
+	return string(raw)
+}
+
+func toolStringParam(params map[string]any, key string) string {
+	if params == nil {
+		return ""
+	}
+	value, exists := params[key]
+	if !exists || value == nil {
+		return ""
+	}
+	return strings.TrimSpace(fmt.Sprintf("%v", value))
+}
+
+func normalizeToolTaskState(state string) string {
+	switch strings.ToLower(strings.TrimSpace(state)) {
+	case "completed":
+		return "done"
+	case "in_progress":
+		return "active"
+	default:
+		return strings.TrimSpace(state)
+	}
 }
 
 func (m *model) registerPane(id models.PaneID, panel models.Panel, meta models.PaneMeta) {
@@ -1201,6 +1778,9 @@ func (m model) renderHelpLine(w int) string {
 	case paneTypeOverviewDetail:
 		left = "[tab]next  [1-4]/[]tabs  [enter]resume  [e]edit task  [f]follow-up  [s]cycle state"
 		compact = "[tab]next  [1-4]tabs  [enter]resume"
+	case paneTypeOverviewDAG:
+		left = "[tab]next  [1-4]/[]tabs  [enter]resume  [ctrl+g]overview"
+		compact = "[tab]next  [enter]resume  [ctrl+g]overview"
 	case models.PaneTypeAgentSession:
 		left = "[j/k]move  [enter]focus worktree  [a]relaunch  [x]kill  [r]refresh"
 		compact = "[enter]focus  [a]relaunch  [x]kill"
@@ -1768,7 +2348,7 @@ func (s appOrchestratorStore) GetDownstreamTasks(taskID string) ([]orchestrator.
 			ID:         record.ID,
 			Name:       record.Title,
 			WorktreeID: strings.TrimSpace(record.PreferredWorktreeID),
-			Provider:   string(agents.DefaultProvider()),
+			Provider:   "",
 		})
 	}
 	return out, nil
@@ -1791,10 +2371,7 @@ func (l *appOrchestratorLauncher) LaunchTask(task orchestrator.Task) error {
 	if strings.TrimSpace(task.WorktreeID) == "" {
 		return nil
 	}
-	provider := agents.Provider(task.Provider)
-	if provider == "" {
-		provider = agents.DefaultProvider()
-	}
+	provider := l.model.resolveOrchestratedProvider(task)
 	cmd := l.model.launchAgent(agents.LaunchAgentMsg{
 		WorktreeID: task.WorktreeID,
 		Provider:   provider,
@@ -1803,6 +2380,160 @@ func (l *appOrchestratorLauncher) LaunchTask(task orchestrator.Task) error {
 		l.cmds = append(l.cmds, cmd)
 	}
 	return nil
+}
+
+type protocolOrchestratorLauncher struct {
+	model *model
+}
+
+func (l *protocolOrchestratorLauncher) LaunchTask(task orchestrator.Task) error {
+	if l == nil || l.model == nil {
+		return nil
+	}
+	worktreeID := strings.TrimSpace(task.WorktreeID)
+	if worktreeID == "" {
+		return nil
+	}
+	provider := l.model.resolveOrchestratedProvider(task)
+	session := l.model.newProtocolAgentSession(task.ID, worktreeID, provider)
+	l.model.saveAgentSession(session)
+	l.model.emitDelegationMessage(task, session)
+	if l.model.common != nil && l.model.common.Cfg.Agent.ExternalTerminal {
+		cmd := l.model.launchExternalAgent(session)
+		if cmd != nil {
+			if result, ok := cmd().(agents.ExternalLaunchResultMsg); ok {
+				l.model.handleExternalLaunchResult(result)
+			}
+		}
+		return nil
+	}
+	now := time.Now()
+	session.State = agents.SessionRunning
+	session.LastActivityAt = &now
+	session.UpdatedAt = now
+	l.model.saveAgentSession(session)
+	return nil
+}
+
+func (m *model) emitDelegationMessage(task orchestrator.Task, session *agents.Session) {
+	if m == nil || m.common == nil || m.common.Store == nil || session == nil {
+		return
+	}
+	payload := map[string]any{
+		"task_id":    task.ID,
+		"task_ref":   fmt.Sprintf("mcp://task-board/%s", task.ID),
+		"session_id": session.ID,
+		"provider":   string(session.Provider),
+	}
+	payloadJSON := toJSONString(payload)
+	_ = m.common.Store.SaveAgentMessage(models.AgentMessageRecord{
+		ID:        "msg-" + uuid.NewString(),
+		FromAgent: "orchestrator",
+		ToAgent:   session.ID,
+		MsgType:   "task_delegation",
+		Payload:   payloadJSON,
+	})
+	if m.a2aRouter != nil {
+		_ = m.a2aRouter.Publish(a2a.Message{
+			ID:        "msg-" + uuid.NewString(),
+			From:      "orchestrator",
+			To:        session.ID,
+			Type:      "task.delegation",
+			Payload:   payload,
+			Timestamp: time.Now(),
+		})
+	}
+}
+
+func (m *model) resolveOrchestratedProvider(task orchestrator.Task) agents.Provider {
+	if provider := parseProvider(task.Provider); provider != "" {
+		return provider
+	}
+	if m == nil || m.common == nil {
+		return agents.DefaultProvider()
+	}
+	taskName := strings.ToLower(strings.TrimSpace(task.Name))
+	switch {
+	case containsAny(taskName, "research", "调研", "investigate", "analysis", "分析"):
+		if provider := parseProvider(m.common.Cfg.Agent.ResearchProvider); provider != "" {
+			return provider
+		}
+	case containsAny(taskName, "architecture", "架构", "design", "设计", "adr"):
+		if provider := parseProvider(m.common.Cfg.Agent.ArchitectureProvider); provider != "" {
+			return provider
+		}
+	default:
+		if providers := parseProviderList(m.common.Cfg.Agent.CodingProvider); len(providers) > 0 {
+			seed := strings.TrimSpace(task.ID)
+			if seed == "" {
+				seed = taskName
+			}
+			return pickProviderBySeed(seed, providers)
+		}
+		if provider := parseProvider(m.common.Cfg.Agent.CodingProvider); provider != "" {
+			return provider
+		}
+	}
+	return agents.DefaultProvider()
+}
+
+func parseProvider(value string) agents.Provider {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case string(agents.ProviderOpenCode):
+		return agents.ProviderOpenCode
+	case string(agents.ProviderClaude):
+		return agents.ProviderClaude
+	case string(agents.ProviderKimi):
+		return agents.ProviderKimi
+	case string(agents.ProviderCodex):
+		return agents.ProviderCodex
+	case string(agents.ProviderGeneric):
+		return agents.ProviderGeneric
+	default:
+		return ""
+	}
+}
+
+func containsAny(input string, keywords ...string) bool {
+	for _, keyword := range keywords {
+		if keyword != "" && strings.Contains(input, keyword) {
+			return true
+		}
+	}
+	return false
+}
+
+func parseProviderList(value string) []agents.Provider {
+	parts := strings.FieldsFunc(value, func(r rune) bool {
+		return r == ',' || r == ';' || r == '|' || r == ' ' || r == '\t' || r == '\n'
+	})
+	seen := make(map[agents.Provider]struct{})
+	out := make([]agents.Provider, 0, len(parts))
+	for _, part := range parts {
+		provider := parseProvider(part)
+		if provider == "" {
+			continue
+		}
+		if _, exists := seen[provider]; exists {
+			continue
+		}
+		seen[provider] = struct{}{}
+		out = append(out, provider)
+	}
+	return out
+}
+
+func pickProviderBySeed(seed string, providers []agents.Provider) agents.Provider {
+	if len(providers) == 0 {
+		return agents.DefaultProvider()
+	}
+	if strings.TrimSpace(seed) == "" {
+		return providers[0]
+	}
+	hasher := fnv.New32a()
+	_, _ = hasher.Write([]byte(seed))
+	index := int(hasher.Sum32() % uint32(len(providers)))
+	return providers[index]
 }
 
 func nextTaskState(state string) string {
@@ -2803,6 +3534,46 @@ func (m *model) newAgentSession(worktreeID string, provider agents.Provider) *ag
 		BranchSnapshot: branchSnapshot,
 		State:          agents.SessionWaiting,
 		LaunchSource:   "focus",
+		StartedAt:      now,
+		LastActivityAt: &now,
+		UpdatedAt:      now,
+	}
+}
+
+func (m *model) newProtocolAgentSession(taskID, worktreeID string, provider agents.Provider) *agents.Session {
+	now := time.Now()
+	repoID := ""
+	planID := ""
+	branchSnapshot := ""
+	if m.common != nil && m.common.Store != nil {
+		if taskID != "" {
+			if task, err := m.common.Store.GetTaskContext(taskID); err == nil && task != nil {
+				repoID = task.RepoID
+			}
+			if plans, err := m.common.Store.ListTaskPlans(taskID); err == nil && len(plans) > 0 {
+				planID = plans[0].ID
+			}
+		}
+		if repoID == "" && worktreeID != "" {
+			if wc, err := m.common.Store.GetWorktreeContext(worktreeID); err == nil && wc != nil {
+				repoID = wc.RepoID
+				branchSnapshot = wc.BranchSnapshot
+			}
+		}
+	}
+	if repoID == "" && worktreeID != "" {
+		repoID, _ = gitRepoRoot(worktreeID)
+	}
+	return &agents.Session{
+		ID:             agents.NewSessionID(),
+		Provider:       provider,
+		WorktreeID:     worktreeID,
+		RepoID:         repoID,
+		TaskID:         taskID,
+		PlanID:         planID,
+		BranchSnapshot: branchSnapshot,
+		State:          agents.SessionWaiting,
+		LaunchSource:   "orchestrator",
 		StartedAt:      now,
 		LastActivityAt: &now,
 		UpdatedAt:      now,
