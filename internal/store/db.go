@@ -168,6 +168,18 @@ CREATE TABLE IF NOT EXISTS task_briefs (
 CREATE INDEX IF NOT EXISTS idx_task_briefs_updated
     ON task_briefs(updated_at DESC);
 
+CREATE TABLE IF NOT EXISTS task_outputs (
+    id          TEXT PRIMARY KEY,
+    task_id     TEXT NOT NULL REFERENCES task_contexts(id) ON DELETE CASCADE,
+    content     TEXT NOT NULL,
+    actor       TEXT,
+    created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_task_outputs_task
+    ON task_outputs(task_id, created_at DESC);
+
 CREATE TABLE IF NOT EXISTS worktree_contexts (
     worktree_id      TEXT PRIMARY KEY,
     repo_id          TEXT NOT NULL,

@@ -1,0 +1,96 @@
+package store
+
+import (
+	"fmt"
+	"time"
+
+	"focus/internal/models"
+)
+
+type KnowledgeFactRecord = models.KnowledgeFactRecord
+
+func (s *Store) SaveKnowledgeFact(record KnowledgeFactRecord) error {
+	if record.ID == "" {
+		return fmt.Errorf("knowledge fact id required")
+	}
+	if record.Subject == "" {
+		return fmt.Errorf("knowledge fact subject required")
+	}
+	if record.Predicate == "" {
+		return fmt.Errorf("knowledge fact predicate required")
+	}
+	if record.Object == "" {
+		return fmt.Errorf("knowledge fact object required")
+	}
+	if record.Source == "" {
+		return fmt.Errorf("knowledge fact source required")
+	}
+	if record.Confidence <= 0 {
+		record.Confidence = 1
+	}
+	if record.CreatedAt.IsZero() {
+		record.CreatedAt = time.Now()
+	}
+	const q = `
+		INSERT INTO knowledge_facts (id, plan_id, subject, predicate, object, source, confidence, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(id) DO UPDATE SET
+			plan_id = excluded.plan_id,
+			subject = excluded.subject,
+			predicate = excluded.predicate,
+			object = excluded.object,
+			source = excluded.source,
+			confidence = excluded.confidence
+	`
+	_, err := s.db.Exec(
+		q,
+		record.ID,
+		nullIfEmpty(record.PlanID),
+		record.Subject,
+		record.Predicate,
+		record.Object,
+		record.Source,
+		record.Confidence,
+		record.CreatedAt,
+	)
+	return err
+}
+
+func (s *Store) ListKnowledgeFacts(planID string) ([]KnowledgeFactRecord, error) {
+	const base = `
+		SELECT id, COALESCE(plan_id, ''), subject, predicate, object, source, confidence, created_at
+		FROM knowledge_facts
+	`
+	q := base
+	args := []any{}
+	if planID != "" {
+		q += ` WHERE plan_id = ?`
+		args = append(args, planID)
+	}
+	q += ` ORDER BY created_at DESC`
+
+	rows, err := s.db.Query(q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make([]KnowledgeFactRecord, 0)
+	for rows.Next() {
+		var record KnowledgeFactRecord
+		if err := rows.Scan(
+			&record.ID,
+			&record.PlanID,
+			&record.Subject,
+			&record.Predicate,
+			&record.Object,
+			&record.Source,
+			&record.Confidence,
+			&record.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		out = append(out, record)
+	}
+	return out, rows.Err()
+}

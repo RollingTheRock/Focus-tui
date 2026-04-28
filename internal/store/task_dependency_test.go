@@ -39,6 +39,13 @@ func TestTaskDependenciesAndPrerequisites(t *testing.T) {
 	if len(downstream) != 1 || downstream[0].ID != "task-b" {
 		t.Fatalf("expected task-b downstream of task-a, got %+v", downstream)
 	}
+	upstream, err := s.ListUpstreamTaskContexts("task-b")
+	if err != nil {
+		t.Fatalf("list upstream: %v", err)
+	}
+	if len(upstream) != 1 || upstream[0].ID != "task-a" {
+		t.Fatalf("expected task-a upstream of task-b, got %+v", upstream)
+	}
 
 	readyB, err := s.AreTaskPrerequisitesMet("task-b")
 	if err != nil {

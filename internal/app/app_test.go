@@ -842,6 +842,219 @@ func TestA2AStatusUpdateBridgesToMCPAndTriggersDownstream(t *testing.T) {
 	}
 }
 
+func TestMCPContextGetForTaskIncludesUpstreamOutputsAndFacts(t *testing.T) {
+	cfg := config.DefaultConfig()
+	socketDir := t.TempDir()
+	cfg.Agent.MCPSocket = filepath.Join(socketDir, "focus-mcp.sock")
+	cfg.Agent.A2ASocket = filepath.Join(socketDir, "focus-a2a.sock")
+
+	st, _ := store.New(":memory:")
+	m := New(cfg, st).(model)
+
+	if err := st.SaveTaskContext(models.TaskContextRecord{
+		ID:                  "task-upstream-ctx",
+		RepoID:              "/repo/main",
+		Title:               "Upstream context task",
+		State:               "done",
+		Priority:            "high",
+		PreferredWorktreeID: "/repo/feature-ctx-a",
+	}); err != nil {
+		t.Fatalf("save upstream task: %v", err)
+	}
+	if err := st.SaveTaskContext(models.TaskContextRecord{
+		ID:                  "task-downstream-ctx",
+		RepoID:              "/repo/main",
+		Title:               "Downstream context task",
+		State:               "paused",
+		Priority:            "medium",
+		PreferredWorktreeID: "/repo/feature-ctx-b",
+	}); err != nil {
+		t.Fatalf("save downstream task: %v", err)
+	}
+	if err := st.SaveTaskDependency(models.TaskDependencyRecord{
+		FromTaskID:     "task-upstream-ctx",
+		ToTaskID:       "task-downstream-ctx",
+		DependencyType: "hard",
+	}); err != nil {
+		t.Fatalf("save dependency: %v", err)
+	}
+	if err := st.SaveTaskPlan(models.TaskPlanRecord{
+		ID:     "plan-downstream-ctx",
+		TaskID: "task-downstream-ctx",
+		Title:  "Downstream plan",
+		Status: "active",
+	}); err != nil {
+		t.Fatalf("save downstream plan: %v", err)
+	}
+	if _, err := m.mcpTaskCreateOutputTool(map[string]any{
+		"task_id": "task-upstream-ctx",
+		"output":  "Upstream implementation complete",
+		"actor":   "agent-claude",
+	}); err != nil {
+		t.Fatalf("create output: %v", err)
+	}
+	if _, err := m.mcpKnowledgeAddFactTool(map[string]any{
+		"plan_id":    "plan-downstream-ctx",
+		"subject":    "router",
+		"predicate":  "uses",
+		"object":     "json-rpc",
+		"source":     "agent-kimi",
+		"confidence": 0.9,
+	}); err != nil {
+		t.Fatalf("add fact: %v", err)
+	}
+
+	ctx, err := m.mcpContextGetForTaskTool(map[string]any{
+		"task_id": "task-downstream-ctx",
+	})
+	if err != nil {
+		t.Fatalf("context.get_for_task: %v", err)
+	}
+	upstreamOutputs, ok := ctx["upstream_outputs"].([]map[string]any)
+	if !ok || len(upstreamOutputs) == 0 {
+		t.Fatalf("expected upstream outputs in context, got %+v", ctx["upstream_outputs"])
+	}
+	knowledgeFacts, ok := ctx["knowledge_facts"].([]map[string]any)
+	if !ok || len(knowledgeFacts) == 0 {
+		t.Fatalf("expected knowledge facts in context, got %+v", ctx["knowledge_facts"])
+	}
+}
+
+func TestProtocolClosedLoopSmoke(t *testing.T) {
+	cfg := config.DefaultConfig()
+	socketDir := t.TempDir()
+	cfg.Agent.MCPSocket = filepath.Join(socketDir, "focus-mcp.sock")
+	cfg.Agent.A2ASocket = filepath.Join(socketDir, "focus-a2a.sock")
+	cfg.Agent.ExternalTerminal = false
+
+	st, _ := store.New(":memory:")
+	m := New(cfg, st).(model)
+
+	if err := st.SaveTaskContext(models.TaskContextRecord{
+		ID:                  "task-smoke-up",
+		RepoID:              "/repo/main",
+		Title:               "Upstream smoke task",
+		State:               "active",
+		Priority:            "high",
+		PreferredWorktreeID: "/repo/smoke-up",
+	}); err != nil {
+		t.Fatalf("save upstream: %v", err)
+	}
+	if err := st.SaveTaskContext(models.TaskContextRecord{
+		ID:                  "task-smoke-down",
+		RepoID:              "/repo/main",
+		Title:               "Downstream smoke task",
+		State:               "paused",
+		Priority:            "medium",
+		PreferredWorktreeID: "/repo/smoke-down",
+	}); err != nil {
+		t.Fatalf("save downstream: %v", err)
+	}
+	if err := st.SaveTaskDependency(models.TaskDependencyRecord{
+		FromTaskID:     "task-smoke-up",
+		ToTaskID:       "task-smoke-down",
+		DependencyType: "hard",
+	}); err != nil {
+		t.Fatalf("save dependency: %v", err)
+	}
+	if err := st.SaveTaskPlan(models.TaskPlanRecord{
+		ID:     "plan-smoke-down",
+		TaskID: "task-smoke-down",
+		Title:  "Downstream smoke plan",
+		Status: "active",
+	}); err != nil {
+		t.Fatalf("save plan: %v", err)
+	}
+	if err := st.SaveAgentSession(models.AgentSessionRecord{
+		ID:         "session-smoke-up",
+		Provider:   string(agents.ProviderClaude),
+		WorktreeID: "/repo/smoke-up",
+		TaskID:     "task-smoke-up",
+		State:      string(agents.SessionRunning),
+		StartedAt:  time.Now().Add(-time.Minute),
+	}); err != nil {
+		t.Fatalf("save upstream session: %v", err)
+	}
+
+	if _, err := m.mcpTaskCreateOutputTool(map[string]any{
+		"task_id": "task-smoke-up",
+		"output":  "upstream outcome payload",
+		"actor":   "session-smoke-up",
+	}); err != nil {
+		t.Fatalf("create output: %v", err)
+	}
+	if _, err := m.mcpKnowledgeAddFactTool(map[string]any{
+		"plan_id":   "plan-smoke-down",
+		"subject":   "api",
+		"predicate": "requires",
+		"object":    "idempotent retries",
+		"source":    "session-smoke-up",
+	}); err != nil {
+		t.Fatalf("add fact: %v", err)
+	}
+
+	if err := m.handleA2AMessage(a2a.Message{
+		ID:   "msg-smoke-heartbeat",
+		From: "session-smoke-up",
+		To:   "orchestrator",
+		Type: "status.heartbeat",
+		Payload: map[string]any{
+			"status": "running",
+		},
+	}); err != nil {
+		t.Fatalf("handle heartbeat: %v", err)
+	}
+	if err := m.handleA2AMessage(a2a.Message{
+		ID:   "msg-smoke-status",
+		From: "session-smoke-up",
+		To:   "orchestrator",
+		Type: "status.update",
+		Payload: map[string]any{
+			"task_id":    "task-smoke-up",
+			"task_state": "completed",
+			"summary":    "smoke task done",
+		},
+	}); err != nil {
+		t.Fatalf("handle status update: %v", err)
+	}
+
+	downSessions, err := st.ListAgentSessions("/repo/smoke-down")
+	if err != nil {
+		t.Fatalf("list downstream sessions: %v", err)
+	}
+	if len(downSessions) != 1 || downSessions[0].TaskID != "task-smoke-down" {
+		t.Fatalf("expected downstream session launch, got %+v", downSessions)
+	}
+
+	ctx, err := m.mcpContextGetForTaskTool(map[string]any{"task_id": "task-smoke-down"})
+	if err != nil {
+		t.Fatalf("context.get_for_task: %v", err)
+	}
+	upstreamOutputs, ok := ctx["upstream_outputs"].([]map[string]any)
+	if !ok || len(upstreamOutputs) == 0 {
+		t.Fatalf("expected upstream outputs in smoke context, got %+v", ctx["upstream_outputs"])
+	}
+	facts, ok := ctx["knowledge_facts"].([]map[string]any)
+	if !ok || len(facts) == 0 {
+		t.Fatalf("expected knowledge facts in smoke context, got %+v", ctx["knowledge_facts"])
+	}
+
+	msgs, err := st.ListAgentMessages("orchestrator", "status_update", 10)
+	if err != nil {
+		t.Fatalf("list status messages: %v", err)
+	}
+	if len(msgs) == 0 {
+		t.Fatal("expected persisted status messages")
+	}
+	delegations, err := st.ListAgentMessages("", "task_delegation", 20)
+	if err != nil {
+		t.Fatalf("list delegation messages: %v", err)
+	}
+	if len(delegations) == 0 {
+		t.Fatal("expected task delegation message persisted")
+	}
+}
+
 func TestResolveOrchestratedProviderUsesRoleDefaults(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.Agent.ResearchProvider = string(agents.ProviderKimi)

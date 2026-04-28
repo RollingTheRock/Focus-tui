@@ -55,9 +55,16 @@ type Store interface {
 	SaveTaskDependency(record TaskDependencyRecord) error
 	DeleteTaskDependency(fromTaskID, toTaskID string) error
 	ListDownstreamTaskContexts(taskID string) ([]TaskContextRecord, error)
+	ListUpstreamTaskContexts(taskID string) ([]TaskContextRecord, error)
 	AreTaskPrerequisitesMet(taskID string) (bool, error)
 	MarkAgentSessionDisconnected(sessionID string, reason string) error
 	UpdateAgentSessionHeartbeat(sessionID string, at time.Time, state string) error
+	SaveTaskOutput(record TaskOutputRecord) error
+	ListTaskOutputs(taskID string) ([]TaskOutputRecord, error)
+	SaveKnowledgeFact(record KnowledgeFactRecord) error
+	ListKnowledgeFacts(planID string) ([]KnowledgeFactRecord, error)
+	SaveAgentMessage(record AgentMessageRecord) error
+	ListAgentMessages(target string, messageType string, limit int) ([]AgentMessageRecord, error)
 }
 
 type PageSnapshotRecord struct {
@@ -92,6 +99,36 @@ type TaskDependencyRecord struct {
 	ToTaskID       string
 	DependencyType string
 	CreatedAt      time.Time
+}
+
+type TaskOutputRecord struct {
+	ID        string
+	TaskID    string
+	Content   string
+	Actor     string
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+type KnowledgeFactRecord struct {
+	ID         string
+	PlanID     string
+	Subject    string
+	Predicate  string
+	Object     string
+	Source     string
+	Confidence float64
+	CreatedAt  time.Time
+}
+
+type AgentMessageRecord struct {
+	ID        string
+	FromAgent string
+	ToAgent   string
+	MsgType   string
+	Payload   string
+	ReadAt    *time.Time
+	CreatedAt time.Time
 }
 
 type TaskContextRecord struct {

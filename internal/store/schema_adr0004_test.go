@@ -16,6 +16,7 @@ func TestADR0004SchemaTablesExist(t *testing.T) {
 		"adrs",
 		"adr_constraints",
 		"task_dependencies",
+		"task_outputs",
 		"agent_messages",
 		"knowledge_facts",
 	}
