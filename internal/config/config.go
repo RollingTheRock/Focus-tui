@@ -31,7 +31,13 @@ type Config struct {
 		LongBreakInterval int  `yaml:"long_break_interval"`
 		Notify            bool `yaml:"notify"`
 	} `yaml:"pomodoro"`
-	TimeFormat   string `yaml:"time_format"`
+	TimeFormat string `yaml:"time_format"`
+	Agent      struct {
+		ExternalTerminal bool   `yaml:"external_terminal"`
+		TerminalEmulator string `yaml:"terminal_emulator"`
+		MCPSocket        string `yaml:"mcp_socket"`
+		A2ASocket        string `yaml:"a2a_socket"`
+	} `yaml:"agent"`
 	Experimental struct {
 		UseCanvasCompositor bool `yaml:"use_canvas_compositor"`
 	} `yaml:"experimental"`
@@ -49,6 +55,10 @@ func DefaultConfig() Config {
 	cfg.Pomodoro.LongBreakInterval = 4
 	cfg.Pomodoro.Notify = true
 	cfg.TimeFormat = "Mon Jan 2 · 15:04"
+	cfg.Agent.ExternalTerminal = false
+	cfg.Agent.TerminalEmulator = "kitty"
+	cfg.Agent.MCPSocket = "/tmp/focus-mcp.sock"
+	cfg.Agent.A2ASocket = "/tmp/focus-a2a.sock"
 	return cfg
 }
 

@@ -240,7 +240,7 @@ func (p *SessionPane) partitionSessions() (running []*agents.Session, attention 
 		}
 		if s.State == agents.SessionRunning {
 			running = append(running, s)
-		} else if s.State == agents.SessionWaiting || s.State == agents.SessionFailed {
+		} else if s.State == agents.SessionWaiting || s.State == agents.SessionFailed || s.State == agents.SessionDisconnected {
 			attention = append(attention, s)
 		} else {
 			recent = append(recent, s)

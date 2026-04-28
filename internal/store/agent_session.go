@@ -29,8 +29,9 @@ func (s *Store) SaveAgentSession(record AgentSessionRecord) error {
 	const q = `
 		INSERT INTO agent_sessions (
 			id, provider, worktree_id, repo_id, task_id, plan_id, step_id, branch_snapshot,
-			pid, state, launch_source, summary, started_at, ended_at, last_activity_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+			pid, state, launch_source, summary, env_snapshot,
+			started_at, ended_at, last_activity_at, last_heartbeat, stop_reason, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
 		ON CONFLICT(id) DO UPDATE SET
 			provider = excluded.provider,
 			worktree_id = excluded.worktree_id,
@@ -43,9 +44,12 @@ func (s *Store) SaveAgentSession(record AgentSessionRecord) error {
 			state = excluded.state,
 			launch_source = excluded.launch_source,
 			summary = excluded.summary,
+			env_snapshot = excluded.env_snapshot,
 			started_at = excluded.started_at,
 			ended_at = excluded.ended_at,
 			last_activity_at = excluded.last_activity_at,
+			last_heartbeat = excluded.last_heartbeat,
+			stop_reason = excluded.stop_reason,
 			updated_at = CURRENT_TIMESTAMP
 	`
 	_, err := s.db.Exec(q,
@@ -61,9 +65,12 @@ func (s *Store) SaveAgentSession(record AgentSessionRecord) error {
 		record.State,
 		nullIfEmpty(record.LaunchSource),
 		nullIfEmpty(record.Summary),
+		nullIfEmpty(record.EnvSnapshot),
 		record.StartedAt,
 		record.EndedAt,
 		nullableTimePtr(record.LastActivityAt),
+		nullableTimePtr(record.LastHeartbeat),
+		nullIfEmpty(record.StopReason),
 	)
 	return err
 }
@@ -71,7 +78,8 @@ func (s *Store) SaveAgentSession(record AgentSessionRecord) error {
 func (s *Store) ListAgentSessions(worktreeID string) ([]AgentSessionRecord, error) {
 	const base = `
 		SELECT id, provider, worktree_id, repo_id, task_id, plan_id, step_id, branch_snapshot,
-		       pid, state, launch_source, summary, started_at, ended_at, last_activity_at, updated_at
+		       pid, state, launch_source, summary, env_snapshot,
+		       started_at, ended_at, last_activity_at, last_heartbeat, stop_reason, updated_at
 		FROM agent_sessions
 	`
 	q := base
@@ -94,8 +102,11 @@ func (s *Store) ListAgentSessions(worktreeID string) ([]AgentSessionRecord, erro
 		var taskID, planID, stepID sql.NullString
 		var endedAt sql.NullTime
 		var lastActivityAt sql.NullTime
+		var lastHeartbeat sql.NullTime
 		var launchSource sql.NullString
 		var summary sql.NullString
+		var envSnapshot sql.NullString
+		var stopReason sql.NullString
 		if err := rows.Scan(
 			&record.ID,
 			&record.Provider,
@@ -109,9 +120,12 @@ func (s *Store) ListAgentSessions(worktreeID string) ([]AgentSessionRecord, erro
 			&record.State,
 			&launchSource,
 			&summary,
+			&envSnapshot,
 			&record.StartedAt,
 			&endedAt,
 			&lastActivityAt,
+			&lastHeartbeat,
+			&stopReason,
 			&record.UpdatedAt,
 		); err != nil {
 			return nil, err
@@ -123,6 +137,10 @@ func (s *Store) ListAgentSessions(worktreeID string) ([]AgentSessionRecord, erro
 		if lastActivityAt.Valid {
 			t := lastActivityAt.Time
 			record.LastActivityAt = &t
+		}
+		if lastHeartbeat.Valid {
+			t := lastHeartbeat.Time
+			record.LastHeartbeat = &t
 		}
 		if launchSource.Valid {
 			record.LaunchSource = launchSource.String
@@ -139,7 +157,57 @@ func (s *Store) ListAgentSessions(worktreeID string) ([]AgentSessionRecord, erro
 		if summary.Valid {
 			record.Summary = summary.String
 		}
+		if envSnapshot.Valid {
+			record.EnvSnapshot = envSnapshot.String
+		}
+		if stopReason.Valid {
+			record.StopReason = stopReason.String
+		}
 		records = append(records, record)
 	}
 	return records, rows.Err()
+}
+
+func (s *Store) MarkAgentSessionDisconnected(sessionID string, reason string) error {
+	if sessionID == "" {
+		return fmt.Errorf("agent session id required")
+	}
+	now := time.Now()
+	_, err := s.db.Exec(`
+		UPDATE agent_sessions
+		SET state = 'disconnected',
+		    stop_reason = ?,
+		    ended_at = COALESCE(ended_at, ?),
+		    updated_at = CURRENT_TIMESTAMP
+		WHERE id = ?
+	`, nullIfEmpty(reason), now, sessionID)
+	return err
+}
+
+func (s *Store) UpdateAgentSessionHeartbeat(sessionID string, at time.Time, state string) error {
+	if sessionID == "" {
+		return fmt.Errorf("agent session id required")
+	}
+	if at.IsZero() {
+		at = time.Now()
+	}
+	if state == "" {
+		_, err := s.db.Exec(`
+			UPDATE agent_sessions
+			SET last_heartbeat = ?,
+			    last_activity_at = ?,
+			    updated_at = CURRENT_TIMESTAMP
+			WHERE id = ?
+		`, at, at, sessionID)
+		return err
+	}
+	_, err := s.db.Exec(`
+		UPDATE agent_sessions
+		SET state = ?,
+		    last_heartbeat = ?,
+		    last_activity_at = ?,
+		    updated_at = CURRENT_TIMESTAMP
+		WHERE id = ?
+	`, state, at, at, sessionID)
+	return err
 }

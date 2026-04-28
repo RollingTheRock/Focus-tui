@@ -18,7 +18,7 @@ var knownProviders = map[Provider]string{
 }
 
 func DiscoverRunningAgents() []Session {
-	var sessions []Session
+	sessions := make([]Session, 0)
 	for provider, binName := range knownProviders {
 		pids := findPIDs(binName)
 		for _, pid := range pids {
@@ -28,6 +28,9 @@ func DiscoverRunningAgents() []Session {
 			}
 			cwd = filepath.Clean(cwd)
 			sessionID := getProcessEnvValue(pid, SessionIDEnvVar)
+			if sessionID == "" {
+				sessionID = getProcessEnvValue(pid, LegacySessionIDEnvVar)
+			}
 			if sessionID == "" {
 				sessionID = fmt.Sprintf("%s-%d", provider, pid)
 			}
