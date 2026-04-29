@@ -2,6 +2,7 @@ package agents
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 
@@ -75,10 +76,42 @@ func AutoTypeCommandWithSession(provider Provider, sessionID string) string {
 	}, " ")
 }
 
+// DetectTerminalEmulator inspects the runtime environment to guess which
+// terminal emulator is currently in use.
+func DetectTerminalEmulator() string {
+	// Environment-variable based detection (fast, reliable).
+	if os.Getenv("PTYXIS_VERSION") != "" {
+		return "ptyxis"
+	}
+	if os.Getenv("KITTY_WINDOW_ID") != "" {
+		return "kitty"
+	}
+	if os.Getenv("WEZTERM_EXECUTABLE") != "" {
+		return "wezterm"
+	}
+	if os.Getenv("GNOME_TERMINAL_SCREEN") != "" {
+		return "gnome-terminal"
+	}
+	if os.Getenv("ALACRITTY_SOCKET") != "" || os.Getenv("ALACRITTY_LOG") != "" {
+		return "alacritty"
+	}
+
+	// Fallback: check PATH for known binaries.
+	for _, name := range []string{"ptyxis", "kitty", "alacritty", "wezterm", "gnome-terminal"} {
+		if _, err := exec.LookPath(name); err == nil {
+			return name
+		}
+	}
+	return ""
+}
+
 func BuildExternalTerminalCommand(emulator, title, directory string, envVars []string, provider Provider) (string, []string) {
 	bin, providerArgs := ProviderCommand(provider)
 	if emulator == "" {
-		emulator = "kitty"
+		emulator = DetectTerminalEmulator()
+		if emulator == "" {
+			emulator = "kitty"
+		}
 	}
 
 	switch emulator {
@@ -104,10 +137,31 @@ func BuildExternalTerminalCommand(emulator, title, directory string, envVars []s
 	case "gnome-terminal":
 		cmdArgs := append([]string{bin}, providerArgs...)
 		cmd := strings.Join(cmdArgs, " ")
-		args := []string{"--title", title, "--working-directory", directory, "--", "env"}
+		args := []string{"--window", "--title", title, "--working-directory", directory, "--", "env"}
 		args = append(args, envVars...)
 		args = append(args, "sh", "-lc", cmd)
 		return "gnome-terminal", args
+	case "ptyxis":
+		cmdArgs := append([]string{bin}, providerArgs...)
+		cmd := strings.Join(cmdArgs, " ")
+		// Use bash -lc so that ~/.bashrc is sourced and PATH is complete.
+		// ptyxis spawns commands directly without a shell, so agent binaries
+		// installed via user package managers (homebrew, nvm, etc.) would not
+		// be found unless we explicitly launch through bash.
+		exports := make([]string, len(envVars))
+		for i, v := range envVars {
+			exports[i] = "export " + v
+		}
+		inner := fmt.Sprintf("bash -lc '%s; cd %s; exec %s'",
+			strings.Join(exports, "; "),
+			directory,
+			cmd,
+		)
+		args := []string{"--new-window", "-d", directory, "-x", inner}
+		if title != "" {
+			args = append([]string{"-T", title}, args...)
+		}
+		return "ptyxis", args
 	default:
 		// Fallback to shell execution so unknown terminal wrappers can still be attempted.
 		args := []string{"-lc", strings.Join(append([]string{bin}, providerArgs...), " ")}
@@ -162,6 +216,9 @@ func LaunchExternalCommand(req ExternalLaunchRequest) tea.Cmd {
 			req.Provider,
 		)
 		cmd := exec.Command(name, args...)
+			f, _ := os.OpenFile("/tmp/focus_launch.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+			f.WriteString(fmt.Sprintf("Launch: %s %v\n", name, args))
+			defer f.Close()
 		if err := cmd.Start(); err != nil {
 			return ExternalLaunchResultMsg{
 				SessionID:  req.SessionID,
