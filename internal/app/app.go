@@ -961,8 +961,26 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				cmds = append(cmds, cmd)
 			}
 		}
-		if cmd := m.openWorktreeShell(gitplugin.OpenWorktreeShellMsg{Worktree: msg.Worktree}); cmd != nil {
-			cmds = append(cmds, cmd)
+		if msg.OpenExternal {
+			if pageCmd := m.switchToWorktreePage(msg.Worktree.Path, string(paneAgentSession)); pageCmd != nil {
+				cmds = append(cmds, pageCmd)
+			}
+			// Close the embedded shell pane since the user works in an external terminal.
+			if m.activePage != nil {
+				m.activePage.closePane(paneShell)
+			}
+			session := m.newAgentSession(msg.Worktree.Path, agents.DefaultProvider())
+			m.saveAgentSession(session)
+			if m.agentRegistry != nil {
+				m.agentRegistry.Register(session)
+			}
+			if launchCmd := m.launchExternalAgent(session); launchCmd != nil {
+				cmds = append(cmds, launchCmd)
+			}
+		} else {
+			if cmd := m.openWorktreeShell(gitplugin.OpenWorktreeShellMsg{Worktree: msg.Worktree}); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
 		}
 		m.syncWorktreeActivities()
 		m.invalidateView()
@@ -1383,12 +1401,24 @@ func (m *model) launchExternalAgent(session *agents.Session) tea.Cmd {
 	session.State = agents.SessionWaiting
 	session.EnvSnapshot = strings.Join(envVars, " ")
 	m.saveAgentSession(session)
+
+	emulator := strings.TrimSpace(m.common.Cfg.Agent.TerminalEmulator)
+	if emulator != "" {
+		if _, err := exec.LookPath(emulator); err != nil {
+			if detected := agents.DetectTerminalEmulator(); detected != "" {
+				emulator = detected
+			}
+		}
+	} else {
+		emulator = agents.DetectTerminalEmulator()
+	}
+
 	return agents.LaunchExternalCommand(agents.ExternalLaunchRequest{
 		SessionID:        session.ID,
 		Title:            title,
 		WorktreeID:       session.WorktreeID,
 		Provider:         session.Provider,
-		TerminalEmulator: strings.TrimSpace(m.common.Cfg.Agent.TerminalEmulator),
+		TerminalEmulator: emulator,
 		EnvVars:          envVars,
 	})
 }
@@ -1450,10 +1480,21 @@ func (m *model) handleAgentExited(msg agents.AgentExitedMsg) {
 		record.UpdatedAt = now
 		m.saveAgentSessionRecord(record)
 		m.backflowAgentSession(record)
+		m.archiveAgentSession(record)
 		if m.agentRegistry != nil {
 			m.agentRegistry.Remove(record.ID)
 		}
 	}
+}
+
+// archiveAgentSession builds a session digest from the external agent
+// transcript and git diff, then persists it into the store.
+// TODO: re-enable when sessiondigest package is implemented.
+func (m *model) archiveAgentSession(record models.AgentSessionRecord) {
+	if m.common == nil || m.common.Store == nil {
+		return
+	}
+	// Session digest archiving is currently disabled.
 }
 
 func (m *model) focusAgentSession(msg agentsplugin.FocusAgentSessionMsg) tea.Cmd {
