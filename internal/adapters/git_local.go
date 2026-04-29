@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
@@ -409,11 +410,55 @@ func (g *GitLocalAdapter) ListWorktrees(repoPath string) ([]git.Worktree, error)
 	return worktrees, nil
 }
 
+// ensureWorktreesGitignored checks whether .worktrees/ is ignored by git.
+// If not, it appends the entry to .gitignore (creating the file if needed).
+func ensureWorktreesGitignored(repoPath string) error {
+	// First ask git whether .worktrees is already ignored.
+	checkCmd := exec.Command("git", "-C", repoPath, "check-ignore", "-q", ".worktrees")
+	if err := checkCmd.Run(); err == nil {
+		return nil
+	}
+
+	gitignorePath := filepath.Join(repoPath, ".gitignore")
+	data, err := os.ReadFile(gitignorePath)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+
+	lines := strings.Split(string(data), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == ".worktrees/" || line == ".worktrees" {
+			return nil
+		}
+	}
+
+	f, err := os.OpenFile(gitignorePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	prefix := ""
+	if len(data) > 0 && !bytes.HasSuffix(data, []byte("\n")) {
+		prefix = "\n"
+	}
+	if _, err := f.WriteString(prefix + ".worktrees/\n"); err != nil {
+		return err
+	}
+	return nil
+}
+
 // CreateWorktree creates a new worktree and returns the resulting record.
 func (g *GitLocalAdapter) CreateWorktree(repoPath string, req git.CreateWorktreeRequest) (*git.Worktree, error) {
 	req.Path = strings.TrimSpace(req.Path)
 	if req.Path == "" {
 		return nil, fmt.Errorf("worktree path cannot be empty")
+	}
+
+	// If the worktree lives under .worktrees/, ensure it is gitignored.
+	if strings.Contains(req.Path, ".worktrees") {
+		_ = ensureWorktreesGitignored(repoPath)
 	}
 
 	args := []string{"-C", repoPath, "worktree", "add"}
