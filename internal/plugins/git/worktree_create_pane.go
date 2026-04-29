@@ -22,8 +22,9 @@ type OpenCreateWorktreeMsg struct {
 }
 
 type WorktreeCreatedMsg struct {
-	ID       models.PaneID
-	Worktree gitmodel.Worktree
+	ID           models.PaneID
+	Worktree     gitmodel.Worktree
+	OpenExternal bool
 }
 
 type CloseCreateWorktreeMsg struct {
@@ -38,19 +39,20 @@ type createWorktreeFinishedMsg struct {
 }
 
 type WorktreeCreatePane struct {
-	id      models.PaneID
-	meta    models.PaneMeta
-	common  models.CommonModel
-	adapter adapters.GitAdapter
+	id           models.PaneID
+	meta         models.PaneMeta
+	common       models.CommonModel
+	adapter      adapters.GitAdapter
 
-	repoPath string
-	width    int
-	height   int
-	inputs   []textinput.Model
-	focus    int
-	err      error
-	creating bool
-	pathAuto bool
+	repoPath     string
+	width        int
+	height       int
+	inputs       []textinput.Model
+	focus        int
+	err          error
+	creating     bool
+	pathAuto     bool
+	openExternal bool
 }
 
 const (
@@ -94,13 +96,14 @@ func NewWorktreeCreatePane(id models.PaneID, meta models.PaneMeta, common models
 	inputs[0].Focus()
 
 	return &WorktreeCreatePane{
-		id:       id,
-		meta:     meta,
-		common:   common,
-		adapter:  adapter,
-		repoPath: repoPath,
-		inputs:   inputs,
-		pathAuto: true,
+		id:           id,
+		meta:         meta,
+		common:       common,
+		adapter:      adapter,
+		repoPath:     repoPath,
+		inputs:       inputs,
+		pathAuto:     true,
+		openExternal: true,
 	}
 }
 
@@ -122,7 +125,7 @@ func (p *WorktreeCreatePane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 		}
 		p.err = nil
 		return p, func() tea.Msg {
-			return WorktreeCreatedMsg{ID: p.id, Worktree: *msg.worktree}
+			return WorktreeCreatedMsg{ID: p.id, Worktree: *msg.worktree, OpenExternal: p.openExternal}
 		}
 	case tea.KeyMsg:
 		switch msg.String() {
@@ -145,6 +148,9 @@ func (p *WorktreeCreatePane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 			return p, nil
 		case "ctrl+s":
 			return p.submit()
+		case "ctrl+t":
+			p.openExternal = !p.openExternal
+			return p, nil
 		}
 	}
 
@@ -168,6 +174,10 @@ func (p *WorktreeCreatePane) View() string {
 		width = 72
 	}
 
+	modeHint := "shell"
+	if p.openExternal {
+		modeHint = "external terminal"
+	}
 	lines := []string{
 		commitHeaderStyle.Render("Create Worktree"),
 		upstreamStyle.Render("Create a branch-backed worktree from the current repository."),
@@ -176,7 +186,7 @@ func (p *WorktreeCreatePane) View() string {
 		p.inputs[createWorktreeFieldBaseRef].View(),
 		p.inputs[createWorktreeFieldPath].View(),
 		"",
-		commitHintStyle.Render("Tab move · Enter next/submit · Ctrl+S create · Esc cancel"),
+		commitHintStyle.Render("Tab move · Enter next/submit · Ctrl+S create · Ctrl+T " + modeHint + " · Esc cancel"),
 	}
 	if p.creating {
 		lines = append(lines, upstreamStyle.Render("Creating worktree..."))
@@ -253,13 +263,11 @@ func closeCreateWorktreeCmd(id models.PaneID) tea.Cmd {
 }
 
 func defaultWorktreePath(repoPath, branch string) string {
-	repoName := filepath.Base(repoPath)
-	parent := filepath.Dir(repoPath)
 	slug := slugifyWorktreeBranch(branch)
 	if slug == "" {
 		slug = "new-worktree"
 	}
-	return filepath.Join(parent, repoName+"-"+slug)
+	return filepath.Join(repoPath, ".worktrees", slug)
 }
 
 func slugifyWorktreeBranch(branch string) string {
