@@ -105,13 +105,18 @@ func DetectTerminalEmulator() string {
 	return ""
 }
 
-func BuildExternalTerminalCommand(emulator, title, directory string, envVars []string, provider Provider) (string, []string) {
+func BuildExternalTerminalCommand(emulator, title, directory string, envVars []string, provider Provider, zoom float64) (string, []string) {
 	bin, providerArgs := ProviderCommand(provider)
 	if emulator == "" {
 		emulator = DetectTerminalEmulator()
 		if emulator == "" {
 			emulator = "kitty"
 		}
+	}
+
+	// Inject zoom scale into environment for terminals that respect it.
+	if zoom != 1.0 && zoom > 0 {
+		envVars = append([]string{"FOCUS_TERMINAL_ZOOM=" + fmt.Sprintf("%.2f", zoom)}, envVars...)
 	}
 
 	switch emulator {
@@ -137,7 +142,11 @@ func BuildExternalTerminalCommand(emulator, title, directory string, envVars []s
 	case "gnome-terminal":
 		cmdArgs := append([]string{bin}, providerArgs...)
 		cmd := strings.Join(cmdArgs, " ")
-		args := []string{"--window", "--title", title, "--working-directory", directory, "--", "env"}
+		args := []string{"--window", "--title", title, "--working-directory", directory}
+		if zoom != 1.0 && zoom > 0 {
+			args = append(args, "--zoom", fmt.Sprintf("%.2f", zoom))
+		}
+		args = append(args, "--", "env")
 		args = append(args, envVars...)
 		args = append(args, "sh", "-lc", cmd)
 		return "gnome-terminal", args
@@ -214,6 +223,7 @@ func LaunchExternalCommand(req ExternalLaunchRequest) tea.Cmd {
 			req.WorktreeID,
 			req.EnvVars,
 			req.Provider,
+			1.2,
 		)
 		cmd := exec.Command(name, args...)
 			f, _ := os.OpenFile("/tmp/focus_launch.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)

@@ -584,11 +584,14 @@ func (p *page) activeOverlayPane() models.PaneID {
 	if _, ok := p.paneMeta[panePlanEdit]; ok {
 		return panePlanEdit
 	}
+	if _, ok := p.paneMeta[paneAgentSelect]; ok {
+		return paneAgentSelect
+	}
 	return ""
 }
 
 func (p *page) isOverlayPane(id models.PaneID) bool {
-	return id == paneGitCommit || id == paneWorktreeCreate || id == paneTaskEdit || id == panePlanEdit
+	return id == paneGitCommit || id == paneWorktreeCreate || id == paneTaskEdit || id == panePlanEdit || id == paneAgentSelect
 }
 
 func (p *page) paneAt(x, y int) models.PaneID {
@@ -946,6 +949,35 @@ func (p *page) openCreateWorktreePane(msg gitplugin.OpenCreateWorktreeMsg) tea.C
 		Closable:       true,
 	}
 	panel := gitplugin.NewWorktreeCreatePane(meta.ID, meta, *p.common, p.adapterManager.Git(), msg)
+	p.registerPane(meta.ID, panel, meta)
+	if p.returnFocus == nil {
+		p.returnFocus = make(map[models.PaneID]models.PaneID)
+	}
+	p.returnFocus[meta.ID] = baseFocus
+	p.setFocus(meta.ID)
+	p.updateSizes(p.bodyBoundsSize())
+	return panel.Init()
+}
+
+func (p *page) openAgentSelectPane(worktreeID string) tea.Cmd {
+	p.closePane(paneAgentSelect)
+
+	baseFocus := p.focused
+	if baseFocus == "" {
+		baseFocus = paneWorktree
+	}
+
+	meta := models.PaneMeta{
+		ID:         paneAgentSelect,
+		Name:       "Select Agent",
+		Type:       paneTypeAgentSelect,
+		CWD:        worktreeID,
+		RepoID:     p.currentRepoID(),
+		WorktreeID: worktreeID,
+		Status:     models.PaneStatusReady,
+		Closable:   true,
+	}
+	panel := newAgentSelectPane(meta.ID, meta, *p.common, worktreeID)
 	p.registerPane(meta.ID, panel, meta)
 	if p.returnFocus == nil {
 		p.returnFocus = make(map[models.PaneID]models.PaneID)
