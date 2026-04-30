@@ -22,6 +22,7 @@ func TestBuildExternalTerminalCommand(t *testing.T) {
 		"/tmp/worktree-a",
 		[]string{"FOCUS_SESSION_ID=session-1", "FOCUS_MCP_SOCKET=/tmp/focus-mcp.sock"},
 		ProviderClaude,
+		1.0,
 	)
 
 	if name != "kitty" {

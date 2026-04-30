@@ -52,6 +52,7 @@ const (
 	paneWorktreeCreate  models.PaneID = "worktree-create-overlay"
 	paneTaskEdit        models.PaneID = "task-edit-overlay"
 	panePlanEdit        models.PaneID = "plan-edit-overlay"
+	paneAgentSelect     models.PaneID = "agent-select-overlay"
 	paneTodo            models.PaneID = "todo-main"
 	paneFileTree        models.PaneID = "file-tree-main"
 	panePomodoro        models.PaneID = "pomodoro-main"
@@ -62,6 +63,7 @@ const (
 	paneTypeWorktreeCreate  models.PaneType = "worktree-create"
 	paneTypeTaskEdit        models.PaneType = "task-edit"
 	paneTypePlanEdit        models.PaneType = "plan-edit"
+	paneTypeAgentSelect     models.PaneType = "agent-select"
 	paneTypeOverviewSummary models.PaneType = "overview-summary"
 	paneTypeOverviewDAG     models.PaneType = "overview-dag"
 	paneTypeOverviewDetail  models.PaneType = "overview-detail"
@@ -961,8 +963,42 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				cmds = append(cmds, cmd)
 			}
 		}
-		if cmd := m.openWorktreeShell(gitplugin.OpenWorktreeShellMsg{Worktree: msg.Worktree}); cmd != nil {
-			cmds = append(cmds, cmd)
+		if msg.OpenExternal {
+			// Open agent selection overlay instead of launching directly.
+			if selectCmd := m.openAgentSelectPane(msg.Worktree.Path); selectCmd != nil {
+				cmds = append(cmds, selectCmd)
+			}
+		} else {
+			if cmd := m.openWorktreeShell(gitplugin.OpenWorktreeShellMsg{Worktree: msg.Worktree}); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		}
+		m.syncWorktreeActivities()
+		m.invalidateView()
+		return m, batchCmds(cmds)
+
+	case CloseAgentSelectMsg:
+		m.closePane(msg.ID)
+		m.syncWorktreeActivities()
+		m.invalidateView()
+		return m, nil
+
+	case AgentSelectedMsg:
+		m.closePane(msg.PaneID)
+		var cmds []tea.Cmd
+		if pageCmd := m.switchToWorktreePage(msg.WorktreeID, string(paneAgentSession)); pageCmd != nil {
+			cmds = append(cmds, pageCmd)
+		}
+		if m.activePage != nil {
+			m.activePage.closePane(paneShell)
+		}
+		session := m.newAgentSession(msg.WorktreeID, msg.Provider)
+		m.saveAgentSession(session)
+		if m.agentRegistry != nil {
+			m.agentRegistry.Register(session)
+		}
+		if launchCmd := m.launchExternalAgent(session); launchCmd != nil {
+			cmds = append(cmds, launchCmd)
 		}
 		m.syncWorktreeActivities()
 		m.invalidateView()
@@ -1383,12 +1419,24 @@ func (m *model) launchExternalAgent(session *agents.Session) tea.Cmd {
 	session.State = agents.SessionWaiting
 	session.EnvSnapshot = strings.Join(envVars, " ")
 	m.saveAgentSession(session)
+
+	emulator := strings.TrimSpace(m.common.Cfg.Agent.TerminalEmulator)
+	if emulator != "" {
+		if _, err := exec.LookPath(emulator); err != nil {
+			if detected := agents.DetectTerminalEmulator(); detected != "" {
+				emulator = detected
+			}
+		}
+	} else {
+		emulator = agents.DetectTerminalEmulator()
+	}
+
 	return agents.LaunchExternalCommand(agents.ExternalLaunchRequest{
 		SessionID:        session.ID,
 		Title:            title,
 		WorktreeID:       session.WorktreeID,
 		Provider:         session.Provider,
-		TerminalEmulator: strings.TrimSpace(m.common.Cfg.Agent.TerminalEmulator),
+		TerminalEmulator: emulator,
 		EnvVars:          envVars,
 	})
 }
@@ -1450,10 +1498,21 @@ func (m *model) handleAgentExited(msg agents.AgentExitedMsg) {
 		record.UpdatedAt = now
 		m.saveAgentSessionRecord(record)
 		m.backflowAgentSession(record)
+		m.archiveAgentSession(record)
 		if m.agentRegistry != nil {
 			m.agentRegistry.Remove(record.ID)
 		}
 	}
+}
+
+// archiveAgentSession builds a session digest from the external agent
+// transcript and git diff, then persists it into the store.
+// TODO: re-enable when sessiondigest package is implemented.
+func (m *model) archiveAgentSession(record models.AgentSessionRecord) {
+	if m.common == nil || m.common.Store == nil {
+		return
+	}
+	// Session digest archiving is currently disabled.
 }
 
 func (m *model) focusAgentSession(msg agentsplugin.FocusAgentSessionMsg) tea.Cmd {
@@ -1877,6 +1936,12 @@ func (m *model) openCommitPane(msg gitplugin.OpenCommitMsg) tea.Cmd {
 
 func (m *model) openCreateWorktreePane(msg gitplugin.OpenCreateWorktreeMsg) tea.Cmd {
 	cmd := m.activePage.openCreateWorktreePane(msg)
+	m.updateSizes(m.common.Width, m.common.Height)
+	return cmd
+}
+
+func (m *model) openAgentSelectPane(worktreeID string) tea.Cmd {
+	cmd := m.activePage.openAgentSelectPane(worktreeID)
 	m.updateSizes(m.common.Width, m.common.Height)
 	return cmd
 }

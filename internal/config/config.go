@@ -59,7 +59,7 @@ func DefaultConfig() Config {
 	cfg.Pomodoro.Notify = true
 	cfg.TimeFormat = "Mon Jan 2 · 15:04"
 	cfg.Agent.ExternalTerminal = false
-	cfg.Agent.TerminalEmulator = "kitty"
+	cfg.Agent.TerminalEmulator = ""
 	cfg.Agent.MCPSocket = "/tmp/focus-mcp.sock"
 	cfg.Agent.A2ASocket = "/tmp/focus-a2a.sock"
 	cfg.Agent.ResearchProvider = "kimi"
