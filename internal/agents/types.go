@@ -32,8 +32,7 @@ const (
 	LegacySessionIDEnvVar = "FOCUS_AGENT_SESSION_ID"
 	TaskIDEnvVar          = "FOCUS_TASK_ID"
 	PlanIDEnvVar          = "FOCUS_PLAN_ID"
-	MCPSocketEnvVar       = "FOCUS_MCP_SOCKET"
-	A2ASocketEnvVar       = "FOCUS_A2A_SOCKET"
+	MCPURLEnvVar          = "FOCUS_MCP_URL"
 )
 
 type Session struct {
