@@ -1366,6 +1366,9 @@ func (m *model) launchAgent(msg agents.LaunchAgentMsg) tea.Cmd {
 		m.agentRegistry.Register(session)
 	}
 
+	// Trellis-style: auto-inject per-worktree agent profile.
+	_ = m.prepareAgentProfile(session)
+
 	pageCmd := m.switchToWorktreePage(worktreeID, "")
 	if m.common != nil && m.common.Cfg.Agent.ExternalTerminal {
 		launchCmd := m.launchExternalAgent(session)
@@ -3603,6 +3606,66 @@ func (m *model) newAgentSession(worktreeID string, provider agents.Provider) *ag
 		LastActivityAt: &now,
 		UpdatedAt:      now,
 	}
+}
+
+// prepareAgentProfile generates the Trellis-style per-worktree agent context
+// (AGENTS.md, handoff, journal) before the agent starts.  Errors are logged
+// but not fatal — the agent can still launch without a profile.
+func (m *model) prepareAgentProfile(session *agents.Session) error {
+	if session == nil || session.WorktreeID == "" {
+		return nil
+	}
+
+	pm := agents.NewProfileManager(session.WorktreeID)
+	if err := pm.Prepare(); err != nil {
+		return err
+	}
+
+	// Build spec load context from task/plan/step.
+	ctx := agents.SpecLoadContext{}
+	if m.common != nil && m.common.Store != nil {
+		if session.TaskID != "" {
+			if task, err := m.common.Store.GetTaskContext(session.TaskID); err == nil && task != nil {
+				ctx.Task = task
+			}
+		}
+		if session.PlanID != "" {
+			if plan, err := m.common.Store.GetTaskPlan(session.PlanID); err == nil && plan != nil {
+				ctx.Plan = plan
+			}
+			if steps, err := m.common.Store.ListPlanSteps(session.PlanID); err == nil {
+				for _, s := range steps {
+					if s.ID == session.StepID {
+						ctx.Step = &s
+						break
+					}
+				}
+			}
+		}
+		// Load latest handoff for this task.
+		if handoffs, err := m.common.Store.ListSessionHandoffs(session.TaskID); err == nil && len(handoffs) > 0 {
+			ctx.Handoff = &handoffs[0]
+		}
+	}
+
+	// Determine repo-level spec directory.
+	repoSpecDir := ""
+	if repoRoot, ok := gitRepoRoot(session.WorktreeID); ok {
+		repoSpecDir = filepath.Join(repoRoot, ".focus", "spec")
+	}
+
+	loader := agents.NewSpecLoader(repoSpecDir, pm.Paths.SpecDir)
+	spec, err := loader.Load(ctx)
+	if err != nil {
+		return err
+	}
+
+	// Write AGENTS.md.
+	if err := pm.WriteAGENTSMD(spec); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (m *model) newProtocolAgentSession(taskID, worktreeID string, provider agents.Provider) *agents.Session {
