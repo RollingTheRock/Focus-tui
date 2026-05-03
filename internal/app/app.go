@@ -53,6 +53,7 @@ const (
 	paneTaskEdit        models.PaneID = "task-edit-overlay"
 	panePlanEdit        models.PaneID = "plan-edit-overlay"
 	paneAgentSelect     models.PaneID = "agent-select-overlay"
+	paneWorktreeHistory models.PaneID = "worktree-history-overlay"
 	paneTodo            models.PaneID = "todo-main"
 	paneFileTree        models.PaneID = "file-tree-main"
 	panePomodoro        models.PaneID = "pomodoro-main"
@@ -64,6 +65,7 @@ const (
 	paneTypeTaskEdit        models.PaneType = "task-edit"
 	paneTypePlanEdit        models.PaneType = "plan-edit"
 	paneTypeAgentSelect     models.PaneType = "agent-select"
+	paneTypeWorktreeHistory models.PaneType = "worktree-history"
 	paneTypeOverviewSummary models.PaneType = "overview-summary"
 	paneTypeOverviewDAG     models.PaneType = "overview-dag"
 	paneTypeOverviewDetail  models.PaneType = "overview-detail"
@@ -828,6 +830,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.syncWorktreeActivities()
 		m.invalidateView()
 		return m, cmd
+
+	case gitplugin.OpenWorktreeHistoryMsg:
+		cmd := m.openWorktreeHistoryPane()
+		m.syncWorktreeActivities()
+		m.invalidateView()
+		return m, cmd
+
+	case CloseWorktreeHistoryMsg:
+		m.closePane(msg.ID)
+		m.syncWorktreeActivities()
+		m.invalidateView()
+		return m, nil
 
 	case gitplugin.ResumeWorktreeMsg:
 		cmd := m.resumeWorktree(msg)
@@ -1946,6 +1960,12 @@ func (m *model) openAgentSelectPane(worktreeID string) tea.Cmd {
 	return cmd
 }
 
+func (m *model) openWorktreeHistoryPane() tea.Cmd {
+	cmd := m.activePage.openWorktreeHistoryPane()
+	m.updateSizes(m.common.Width, m.common.Height)
+	return cmd
+}
+
 func (m *model) openTaskEditPane(msg gitplugin.OpenTaskEditMsg) tea.Cmd {
 	seed := taskEditorSeed{WorktreeID: msg.WorktreeID, State: "active", Priority: "medium", RelationType: msg.RelationType, ParentTaskID: msg.ParentTaskID}
 	if m.common != nil && m.common.Store != nil {
@@ -2619,14 +2639,83 @@ func nextTaskState(state string) string {
 func (m *model) removeWorktree(msg gitplugin.RequestRemoveWorktreeMsg) tea.Cmd {
 	adapter := m.adapterManager.Git()
 	repoPath := m.gitRepoPath()
+	worktreePath := msg.Worktree.Path
+
+	// Archive worktree metadata before removal.
+	if m.common != nil && m.common.Store != nil && worktreePath != "" {
+		wc, _ := m.common.Store.GetWorktreeContext(worktreePath)
+		sessions, _ := m.common.Store.ListAgentSessions(worktreePath)
+
+		var provider, summary string
+		var createdAt time.Time
+		if len(sessions) > 0 {
+			provider = sessions[0].Provider
+			summary = sessions[0].Summary
+			createdAt = sessions[0].StartedAt
+		}
+		if wc != nil {
+			if summary == "" && wc.TaskName != "" {
+				summary = wc.TaskName
+			}
+			if createdAt.IsZero() {
+				createdAt = wc.LastActiveAt
+			}
+		}
+
+		duration := 0
+		if !createdAt.IsZero() {
+			duration = int(time.Since(createdAt).Minutes())
+		}
+
+		repoID := repoPath
+		if wc != nil && wc.RepoID != "" {
+			repoID = wc.RepoID
+		}
+
+		branch := msg.Worktree.Branch
+		if branch == "" && wc != nil {
+			branch = wc.BranchSnapshot
+		}
+
+		historyID := "hst-" + uuid.NewString()
+		var taskID, planID *string
+		if wc != nil && wc.PrimaryTaskID != nil && *wc.PrimaryTaskID != "" {
+			taskID = wc.PrimaryTaskID
+		}
+		if wc != nil && wc.CurrentPlanID != nil && *wc.CurrentPlanID != "" {
+			planID = wc.CurrentPlanID
+		}
+
+		_ = m.common.Store.SaveWorktreeHistory(models.WorktreeHistoryRecord{
+			ID:              historyID,
+			RepoID:          repoID,
+			Branch:          branch,
+			Path:            worktreePath,
+			CreatedAt:       createdAt,
+			RemovedAt:       time.Now(),
+			TaskID:          taskID,
+			PlanID:          planID,
+			Provider:        provider,
+			Summary:         summary,
+			DurationMinutes: duration,
+		})
+
+		// Clean up orphaned SQLite records.
+		_ = m.common.Store.DeletePageSnapshot(worktreePath)
+		_ = m.common.Store.DeleteWorktreeContext(worktreePath)
+		_ = m.common.Store.DeleteAgentSessionsByWorktreeID(worktreePath)
+		_ = m.common.Store.DeleteContextNotesByWorktreeID(worktreePath)
+		_ = m.common.Store.DeleteTaskWorktreeLinksByWorktreeID(worktreePath)
+	}
+
 	return func() tea.Msg {
 		if adapter == nil {
 			return gitplugin.WorktreeActionFailedMsg{Action: "remove", Err: fmt.Errorf("git adapter unavailable")}
 		}
-		if err := adapter.RemoveWorktree(repoPath, msg.Worktree.Path, gitmodel.RemoveWorktreeOptions{Force: msg.Force}); err != nil {
+		if err := adapter.RemoveWorktree(repoPath, worktreePath, gitmodel.RemoveWorktreeOptions{Force: msg.Force}); err != nil {
 			return gitplugin.WorktreeActionFailedMsg{Action: "remove", Err: err}
 		}
-		return gitplugin.WorktreeRemovedMsg{Path: msg.Worktree.Path, Force: msg.Force}
+		return gitplugin.WorktreeRemovedMsg{Path: worktreePath, Force: msg.Force}
 	}
 }
 

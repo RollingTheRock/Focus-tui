@@ -346,6 +346,23 @@ CREATE TABLE IF NOT EXISTS knowledge_facts (
 
 CREATE INDEX IF NOT EXISTS idx_knowledge_facts_plan
     ON knowledge_facts(plan_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS worktree_history (
+    id              TEXT PRIMARY KEY,
+    repo_id         TEXT NOT NULL,
+    branch          TEXT,
+    path            TEXT,
+    created_at      DATETIME,
+    removed_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    task_id         TEXT,
+    plan_id         TEXT,
+    provider        TEXT,
+    summary         TEXT,
+    duration_minutes INTEGER
+);
+
+CREATE INDEX IF NOT EXISTS idx_worktree_history_repo
+    ON worktree_history(repo_id, removed_at DESC);
 `
 	_, err := s.db.Exec(schema)
 	if err != nil {

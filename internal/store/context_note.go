@@ -96,3 +96,8 @@ func (s *Store) ListContextNotes(taskID string, worktreeID string) ([]ContextNot
 	}
 	return records, rows.Err()
 }
+
+func (s *Store) DeleteContextNotesByWorktreeID(worktreeID string) error {
+	_, err := s.db.Exec(`DELETE FROM context_notes WHERE worktree_id = ?`, worktreeID)
+	return err
+}
