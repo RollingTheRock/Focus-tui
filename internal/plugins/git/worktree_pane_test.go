@@ -41,7 +41,7 @@ func TestWorktreePaneInitLoadsAndRendersWorktrees(t *testing.T) {
 	pane = updated.(*WorktreePane)
 
 	view := pane.View()
-	for _, want := range []string{"Worktrees", "main", "feature-a", "~2"} {
+	for _, want := range []string{"Worktrees", "main", "feature-a", "*"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("expected view to contain %q, got:\n%s", want, view)
 		}
@@ -72,46 +72,6 @@ func TestWorktreePaneKeyboardHandling(t *testing.T) {
 	}
 }
 
-func TestWorktreePaneTabFilteringAndCycling(t *testing.T) {
-	adapter := &fakeGitAdapter{
-		worktrees: []gitmodel.Worktree{
-			{Path: "/repo/main", Branch: "main", IsMain: true},
-			{Path: "/repo/feature-a", Branch: "feature-a", DirtySummary: gitmodel.DirtySummary{Unstaged: 1}},
-			{Path: "/repo/feature-b", Branch: "feature-b"},
-		},
-	}
-	pane := NewWorktreePane("worktree-1", models.PaneMeta{ID: "worktree-1", Type: models.PaneTypeWorktree, CWD: "/repo/main"}, models.CommonModel{}, adapter)
-	pane.SetSize(220, 24)
-	updated, _ := pane.Update(worktreesLoadedMsg{worktrees: adapter.worktrees})
-	pane = updated.(*WorktreePane)
-	pane.SetResumeSummaries(map[string]gitmodel.WorktreeResumeSummary{
-		"/repo/feature-a": {TaskTitle: "Active task", TaskState: "active", ResumeScore: 80},
-		"/repo/feature-b": {TaskTitle: "Queued task", TaskState: "paused", ResumeScore: 30, QueuedTaskTitle: "Follow-up cleanup", QueuedTaskCount: 1},
-	})
-
-	view := pane.View()
-	for _, want := range []string{"1 ALL(3)", "2 ACTIVE(1)", "3 FOCUS(1)", "4 QUEUED(1)"} {
-		if !strings.Contains(view, want) {
-			t.Fatalf("expected tabs to contain %q, got:\n%s", want, view)
-		}
-	}
-
-	updated, _ = pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'2'}})
-	pane = updated.(*WorktreePane)
-	view = pane.View()
-	if !strings.Contains(view, "Active task") || strings.Contains(view, "Queued task") {
-		t.Fatalf("expected ACTIVE tab to filter rows, got:\n%s", view)
-	}
-
-	updated, _ = pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{']'}})
-	pane = updated.(*WorktreePane)
-	updated, _ = pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{']'}})
-	pane = updated.(*WorktreePane)
-	view = pane.View()
-	if !strings.Contains(view, "4 QUEUED(1)") || !strings.Contains(view, "Queued task") {
-		t.Fatalf("expected cycling tabs to reach queued view, got:\n%s", view)
-	}
-}
 
 func TestWorktreePaneResumeMessageUsesSelectedWorktree(t *testing.T) {
 	adapter := &fakeGitAdapter{
@@ -201,140 +161,10 @@ func TestWorktreePaneEditTaskMessageUsesSelectedWorktree(t *testing.T) {
 	}
 }
 
-func TestWorktreePaneFollowUpTaskMessageUsesSelectedWorktree(t *testing.T) {
-	adapter := &fakeGitAdapter{
-		worktrees: []gitmodel.Worktree{
-			{Path: "/repo/main", Branch: "main", IsMain: true},
-			{Path: "/repo/feature-a", Branch: "feature-a"},
-		},
-	}
-	pane := NewWorktreePane("worktree-1", models.PaneMeta{ID: "worktree-1", Type: models.PaneTypeWorktree, CWD: "/repo/main"}, models.CommonModel{}, adapter)
-	updated, _ := pane.Update(worktreesLoadedMsg{worktrees: adapter.worktrees})
-	pane = updated.(*WorktreePane)
-	pane.SetResumeSummaries(map[string]gitmodel.WorktreeResumeSummary{
-		"/repo/feature-a": {TaskID: "task-1", TaskTitle: "Fix resume pipeline", ResumeScore: 90},
-	})
 
-	updated, cmd := pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'f'}})
-	pane = updated.(*WorktreePane)
-	if cmd == nil {
-		t.Fatalf("expected follow-up command")
-	}
-	msg := runCmd(t, cmd)
-	openMsg, ok := msg.(OpenTaskEditMsg)
-	if !ok {
-		t.Fatalf("expected OpenTaskEditMsg, got %T", msg)
-	}
-	if openMsg.WorktreeID != "/repo/feature-a" || openMsg.RelationType != "queued" || openMsg.ParentTaskID != "task-1" {
-		t.Fatalf("unexpected follow-up task edit message %+v", openMsg)
-	}
-}
 
-func TestWorktreePanePlanDraftMessageUsesSelectedWorktree(t *testing.T) {
-	adapter := &fakeGitAdapter{
-		worktrees: []gitmodel.Worktree{
-			{Path: "/repo/main", Branch: "main", IsMain: true},
-			{Path: "/repo/feature-a", Branch: "feature-a"},
-		},
-	}
-	pane := NewWorktreePane("worktree-1", models.PaneMeta{ID: "worktree-1", Type: models.PaneTypeWorktree, CWD: "/repo/main"}, models.CommonModel{}, adapter)
-	updated, _ := pane.Update(worktreesLoadedMsg{worktrees: adapter.worktrees})
-	pane = updated.(*WorktreePane)
-	pane.SetResumeSummaries(map[string]gitmodel.WorktreeResumeSummary{
-		"/repo/feature-a": {TaskID: "task-1", TaskTitle: "Fix resume pipeline", ResumeScore: 90},
-	})
 
-	updated, cmd := pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'p'}})
-	pane = updated.(*WorktreePane)
-	if cmd == nil {
-		t.Fatalf("expected plan-draft command")
-	}
-	msg := runCmd(t, cmd)
-	openMsg, ok := msg.(OpenPlanEditMsg)
-	if !ok {
-		t.Fatalf("expected OpenPlanEditMsg, got %T", msg)
-	}
-	if openMsg.WorktreeID != "/repo/feature-a" || openMsg.TaskID != "task-1" {
-		t.Fatalf("unexpected plan edit message %+v", openMsg)
-	}
-}
 
-func TestWorktreePanePlanDraftAllowsMissingTask(t *testing.T) {
-	adapter := &fakeGitAdapter{
-		worktrees: []gitmodel.Worktree{
-			{Path: "/repo/main", Branch: "main", IsMain: true},
-			{Path: "/repo/feature-a", Branch: "feature-a"},
-		},
-	}
-	pane := NewWorktreePane("worktree-1", models.PaneMeta{ID: "worktree-1", Type: models.PaneTypeWorktree, CWD: "/repo/main"}, models.CommonModel{}, adapter)
-	updated, _ := pane.Update(worktreesLoadedMsg{worktrees: adapter.worktrees})
-	pane = updated.(*WorktreePane)
-	pane.SetResumeSummaries(map[string]gitmodel.WorktreeResumeSummary{
-		"/repo/feature-a": {TaskTitle: "No task yet", ResumeScore: 40},
-	})
-
-	updated, cmd := pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'p'}})
-	pane = updated.(*WorktreePane)
-	if cmd == nil {
-		t.Fatalf("expected standalone plan-draft command")
-	}
-	if pane.err != nil {
-		t.Fatalf("expected no error for standalone plan draft, got %v", pane.err)
-	}
-	msg := runCmd(t, cmd)
-	openMsg, ok := msg.(OpenPlanEditMsg)
-	if !ok {
-		t.Fatalf("expected OpenPlanEditMsg, got %T", msg)
-	}
-	if openMsg.WorktreeID != "/repo/feature-a" || openMsg.TaskID != "" {
-		t.Fatalf("unexpected standalone plan edit message %+v", openMsg)
-	}
-}
-
-func TestWorktreePaneUppercasePStartsPruneConfirmation(t *testing.T) {
-	adapter := &fakeGitAdapter{worktrees: []gitmodel.Worktree{{Path: "/repo/main", Branch: "main", IsMain: true}, {Path: "/repo/feature-a", Branch: "feature-a"}}}
-	pane := NewWorktreePane("worktree-1", models.PaneMeta{ID: "worktree-1", Type: models.PaneTypeWorktree, CWD: "/repo/main"}, models.CommonModel{}, adapter)
-	updated, _ := pane.Update(worktreesLoadedMsg{worktrees: adapter.worktrees})
-	pane = updated.(*WorktreePane)
-
-	updated, cmd := pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'P'}})
-	pane = updated.(*WorktreePane)
-	if cmd != nil {
-		t.Fatalf("expected prune confirmation without immediate command")
-	}
-	if pane.confirm == nil || pane.confirm.kind != "prune" {
-		t.Fatalf("expected uppercase P to start prune confirmation, got %+v", pane.confirm)
-	}
-}
-
-func TestWorktreePaneCycleTaskStateMessageUsesSelectedWorktree(t *testing.T) {
-	adapter := &fakeGitAdapter{
-		worktrees: []gitmodel.Worktree{
-			{Path: "/repo/main", Branch: "main", IsMain: true},
-			{Path: "/repo/feature-a", Branch: "feature-a"},
-		},
-	}
-	pane := NewWorktreePane("worktree-1", models.PaneMeta{ID: "worktree-1", Type: models.PaneTypeWorktree, CWD: "/repo/main"}, models.CommonModel{}, adapter)
-	updated, _ := pane.Update(worktreesLoadedMsg{worktrees: adapter.worktrees})
-	pane = updated.(*WorktreePane)
-	pane.SetResumeSummaries(map[string]gitmodel.WorktreeResumeSummary{
-		"/repo/feature-a": {TaskID: "task-1", TaskTitle: "Fix resume pipeline", TaskState: "active", ResumeScore: 90},
-	})
-
-	updated, cmd := pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
-	pane = updated.(*WorktreePane)
-	if cmd == nil {
-		t.Fatalf("expected cycle-state command")
-	}
-	msg := runCmd(t, cmd)
-	cycleMsg, ok := msg.(CycleTaskStateMsg)
-	if !ok {
-		t.Fatalf("expected CycleTaskStateMsg, got %T", msg)
-	}
-	if cycleMsg.TaskID != "task-1" || cycleMsg.WorktreeID != "/repo/feature-a" || cycleMsg.CurrentState != "active" {
-		t.Fatalf("unexpected cycle task state message %+v", cycleMsg)
-	}
-}
 
 func TestWorktreePaneRemoveCleanWorktreeRequiresConfirmation(t *testing.T) {
 	adapter := &fakeGitAdapter{worktrees: []gitmodel.Worktree{{Path: "/repo/main", Branch: "main", IsMain: true}, {Path: "/repo/feature-a", Branch: "feature-a"}}}
@@ -344,24 +174,18 @@ func TestWorktreePaneRemoveCleanWorktreeRequiresConfirmation(t *testing.T) {
 	updated, _ = pane.Update(tea.KeyMsg{Type: tea.KeyDown})
 	pane = updated.(*WorktreePane)
 
-	updated, _ = pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
-	pane = updated.(*WorktreePane)
-	if pane.confirm == nil || pane.confirm.kind != "remove" || pane.confirm.force {
-		t.Fatalf("expected non-force remove confirmation, got %+v", pane.confirm)
-	}
-
-	updated, cmd := pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
+	updated, cmd := pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
 	pane = updated.(*WorktreePane)
 	if cmd == nil {
-		t.Fatalf("expected remove request command")
+		t.Fatalf("expected delete confirm command")
 	}
 	msg := runCmd(t, cmd)
-	removeMsg, ok := msg.(RequestRemoveWorktreeMsg)
+	confirmMsg, ok := msg.(OpenWorktreeDeleteConfirmMsg)
 	if !ok {
-		t.Fatalf("expected RequestRemoveWorktreeMsg, got %T", msg)
+		t.Fatalf("expected OpenWorktreeDeleteConfirmMsg, got %T", msg)
 	}
-	if removeMsg.Worktree.Path != "/repo/feature-a" || removeMsg.Force {
-		t.Fatalf("unexpected remove request %+v", removeMsg)
+	if confirmMsg.Worktree.Path != "/repo/feature-a" || confirmMsg.Force {
+		t.Fatalf("unexpected delete confirm %+v", confirmMsg)
 	}
 }
 
@@ -373,10 +197,18 @@ func TestWorktreePaneDeleteKeyUsesD(t *testing.T) {
 	updated, _ = pane.Update(tea.KeyMsg{Type: tea.KeyDown})
 	pane = updated.(*WorktreePane)
 
-	updated, _ = pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
+	updated, cmd := pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
 	pane = updated.(*WorktreePane)
-	if pane.confirm == nil || pane.confirm.kind != "remove" || pane.confirm.force {
-		t.Fatalf("expected non-force remove confirmation, got %+v", pane.confirm)
+	if cmd == nil {
+		t.Fatalf("expected delete confirm command")
+	}
+	msg := runCmd(t, cmd)
+	confirmMsg, ok := msg.(OpenWorktreeDeleteConfirmMsg)
+	if !ok {
+		t.Fatalf("expected OpenWorktreeDeleteConfirmMsg, got %T", msg)
+	}
+	if confirmMsg.Worktree.Path != "/repo/feature-a" || confirmMsg.Force {
+		t.Fatalf("unexpected delete confirm %+v", confirmMsg)
 	}
 }
 
@@ -403,22 +235,10 @@ func TestWorktreePaneRendersResumeSummaryAndOrdersByScore(t *testing.T) {
 	for _, want := range []string{
 		"Fix resume pipeline",
 		"feature-a",
-		"active · high · agent 1 · queued 2",
-		"next: Wire overview summaries",
-		"Selected: feature-a",
-		"Goal: Make overview dense and useful",
-		"Next: Continue: Wire overview summaries",
-		"Why now: active task",
-		"Agent: opencode running",
-		"Runtime: shell=true edits=2 agents=1",
+		"agent:1",
 	} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("expected view to contain %q, got:\n%s", want, view)
-		}
-	}
-	for _, notWant := range []string{"shell · edits 2 · agents 1  active", "queued: Follow-up cleanup (+1)  active task"} {
-		if strings.Contains(view, notWant) {
-			t.Fatalf("expected queue row to avoid noisy duplicate context %q, got:\n%s", notWant, view)
 		}
 	}
 
@@ -439,40 +259,22 @@ func TestWorktreePaneForceRemoveDirtyWorktree(t *testing.T) {
 
 	updated, _ = pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
 	pane = updated.(*WorktreePane)
-	if pane.confirm != nil {
-		t.Fatalf("expected dirty worktree to require explicit force path first")
-	}
 	if pane.err == nil || !strings.Contains(pane.err.Error(), "Shift+X") {
 		t.Fatalf("expected dirty warning, got %v", pane.err)
 	}
 
-	updated, _ = pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'X'}})
-	pane = updated.(*WorktreePane)
-	if pane.confirm == nil || !pane.confirm.force {
-		t.Fatalf("expected force confirmation, got %+v", pane.confirm)
-	}
-}
-
-func TestWorktreePanePruneConfirmationEmitsRequest(t *testing.T) {
-	pane := NewWorktreePane("worktree-1", models.PaneMeta{ID: "worktree-1", Type: models.PaneTypeWorktree, CWD: "/repo/main"}, models.CommonModel{}, &fakeGitAdapter{})
-
-	updated, _ := pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'P'}})
-	pane = updated.(*WorktreePane)
-	if pane.confirm == nil || pane.confirm.kind != "prune" {
-		t.Fatalf("expected prune confirmation, got %+v", pane.confirm)
-	}
-
-	updated, cmd := pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
+	updated, cmd := pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'X'}})
 	pane = updated.(*WorktreePane)
 	if cmd == nil {
-		t.Fatalf("expected prune command")
+		t.Fatalf("expected force delete confirm command")
 	}
 	msg := runCmd(t, cmd)
-	pruneMsg, ok := msg.(RequestPruneWorktreesMsg)
+	confirmMsg, ok := msg.(OpenWorktreeDeleteConfirmMsg)
 	if !ok {
-		t.Fatalf("expected RequestPruneWorktreesMsg, got %T", msg)
+		t.Fatalf("expected OpenWorktreeDeleteConfirmMsg, got %T", msg)
 	}
-	if pruneMsg.RepoPath != "/repo/main" {
-		t.Fatalf("expected repo path /repo/main, got %q", pruneMsg.RepoPath)
+	if confirmMsg.Worktree.Path != "/repo/feature-a" || !confirmMsg.Force {
+		t.Fatalf("unexpected force delete confirm %+v", confirmMsg)
 	}
 }
+

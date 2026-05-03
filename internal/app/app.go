@@ -21,9 +21,7 @@ import (
 	"focus/internal/ui/footer"
 	"focus/internal/ui/header"
 	"focus/internal/ui/layout"
-	"focus/internal/ui/pomodoro"
 	"focus/internal/ui/shell"
-	"focus/internal/ui/todo"
 	"hash/fnv"
 	"os"
 	"os/exec"
@@ -43,30 +41,26 @@ const (
 	paneHeader          models.PaneID = "header"
 	paneShell           models.PaneID = "shell-main"
 	paneWorktree        models.PaneID = "worktree-main"
-	paneOverviewSummary models.PaneID = "overview-summary-main"
-	paneOverviewDAG     models.PaneID = "overview-dag-main"
-	paneOverviewDetail  models.PaneID = "overview-detail-main"
-	paneGitStatus       models.PaneID = "git-status-main"
+	paneDAG             models.PaneID = "dag-main"
+	paneWorktreeDetail  models.PaneID = "worktree-detail-main"
 	paneGitDiff         models.PaneID = "git-diff-pane"
 	paneGitCommit       models.PaneID = "git-commit-overlay"
 	paneWorktreeCreate  models.PaneID = "worktree-create-overlay"
 	paneTaskEdit        models.PaneID = "task-edit-overlay"
 	panePlanEdit        models.PaneID = "plan-edit-overlay"
 	paneAgentSelect     models.PaneID = "agent-select-overlay"
-	paneWorktreeHistory models.PaneID = "worktree-history-overlay"
-	paneTodo            models.PaneID = "todo-main"
-	paneFileTree        models.PaneID = "file-tree-main"
-	panePomodoro        models.PaneID = "pomodoro-main"
-	paneAgentSession    models.PaneID = "agent-session-main"
-	paneFooter          models.PaneID = "footer"
+	paneWorktreeHistory        models.PaneID = "worktree-history-overlay"
+	paneWorktreeDeleteConfirm  models.PaneID = "worktree-delete-confirm-overlay"
+	paneFooter                 models.PaneID = "footer"
 
 	paneTypeGitCommit       models.PaneType = "git-commit"
 	paneTypeWorktreeCreate  models.PaneType = "worktree-create"
 	paneTypeTaskEdit        models.PaneType = "task-edit"
 	paneTypePlanEdit        models.PaneType = "plan-edit"
 	paneTypeAgentSelect     models.PaneType = "agent-select"
-	paneTypeWorktreeHistory models.PaneType = "worktree-history"
-	paneTypeOverviewSummary models.PaneType = "overview-summary"
+	paneTypeWorktreeHistory       models.PaneType = "worktree-history"
+	paneTypeWorktreeDeleteConfirm models.PaneType = "worktree-delete-confirm"
+	paneTypeOverviewSummary       models.PaneType = "overview-summary"
 	paneTypeOverviewDAG     models.PaneType = "overview-dag"
 	paneTypeOverviewDetail  models.PaneType = "overview-detail"
 
@@ -181,6 +175,9 @@ func (m *model) registerMCPTools() {
 	_ = m.mcpServer.RegisterTool("session.heartbeat", m.mcpSessionHeartbeatTool)
 	_ = m.mcpServer.RegisterTool("session.request_intervention", m.mcpSessionRequestInterventionTool)
 	_ = m.mcpServer.RegisterTool("task.get", m.mcpTaskGetTool)
+	_ = m.mcpServer.RegisterTool("task.create", m.mcpTaskCreateTool)
+	_ = m.mcpServer.RegisterTool("task.list", m.mcpTaskListTool)
+	_ = m.mcpServer.RegisterTool("task.add_dependency", m.mcpTaskAddDependencyTool)
 	_ = m.mcpServer.RegisterTool("task.create_output", m.mcpTaskCreateOutputTool)
 	_ = m.mcpServer.RegisterTool("task.update_status", m.mcpTaskUpdateStatusTool)
 	_ = m.mcpServer.RegisterTool("kg.add_fact", m.mcpKnowledgeAddFactTool)
@@ -636,6 +633,117 @@ func (m *model) mcpContextGetForTaskTool(params map[string]any) (map[string]any,
 	}, nil
 }
 
+func (m *model) mcpTaskCreateTool(params map[string]any) (map[string]any, error) {
+	repoID := strings.TrimSpace(toolStringParam(params, "repo_id"))
+	if repoID == "" {
+		repoID = m.gitRepoPath()
+	}
+	if repoID == "" {
+		return nil, fmt.Errorf("repo_id required")
+	}
+	title := strings.TrimSpace(toolStringParam(params, "title"))
+	if title == "" {
+		return nil, fmt.Errorf("title required")
+	}
+	if m.common == nil || m.common.Store == nil {
+		return nil, fmt.Errorf("store unavailable")
+	}
+	record := models.TaskContextRecord{
+		ID:                  uuid.NewString(),
+		RepoID:              repoID,
+		Title:               title,
+		Goal:                strings.TrimSpace(toolStringParam(params, "goal")),
+		NextStep:            strings.TrimSpace(toolStringParam(params, "next_step")),
+		State:               normalizeToolTaskState(toolStringParam(params, "state")),
+		Priority:            toolStringParam(params, "priority"),
+		PreferredWorktreeID: strings.TrimSpace(toolStringParam(params, "preferred_worktree_id")),
+	}
+	if record.State == "" {
+		record.State = "pending"
+	}
+	if record.Priority == "" {
+		record.Priority = "medium"
+	}
+	if err := m.common.Store.SaveTaskContext(record); err != nil {
+		return nil, err
+	}
+	// Refresh DAG if visible
+	if dp, ok := m.activePage.pane(paneDAG).(*dagPane); ok {
+		dp.buildDAG()
+	}
+	m.invalidateView()
+	m.syncWorktreeActivities()
+	return map[string]any{
+		"success": true,
+		"task_id": record.ID,
+		"title":   record.Title,
+		"state":   record.State,
+	}, nil
+}
+
+func (m *model) mcpTaskAddDependencyTool(params map[string]any) (map[string]any, error) {
+	fromTaskID := strings.TrimSpace(toolStringParam(params, "from_task_id"))
+	toTaskID := strings.TrimSpace(toolStringParam(params, "to_task_id"))
+	if fromTaskID == "" || toTaskID == "" {
+		return nil, fmt.Errorf("from_task_id and to_task_id required")
+	}
+	if m.common == nil || m.common.Store == nil {
+		return nil, fmt.Errorf("store unavailable")
+	}
+	depType := toolStringParam(params, "dependency_type")
+	if depType == "" {
+		depType = "hard"
+	}
+	record := models.TaskDependencyRecord{
+		FromTaskID:     fromTaskID,
+		ToTaskID:       toTaskID,
+		DependencyType: depType,
+	}
+	if err := m.common.Store.SaveTaskDependency(record); err != nil {
+		return nil, err
+	}
+	if dp, ok := m.activePage.pane(paneDAG).(*dagPane); ok {
+		dp.buildDAG()
+	}
+	m.invalidateView()
+	return map[string]any{
+		"success":         true,
+		"from_task_id":    fromTaskID,
+		"to_task_id":      toTaskID,
+		"dependency_type": depType,
+	}, nil
+}
+
+func (m *model) mcpTaskListTool(params map[string]any) (map[string]any, error) {
+	repoID := strings.TrimSpace(toolStringParam(params, "repo_id"))
+	if repoID == "" {
+		repoID = m.gitRepoPath()
+	}
+	if m.common == nil || m.common.Store == nil {
+		return nil, fmt.Errorf("store unavailable")
+	}
+	records, err := m.common.Store.ListTaskContexts(repoID)
+	if err != nil {
+		return nil, err
+	}
+	tasks := make([]map[string]any, 0, len(records))
+	for _, t := range records {
+		tasks = append(tasks, map[string]any{
+			"id":                    t.ID,
+			"repo_id":               t.RepoID,
+			"title":                 t.Title,
+			"state":                 t.State,
+			"priority":              t.Priority,
+			"preferred_worktree_id": t.PreferredWorktreeID,
+		})
+	}
+	return map[string]any{
+		"success": true,
+		"count":   len(tasks),
+		"tasks":   tasks,
+	}, nil
+}
+
 func (m *model) launchDownstreamTasksProtocol(taskID string) ([]string, error) {
 	if m.common == nil || m.common.Store == nil || taskID == "" {
 		return nil, nil
@@ -761,7 +869,7 @@ func (m model) Init() tea.Cmd {
 	var cmds []tea.Cmd
 	if m.adapterManager != nil {
 		if err := m.adapterManager.Init(); err != nil {
-			if meta, ok := m.activePage.paneMeta[paneGitStatus]; ok {
+			if meta, ok := m.activePage.paneMeta[paneWorktree]; ok {
 				repoPath := meta.CWD
 				cmds = append(cmds, func() tea.Msg {
 					return adapters.StatusEvent{RepoPath: repoPath, Error: err}
@@ -801,11 +909,37 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.MouseMsg:
 		return m.handleMouse(msg)
 
-	case pomodoro.PickerLoadedMsg:
-		m.overlay = OverlayPicker
-		m.setFocus(panePomodoro)
+	case dagNodeSelectedMsg:
+		// Focus worktree detail pane to show selected task
+		m.setFocus(paneWorktreeDetail)
 		m.invalidateView()
-		return m, m.routeToPane(panePomodoro, msg)
+		return m, nil
+
+	case dagCreateWorktreeMsg:
+		cmd := m.openCreateWorktreePane(gitplugin.OpenCreateWorktreeMsg{
+			RepoPath: m.gitRepoPath(),
+			BaseRef:  msg.TaskTitle,
+		})
+		m.syncWorktreeActivities()
+		m.invalidateView()
+		return m, cmd
+
+	case dagLaunchAgentMsg:
+		var cmds []tea.Cmd
+		if pageCmd := m.switchToWorktreePage(msg.WorktreeID, string(paneWorktreeDetail)); pageCmd != nil {
+			cmds = append(cmds, pageCmd)
+		}
+		session := m.newAgentSession(msg.WorktreeID, msg.Provider)
+		m.saveAgentSession(session)
+		if m.agentRegistry != nil {
+			m.agentRegistry.Register(session)
+		}
+		if launchCmd := m.launchExternalAgent(session); launchCmd != nil {
+			cmds = append(cmds, launchCmd)
+		}
+		m.syncWorktreeActivities()
+		m.invalidateView()
+		return m, batchCmds(cmds)
 
 	case gitplugin.OpenDiffMsg:
 		cmd := m.openDiffPane(msg)
@@ -837,7 +971,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.invalidateView()
 		return m, cmd
 
+	case gitplugin.OpenWorktreeDeleteConfirmMsg:
+		cmd := m.openWorktreeDeleteConfirmPane(msg)
+		m.syncWorktreeActivities()
+		m.invalidateView()
+		return m, cmd
+
 	case CloseWorktreeHistoryMsg:
+		m.closePane(msg.ID)
+		m.syncWorktreeActivities()
+		m.invalidateView()
+		return m, nil
+
+	case CloseDeleteConfirmMsg:
 		m.closePane(msg.ID)
 		m.syncWorktreeActivities()
 		m.invalidateView()
@@ -963,8 +1109,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.closePane(msg.ID)
 		m.syncWorktreeActivities()
 		m.invalidateView()
-		if _, ok := m.activePage.paneMeta[paneGitStatus]; ok {
-			return m, m.routeToPane(paneGitStatus, msg)
+		if _, ok := m.activePage.paneMeta[paneWorktreeDetail]; ok {
+			return m, m.routeToPane(paneWorktreeDetail, msg)
 		}
 		return m, nil
 
@@ -1000,11 +1146,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case AgentSelectedMsg:
 		m.closePane(msg.PaneID)
 		var cmds []tea.Cmd
-		if pageCmd := m.switchToWorktreePage(msg.WorktreeID, string(paneAgentSession)); pageCmd != nil {
+		if pageCmd := m.switchToWorktreePage(msg.WorktreeID, string(paneWorktreeDetail)); pageCmd != nil {
 			cmds = append(cmds, pageCmd)
-		}
-		if m.activePage != nil {
-			m.activePage.closePane(paneShell)
 		}
 		session := m.newAgentSession(msg.WorktreeID, msg.Provider)
 		m.saveAgentSession(session)
@@ -1019,6 +1162,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, batchCmds(cmds)
 
 	case gitplugin.RequestRemoveWorktreeMsg:
+		m.closePane(paneWorktreeDeleteConfirm)
 		cmd := m.removeWorktree(msg)
 		m.syncWorktreeActivities()
 		m.invalidateView()
@@ -1047,17 +1191,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case todo.ModeChangeMsg:
-		m.setFocus(paneTodo)
-		if msg.InputActive {
-			m.mode = ModeInput
-		} else {
-			m.mode = ModeNormal
-		}
-		m.refreshPaneStatuses()
-		m.invalidateView()
-
-	case pomodoro.SessionCompleteMsg, models.StatsRefreshMsg:
+	case models.StatsRefreshMsg:
 		m.invalidateView()
 		if ft, ok := m.pane(paneFooter).(*footer.Model); ok {
 			return m, ft.Refresh()
@@ -1169,19 +1303,6 @@ func (m model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 // handleKey routes keyboard input based on overlay, mode, and focused pane.
 func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	m.invalidateView()
-	pomo := m.pane(panePomodoro).(*pomodoro.Model)
-
-	if m.overlay == OverlayPicker {
-		if pomo.IsPickerActive() {
-			cmd := m.routeToPane(panePomodoro, msg)
-			if !m.pane(panePomodoro).(*pomodoro.Model).IsPickerActive() {
-				m.overlay = OverlayNone
-			}
-			return m, cmd
-		}
-		m.overlay = OverlayNone
-		return m, nil
-	}
 
 	if overlayID := m.activeOverlayPane(); overlayID != "" {
 		return m, m.routeToPane(overlayID, msg)
@@ -1192,7 +1313,7 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.closeShellPanes()
 			return m, tea.Quit
 		}
-		return m, m.routeToPane(paneTodo, msg)
+		return m, m.routeToPane(m.activePage.focused, msg)
 	}
 
 	if m.mode == ModeShell {
@@ -1203,7 +1324,7 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case "ctrl+t":
 			m.mode = ModeNormal
-			m.setFocus(paneTodo)
+			m.setFocus(paneShell)
 			return m, nil
 		case "ctrl+g":
 			m.switchToOverviewPage()
@@ -1232,17 +1353,8 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.focusCycle(1)
 		return m, nil
 	case "shift+tab":
-		if m.activePage.paneMeta[m.activePage.focused].Type == models.PaneTypeTodo {
-			return m, m.routeToPane(m.activePage.focused, msg)
-		}
 		m.focusCycle(-1)
 		return m, nil
-	case "ctrl+\\":
-		return m.splitFocused(layout.SplitHorizontal)
-	case "ctrl+-", "ctrl+_":
-		return m.splitFocused(layout.SplitVertical)
-	case "ctrl+w":
-		return m.closeFocusedPane()
 	case "ctrl+h":
 		m.setFocus(layout.MoveFocus(m.activePage.focused, m.activePage.frames, layout.FocusLeft))
 		return m, nil
@@ -1255,23 +1367,9 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+j":
 		m.setFocus(layout.MoveFocus(m.activePage.focused, m.activePage.frames, layout.FocusDown))
 		return m, nil
-	case "ctrl+t":
-		m.restoreZoom()
-		m.setFocus(paneTodo)
-		return m, nil
 	case "ctrl+g":
 		m.switchToOverviewPage()
 		return m, nil
-	case "ctrl+n":
-		if m.state == StateWorktreePage {
-			return m, m.switchToAdjacentWorktreePage(1)
-		}
-	case "ctrl+p":
-		if m.state == StateWorktreePage {
-			return m, m.switchToAdjacentWorktreePage(-1)
-		}
-	case "z":
-		return m.toggleZoom()
 	case "enter":
 		if m.activePage.paneMeta[m.activePage.focused].Type == models.PaneTypeShell {
 			m.mode = ModeShell
@@ -1633,7 +1731,7 @@ func (m model) activeOverlayPane() models.PaneID {
 }
 
 func (m model) isOverlayPane(id models.PaneID) bool {
-	return id == paneGitCommit || id == paneWorktreeCreate
+	return id == paneGitCommit || id == paneWorktreeCreate || id == paneWorktreeDeleteConfirm
 }
 
 func (m *model) paneAt(x, y int) models.PaneID {
@@ -1716,22 +1814,10 @@ func (m model) View() string {
 
 func (m model) buildView(dims layout.Dimensions, w, h int) string {
 	hdr := m.pane(paneHeader).(*header.Model)
-	pomo := m.pane(panePomodoro).(*pomodoro.Model)
 
 	var headerView string
 	if dims.UseBanner {
-		pomoTimer := ""
-		pomoPhase := ""
-		linkedTodo := ""
-		if pomo.IsRunning() {
-			pomoTimer = pomo.TimerDisplay()
-			pomoPhase = pomo.PhaseLabel()
-			linkedTodo = pomo.LinkedTodoText()
-			if linkedTodo != "" {
-				linkedTodo = "-> " + linkedTodo
-			}
-		}
-		headerView = hdr.ViewBanner(w, pomoTimer, pomoPhase, linkedTodo)
+		headerView = hdr.ViewBanner(w, "", "", "")
 	} else {
 		headerView = hdr.ViewCompact(w, dims.ShowQuote)
 	}
@@ -1770,13 +1856,7 @@ func (m model) renderHelpLine(w int) string {
 		return ""
 	}
 	helpStyle := lipgloss.NewStyle().Foreground(styles.Subtle)
-	pomo := m.pane(panePomodoro).(*pomodoro.Model)
-	todoModel := m.pane(paneTodo).(*todo.Model)
 	focusedType := m.activePage.paneMeta[m.activePage.focused].Type
-
-	if m.overlay == OverlayPicker {
-		return renderCompactHelpLine(helpStyle, "[enter]select  [esc]skip", w)
-	}
 	if overlayID := m.activeOverlayPane(); overlayID != "" {
 		switch m.activePage.paneMeta[overlayID].Type {
 		case paneTypeGitCommit:
@@ -1793,85 +1873,53 @@ func (m model) renderHelpLine(w int) string {
 		return renderCompactHelpLine(helpStyle, "[enter]confirm  [esc]cancel", w)
 	}
 	if m.mode == ModeShell {
-		text := "[esc]normal  [ctrl+t]todo  [shell input active]"
+		text := "[esc]normal  [ctrl+t]shell  [shell input active]"
 		if w < simplifiedHelpMaxWidth {
-			text = "[esc]normal  [ctrl+t]todo"
+			text = "[esc]normal  [ctrl+t]shell"
 		}
 		return renderCompactHelpLine(helpStyle, text, w)
 	}
 
-	left := "[tab]next  [ctrl+h/j/k/l]focus  [enter]activate"
-	compact := "[tab]next  [enter]open  [q]uit"
-	switch focusedType {
-	case models.PaneTypeWorktree:
-		left = "[1-4]/[]tabs  [j/k]move  [enter]resume  [o]shell  [e]task  [f]ollow-up  [p]lan  [P]rune  [s]tate  [d]el  [n]ew worktree  [r]efresh  [ctrl+g]overview"
-		compact = "[1-4]tabs  [enter]resume  [e]task  [p]lan"
-	case models.PaneTypeGitStatus:
-		if m.state == StateWorktreePage {
-			left = "[j/k]move  [enter]review  [d]iff file  [space]stage  [a]all  [f]etch  [p]ull  [c]ommit  [P]push  [ctrl+n/p]worktree  [ctrl+g]overview"
-			compact = "[enter]review  [d]iff  [a]all  [ctrl+g]overview"
-		} else {
-			left = "[j/k]move  [enter]review  [d]iff file  [space]stage  [a]all  [f]etch  [p]ull  [c]ommit  [P]push"
-			compact = "[enter]review  [d]iff  [a]all"
-		}
-	case models.PaneTypeTodo:
-		if todoModel.IsConfirmingDelete() {
-			left = "[j/k]move  [y/n]delete"
-			compact = "[j/k]move  [y/n]delete"
-		} else {
-			left = "[j/k]move  [a]dd  [e]dit  [d]el  [space]done  [shift+tab]list"
-			compact = "[j/k]move  [a]dd  [space]done"
-		}
-	case models.PaneTypePomodoro:
-		if pomo.CurrentPhase() == pomodoro.PhaseIdle {
-			left = "[s]tart pomo"
-			compact = "[s]tart pomo  [q]uit"
-		} else if pomo.IsPaused() {
-			left = "[p]resume  [r]eset"
-			compact = "[p]resume  [r]eset"
-		} else {
-			left = "[p]ause  [n]ext  [r]eset"
-			compact = "[p]ause  [r]eset"
-		}
-	case models.PaneTypeShell:
+	left := "[tab]cycle focus  [enter]activate"
+	compact := "[tab]cycle  [enter]open  [q]uit"
+	switch m.activePage.focused {
+	case paneDAG:
+		left = "[j/k]nav  [h/l]pan  [enter]create worktree  [r]esearch  [a]rch  [s]tart agent  [tab]cycle focus"
+		compact = "[j/k]nav  [enter]create  [r/a/s]agents"
+	case paneWorktree:
+		left = "[j/k]nav  [enter]select  [n]ew  [d]elete  [o]shell  [tab]cycle focus"
+		compact = "[j/k]nav  [enter]select  [n]ew  [d]el"
+	case paneWorktreeDetail:
+		left = "[1-3]tabs  [j/k]nav  [enter]open  [tab]cycle focus"
+		compact = "[1-3]tabs  [j/k]nav  [enter]open"
+	case paneShell:
 		switch m.activePage.paneMeta[m.activePage.focused].Status {
 		case models.PaneStatusExited:
-			left = "[tab]next  [ctrl+h/j/k/l]focus  [enter]restart shell"
-			compact = "[tab]next  [enter]restart  [q]uit"
+			left = "[tab]cycle focus  [enter]restart shell"
+			compact = "[enter]restart  [q]uit"
 		case models.PaneStatusStarting:
-			left = "[tab]next  [ctrl+h/j/k/l]focus  [shell starting]"
-			compact = "[tab]next  [shell starting]"
+			left = "[tab]cycle focus  [shell starting]"
+			compact = "[shell starting]"
 		default:
-			left = "[tab]next  [ctrl+h/j/k/l]focus  [enter]shell  [ctrl+n/p]worktree  [ctrl+g]overview"
-			compact = "[tab]next  [enter]shell  [ctrl+g]overview"
+			left = "[tab]cycle focus  [enter]shell  [ctrl+g]overview"
+			compact = "[enter]shell  [ctrl+g]overview"
 		}
-	case models.PaneTypeEditor:
-		left = "[ctrl+s]save  [ctrl+f /]search  [:]line  [n/N]result  [esc]close"
-		compact = "[ctrl+s]save  [/]search  [:]line"
-	case models.PaneTypeDiffView:
-		left = "[enter]open file  [s]toggle staged  [[]/[]]files  [j/k]scroll  [wheel]scroll  [q/esc]close review"
-		compact = "[enter]open  [s]toggle  [wheel]scroll"
-	case paneTypeOverviewDetail:
-		left = "[tab]next  [1-4]/[]tabs  [enter]resume  [e]edit task  [f]follow-up  [s]cycle state"
-		compact = "[tab]next  [1-4]tabs  [enter]resume"
-	case paneTypeOverviewDAG:
-		left = "[tab]next  [1-4]/[]tabs  [enter]resume  [ctrl+g]overview"
-		compact = "[tab]next  [enter]resume  [ctrl+g]overview"
-	case models.PaneTypeAgentSession:
-		left = "[j/k]move  [enter]focus worktree  [a]relaunch  [x]kill  [r]refresh"
-		compact = "[enter]focus  [a]relaunch  [x]kill"
+	default:
+		switch focusedType {
+		case models.PaneTypeEditor:
+			left = "[ctrl+s]save  [ctrl+f /]search  [:]line  [n/N]result  [esc]close"
+			compact = "[ctrl+s]save  [/]search  [:]line"
+		case models.PaneTypeDiffView:
+			left = "[enter]open file  [s]toggle staged  [[]/[]]files  [j/k]scroll  [wheel]scroll  [q/esc]close review"
+			compact = "[enter]open  [s]toggle  [wheel]scroll"
+		}
 	}
 	if w < simplifiedHelpMaxWidth {
 		return renderCompactHelpLine(helpStyle, compact, w)
 	}
-	right := "[ctrl+\\/ctrl+-]split  [ctrl+arrows]resize"
-	if meta, ok := m.activePage.paneMeta[m.activePage.focused]; ok && meta.Closable {
-		right += "  [ctrl+w]close"
-	}
-	right += "  [q]uit"
+	right := "[q]uit"
 	return renderHelpBar(helpStyle, left, right, w)
 }
-
 func renderHelpBar(helpStyle lipgloss.Style, left, right string, w int) string {
 	leftRendered := helpStyle.Render("  " + left)
 	rightRendered := helpStyle.Render(right + "  ")
@@ -1965,6 +2013,12 @@ func (m *model) openAgentSelectPane(worktreeID string) tea.Cmd {
 
 func (m *model) openWorktreeHistoryPane() tea.Cmd {
 	cmd := m.activePage.openWorktreeHistoryPane()
+	m.updateSizes(m.common.Width, m.common.Height)
+	return cmd
+}
+
+func (m *model) openWorktreeDeleteConfirmPane(msg gitplugin.OpenWorktreeDeleteConfirmMsg) tea.Cmd {
+	cmd := m.activePage.openWorktreeDeleteConfirmPane(msg)
 	m.updateSizes(m.common.Width, m.common.Height)
 	return cmd
 }
@@ -2919,40 +2973,53 @@ func (m *model) syncWorktreeActivities() {
 		}
 	}
 
-	for _, p := range m.pages {
-		if ap, ok := p.pane(paneAgentSession).(*agentsplugin.SessionPane); ok {
-			ap.SetSessions(visibleSessions)
+	repoPath := m.gitRepoPath()
+	if repoPath == "" {
+		cwd, _ := os.Getwd()
+		repoPath, _ = gitRepoRoot(cwd)
+	}
+	var worktreeList []gitmodel.Worktree
+	if m.adapterManager != nil && m.adapterManager.Git() != nil {
+		worktreeList, _ = m.adapterManager.Git().ListWorktrees(repoPath)
+	}
+	if len(worktreeList) == 0 && m.activePage != nil {
+		if wp, ok := m.activePage.pane(paneWorktree).(*gitplugin.WorktreePane); ok {
+			wp.SetAgentSessions(runningSessions)
+			wp.SetResumeSummaries(m.resumeSummaryCache)
 		}
+		return
 	}
 
-	for worktreeID, p := range m.pages {
-		if worktreeID == "" {
-			continue
-		}
+	for _, wt := range worktreeList {
+		worktreeID := wt.Path
 		activity := gitmodel.WorktreeActivity{}
-		for id, meta := range p.paneMeta {
-			if meta.Type == models.PaneTypeEditor {
-				activity.OpenEditors++
-			}
-			if meta.Type == models.PaneTypeShell {
-				if sh, ok := p.pane(id).(*shell.Model); ok {
-					if sh.SessionStatus() == models.PaneStatusReady || sh.SessionStatus() == models.PaneStatusStarting {
-						activity.HasShell = true
+		if m.activePage != nil {
+			for id, meta := range m.activePage.paneMeta {
+				if meta.Type == models.PaneTypeEditor {
+					activity.OpenEditors++
+				}
+				if meta.Type == models.PaneTypeShell {
+					if sh, ok := m.activePage.pane(id).(*shell.Model); ok {
+						if sh.SessionStatus() == models.PaneStatusReady || sh.SessionStatus() == models.PaneStatusStarting {
+							activity.HasShell = true
+						}
 					}
 				}
 			}
 		}
-		if p == m.activePage {
+		if worktreeID == m.currentWorktreePage {
 			activity.LastActive = "now"
-		} else if p.snapshot != nil && p.snapshot.Focused != "" {
-			activity.LastActive = "recent"
+		} else {
+			activity.LastActive = ""
 		}
 		activity.AgentCount = len(runningSessions[worktreeID])
-		if wp, ok := m.pages[""].pane(paneWorktree).(*gitplugin.WorktreePane); ok {
+		if wp, ok := m.activePage.pane(paneWorktree).(*gitplugin.WorktreePane); ok {
 			wp.SetActivity(worktreeID, activity)
-			wp.SetAgentSessions(runningSessions)
-			wp.SetResumeSummaries(m.resumeSummaryCache)
 		}
+	}
+	if wp, ok := m.activePage.pane(paneWorktree).(*gitplugin.WorktreePane); ok {
+		wp.SetAgentSessions(runningSessions)
+		wp.SetResumeSummaries(m.resumeSummaryCache)
 	}
 }
 

@@ -493,6 +493,15 @@ func (m *Model) SetSize(width, height int) {
 	}
 }
 
+// SetCWD updates the shell's working directory. If the shell is running, it
+// sends a cd command to the PTY.
+func (m *Model) SetCWD(cwd string) {
+	m.cwd = cwd
+	if m.pty != nil && m.running && cwd != "" {
+		m.pty.Write([]byte("cd " + cwd + "\r")) //nolint:errcheck
+	}
+}
+
 // Close cleans up the PTY and emulator resources.
 func (m *Model) Close() error {
 	if m.ptyResizeTimer != nil {
