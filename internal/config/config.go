@@ -62,7 +62,7 @@ func DefaultConfig() Config {
 	cfg.Agent.ExternalTerminal = false
 	cfg.Agent.TerminalEmulator = ""
 	cfg.Agent.MCPSocket = ""
-	cfg.Agent.MCPPort = ""
+	cfg.Agent.MCPPort = "127.0.0.1:0"
 	cfg.Agent.A2ASocket = ""
 	cfg.Agent.ResearchProvider = "kimi"
 	cfg.Agent.ArchitectureProvider = "claude"
