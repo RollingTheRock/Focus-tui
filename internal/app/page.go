@@ -17,9 +17,7 @@ import (
 	"focus/internal/ui/footer"
 	"focus/internal/ui/header"
 	"focus/internal/ui/layout"
-	"focus/internal/ui/pomodoro"
 	"focus/internal/ui/shell"
-	"focus/internal/ui/todo"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -102,122 +100,53 @@ func newPage(common *models.CommonModel, pluginRegistry *plugins.Registry, adapt
 func newOverviewPage(common *models.CommonModel, pluginRegistry *plugins.Registry, adapterManager *adapters.Manager, cfg config.Config, store models.Store, cwd, repoRoot string) *page {
 	p := newPage(common, pluginRegistry, adapterManager)
 
-	worktreePaneMeta := models.PaneMeta{ID: paneWorktree, Name: "Worktrees", Type: models.PaneTypeWorktree, CWD: cwd, RepoID: cwd, WorktreeID: cwd, Status: models.PaneStatusIdle, Closable: false}
-	overviewSummaryMeta := models.PaneMeta{ID: paneOverviewSummary, Name: "Overview Summary", Type: paneTypeOverviewSummary, CWD: cwd, RepoID: cwd, WorktreeID: cwd, Status: models.PaneStatusIdle, Closable: false}
-	overviewDAGMeta := models.PaneMeta{ID: paneOverviewDAG, Name: "Task DAG", Type: paneTypeOverviewDAG, CWD: cwd, RepoID: cwd, WorktreeID: cwd, Status: models.PaneStatusIdle, Closable: false}
-	overviewDetailMeta := models.PaneMeta{ID: paneOverviewDetail, Name: "Context Detail", Type: paneTypeOverviewDetail, CWD: cwd, RepoID: cwd, WorktreeID: cwd, Status: models.PaneStatusIdle, Closable: false}
-	agentSessionMeta := models.PaneMeta{ID: paneAgentSession, Name: "Agents", Type: models.PaneTypeAgentSession, CWD: cwd, RepoID: cwd, WorktreeID: cwd, Status: models.PaneStatusIdle, Closable: false}
+	dagMeta := models.PaneMeta{ID: paneDAG, Name: "Task DAG", Type: models.PaneTypeWorktree, CWD: cwd, RepoID: cwd, WorktreeID: cwd, Status: models.PaneStatusIdle, Closable: false}
+	worktreeMeta := models.PaneMeta{ID: paneWorktree, Name: "Worktrees", Type: models.PaneTypeWorktree, CWD: cwd, RepoID: cwd, WorktreeID: cwd, Status: models.PaneStatusIdle, Closable: false}
+	detailMeta := models.PaneMeta{ID: paneWorktreeDetail, Name: "Worktree Detail", Type: models.PaneTypeWorktree, CWD: cwd, RepoID: cwd, WorktreeID: cwd, Status: models.PaneStatusIdle, Closable: false}
 
 	p.registerPane(paneHeader, header.New(cfg, common.Theme, store), models.PaneMeta{ID: paneHeader, Name: "Header", Type: models.PaneTypeHeader, Status: models.PaneStatusPassive, Closable: false})
 	p.registerPane(paneShell, shell.New(common, paneShell), models.PaneMeta{ID: paneShell, Name: "Shell", Type: models.PaneTypeShell, CWD: cwd, RepoID: cwd, WorktreeID: cwd, Status: models.PaneStatusStarting, Closable: true})
-	p.registerPane(paneTodo, todo.New(common), models.PaneMeta{ID: paneTodo, Name: "Todo", Type: models.PaneTypeTodo, Status: models.PaneStatusIdle, Closable: false})
-	p.registerPane(panePomodoro, pomodoro.New(common), models.PaneMeta{ID: panePomodoro, Name: "Pomodoro", Type: models.PaneTypePomodoro, Status: models.PaneStatusIdle, Closable: false})
 	p.registerPane(paneFooter, footer.New(common), models.PaneMeta{ID: paneFooter, Name: "Footer", Type: models.PaneTypeFooter, Status: models.PaneStatusPassive, Closable: false})
 
 	if repoRoot != "" {
-		worktreePaneMeta.CWD = repoRoot
-		worktreePaneMeta.RepoID = repoRoot
-		worktreePaneMeta.WorktreeID = repoRoot
-		overviewSummaryMeta.CWD = repoRoot
-		overviewSummaryMeta.RepoID = repoRoot
-		overviewSummaryMeta.WorktreeID = repoRoot
-		overviewDAGMeta.CWD = repoRoot
-		overviewDAGMeta.RepoID = repoRoot
-		overviewDAGMeta.WorktreeID = repoRoot
-		overviewDetailMeta.CWD = repoRoot
-		overviewDetailMeta.RepoID = repoRoot
-		overviewDetailMeta.WorktreeID = repoRoot
-		agentSessionMeta.CWD = repoRoot
-		agentSessionMeta.RepoID = repoRoot
-		agentSessionMeta.WorktreeID = repoRoot
-		if panel, err := pluginRegistry.CreatePane(models.PaneTypeWorktree, paneWorktree, worktreePaneMeta, *common); err == nil {
-			p.registerPane(paneWorktree, panel, worktreePaneMeta)
-		}
-		if panel, err := pluginRegistry.CreatePane(models.PaneTypeAgentSession, paneAgentSession, agentSessionMeta, *common); err == nil {
-			p.registerPane(paneAgentSession, panel, agentSessionMeta)
-		}
-		overviewRepoID := repoRoot
-		if overviewRepoID == "" {
-			overviewRepoID = cwd
-		}
-		overviewProvider := func() workbenchOverviewContext {
-			if wp, ok := p.pane(paneWorktree).(*gitplugin.WorktreePane); ok {
-				return buildWorkbenchOverviewContext(wp, common.Store, overviewRepoID)
-			}
-			return workbenchOverviewContext{}
-		}
-		p.registerPane(paneOverviewSummary, newOverviewSummaryPane(paneOverviewSummary, overviewSummaryMeta, overviewProvider), overviewSummaryMeta)
-		p.registerPane(paneOverviewDAG, newOverviewDAGPane(paneOverviewDAG, overviewDAGMeta, overviewProvider), overviewDAGMeta)
-		p.registerPane(paneOverviewDetail, newOverviewDetailPane(paneOverviewDetail, overviewDetailMeta, overviewProvider), overviewDetailMeta)
-		p.bodyTree = layout.Split(
-			layout.SplitVertical,
-			74,
-			layout.Split(layout.SplitVertical, 20,
-				layout.Leaf(paneOverviewSummary),
-				layout.Split(layout.SplitHorizontal, 36,
-					layout.Leaf(paneWorktree),
-					layout.Split(layout.SplitVertical, 54,
-						layout.Leaf(paneOverviewDAG),
-						layout.Split(layout.SplitHorizontal, 58, layout.Leaf(paneOverviewDetail), layout.Leaf(paneAgentSession)),
-					),
-				),
+		dagMeta.CWD = repoRoot
+		dagMeta.RepoID = repoRoot
+		worktreeMeta.CWD = repoRoot
+		worktreeMeta.RepoID = repoRoot
+		detailMeta.CWD = repoRoot
+		detailMeta.RepoID = repoRoot
+	}
+
+	// DAG pane
+	p.registerPane(paneDAG, newDagPane(paneDAG, dagMeta, common, repoRoot, adapterManager.Git()), dagMeta)
+
+	// Worktree list pane (via plugin registry so it gets the real GitAdapter)
+	if panel, err := pluginRegistry.CreatePane(models.PaneTypeWorktree, paneWorktree, worktreeMeta, *common); err == nil {
+		p.registerPane(paneWorktree, panel, worktreeMeta)
+	}
+
+	// Worktree detail pane
+	p.registerPane(paneWorktreeDetail, newWorktreeDetailPane(paneWorktreeDetail, detailMeta, common, adapterManager.Git(), repoRoot), detailMeta)
+
+	// Fixed three-pane layout:
+	//   Top    : DAG (30%)
+	//   Bottom : Worktree (20%) | Detail+Shell (80%)
+	//   Detail (62%) over Shell (38%)
+	p.bodyTree = layout.Split(
+		layout.SplitVertical, 30,
+		layout.Leaf(paneDAG),
+		layout.Split(
+			layout.SplitHorizontal, 20,
+			layout.Leaf(paneWorktree),
+			layout.Split(
+				layout.SplitVertical, 62,
+				layout.Leaf(paneWorktreeDetail),
+				layout.Leaf(paneShell),
 			),
-			layout.Leaf(paneShell),
-		)
-	} else {
-		p.bodyTree = layout.Leaf(paneShell)
-	}
-	if _, ok := p.paneMeta[paneWorktree]; ok {
-		p.focused = paneWorktree
-	} else {
-		p.focused = paneShell
-	}
-	p.refreshPaneStatuses()
-	return p
-}
+		),
+	)
 
-func newWorktreePage(common *models.CommonModel, pluginRegistry *plugins.Registry, adapterManager *adapters.Manager, cfg config.Config, store models.Store, worktreeID, repoRoot string) *page {
-	p := newPage(common, pluginRegistry, adapterManager)
-
-	gitPaneMeta := models.PaneMeta{ID: paneGitStatus, Name: "Git Status", Type: models.PaneTypeGitStatus, CWD: worktreeID, RepoID: repoRoot, WorktreeID: worktreeID, Status: models.PaneStatusIdle, Closable: false}
-	fileTreeMeta := models.PaneMeta{ID: paneFileTree, Name: "File Tree", Type: models.PaneTypeFileTree, CWD: worktreeID, RepoID: repoRoot, WorktreeID: worktreeID, Status: models.PaneStatusIdle, Closable: false}
-	agentSessionMeta := models.PaneMeta{ID: paneAgentSession, Name: "Agents", Type: models.PaneTypeAgentSession, CWD: worktreeID, RepoID: repoRoot, WorktreeID: worktreeID, Status: models.PaneStatusIdle, Closable: false}
-
-	p.registerPane(paneHeader, header.New(cfg, common.Theme, store), models.PaneMeta{ID: paneHeader, Name: "Header", Type: models.PaneTypeHeader, Status: models.PaneStatusPassive, Closable: false})
-	p.registerPane(paneShell, shell.NewWithCWD(common, paneShell, worktreeID), models.PaneMeta{ID: paneShell, Name: "Shell", Type: models.PaneTypeShell, CWD: worktreeID, RepoID: repoRoot, WorktreeID: worktreeID, Status: models.PaneStatusStarting, Closable: true})
-	p.registerPane(paneTodo, todo.New(common), models.PaneMeta{ID: paneTodo, Name: "Todo", Type: models.PaneTypeTodo, Status: models.PaneStatusIdle, Closable: false})
-	p.registerPane(panePomodoro, pomodoro.New(common), models.PaneMeta{ID: panePomodoro, Name: "Pomodoro", Type: models.PaneTypePomodoro, Status: models.PaneStatusIdle, Closable: false})
-	p.registerPane(paneFooter, footer.New(common), models.PaneMeta{ID: paneFooter, Name: "Footer", Type: models.PaneTypeFooter, Status: models.PaneStatusPassive, Closable: false})
-
-	if panel, err := pluginRegistry.CreatePane(models.PaneTypeFileTree, paneFileTree, fileTreeMeta, *common); err == nil {
-		p.registerPane(paneFileTree, panel, fileTreeMeta)
-	}
-
-	if panel, err := pluginRegistry.CreatePane(models.PaneTypeAgentSession, paneAgentSession, agentSessionMeta, *common); err == nil {
-		p.registerPane(paneAgentSession, panel, agentSessionMeta)
-	}
-
-	if repoRoot != "" {
-		if panel, err := pluginRegistry.CreatePane(models.PaneTypeGitStatus, paneGitStatus, gitPaneMeta, *common); err == nil {
-			p.registerPane(paneGitStatus, panel, gitPaneMeta)
-		}
-	}
-	if _, hasGitStatus := p.paneMeta[paneGitStatus]; hasGitStatus {
-		p.bodyTree = layout.Split(
-			layout.SplitHorizontal,
-			30,
-			layout.Split(layout.SplitVertical, 50, layout.Leaf(paneGitStatus), layout.Leaf(paneFileTree)),
-			layout.Split(layout.SplitVertical, 50, layout.Leaf(paneAgentSession), layout.Leaf(paneShell)),
-		)
-	} else {
-		p.bodyTree = layout.Split(
-			layout.SplitHorizontal,
-			30,
-			layout.Leaf(paneFileTree),
-			layout.Split(layout.SplitVertical, 50, layout.Leaf(paneAgentSession), layout.Leaf(paneShell)),
-		)
-	}
-	p.focused = paneShell
+	p.focused = paneDAG
 	p.refreshPaneStatuses()
 	return p
 }
@@ -345,7 +274,7 @@ func (p *page) currentRepoID() string {
 	if meta, ok := p.paneMeta[p.focused]; ok && meta.RepoID != "" {
 		return meta.RepoID
 	}
-	if meta, ok := p.paneMeta[paneGitStatus]; ok && meta.RepoID != "" {
+	if meta, ok := p.paneMeta[paneWorktree]; ok && meta.RepoID != "" {
 		return meta.RepoID
 	}
 	return p.currentCWD()
@@ -355,7 +284,7 @@ func (p *page) currentWorktreeID() string {
 	if meta, ok := p.paneMeta[p.focused]; ok && meta.WorktreeID != "" {
 		return meta.WorktreeID
 	}
-	if meta, ok := p.paneMeta[paneGitStatus]; ok && meta.WorktreeID != "" {
+	if meta, ok := p.paneMeta[paneWorktree]; ok && meta.WorktreeID != "" {
 		return meta.WorktreeID
 	}
 	return p.currentCWD()
@@ -365,14 +294,14 @@ func (p *page) currentBranchSnapshot() string {
 	if meta, ok := p.paneMeta[p.focused]; ok && meta.BranchSnapshot != "" {
 		return meta.BranchSnapshot
 	}
-	if meta, ok := p.paneMeta[paneGitStatus]; ok {
+	if meta, ok := p.paneMeta[paneWorktree]; ok {
 		return meta.BranchSnapshot
 	}
 	return ""
 }
 
 func (p *page) gitRepoPath() string {
-	if meta, ok := p.paneMeta[paneGitStatus]; ok && meta.RepoID != "" {
+	if meta, ok := p.paneMeta[paneWorktree]; ok && meta.RepoID != "" {
 		return meta.RepoID
 	}
 	return p.currentCWD()
@@ -590,11 +519,14 @@ func (p *page) activeOverlayPane() models.PaneID {
 	if _, ok := p.paneMeta[paneWorktreeHistory]; ok {
 		return paneWorktreeHistory
 	}
+	if _, ok := p.paneMeta[paneWorktreeDeleteConfirm]; ok {
+		return paneWorktreeDeleteConfirm
+	}
 	return ""
 }
 
 func (p *page) isOverlayPane(id models.PaneID) bool {
-	return id == paneGitCommit || id == paneWorktreeCreate || id == paneTaskEdit || id == panePlanEdit || id == paneAgentSelect || id == paneWorktreeHistory
+	return id == paneGitCommit || id == paneWorktreeCreate || id == paneTaskEdit || id == panePlanEdit || id == paneAgentSelect || id == paneWorktreeHistory || id == paneWorktreeDeleteConfirm
 }
 
 func (p *page) paneAt(x, y int) models.PaneID {
@@ -684,30 +616,6 @@ func (p *page) renderBody(w, h int, overlay OverlayKind) string {
 		base = layout.OverlayOnBase(base, panelView, frame.X, frame.Y)
 	}
 
-	if overlay == OverlayPicker {
-		if frame, ok := p.frames[panePomodoro]; ok {
-			pomo := p.pane(panePomodoro).(*pomodoro.Model)
-			overlayW := frame.W - 8
-			if overlayW > 50 {
-				overlayW = 50
-			}
-			if overlayW < 20 {
-				overlayW = 20
-			}
-			overlayH := frame.H - 4
-			if overlayH > 15 {
-				overlayH = 15
-			}
-			if overlayH < 4 {
-				overlayH = 4
-			}
-			overlayView := layout.RenderPanel("SELECT TASK", pomo.PickerView(), overlayW, overlayH, true)
-			x := frame.X + (frame.W-(overlayW+4))/2
-			y := frame.Y + (frame.H-(overlayH+2))/2
-			base = layout.OverlayOnBase(base, overlayView, x, y)
-		}
-	}
-
 	if overlayID := p.activeOverlayPane(); overlayID != "" {
 		base = p.renderOverlayPane(base, overlayID)
 	}
@@ -733,30 +641,6 @@ func (p *page) renderBodyCanvas(w, h int, overlay OverlayKind) string {
 			panel.SetSize(max(frame.W-4, 8), max(frame.H-2, 3))
 			content := panel.View()
 			render.RenderPane(sub, title, content, active)
-		}
-	}
-
-	if overlay == OverlayPicker {
-		if frame, ok := p.frames[panePomodoro]; ok {
-			pomo := p.pane(panePomodoro).(*pomodoro.Model)
-			overlayW := frame.W - 8
-			if overlayW > 50 {
-				overlayW = 50
-			}
-			if overlayW < 20 {
-				overlayW = 20
-			}
-			overlayH := frame.H - 4
-			if overlayH > 15 {
-				overlayH = 15
-			}
-			if overlayH < 4 {
-				overlayH = 4
-			}
-			x := frame.X + (frame.W-(overlayW+4))/2
-			y := frame.Y + (frame.H-(overlayH+2))/2
-			overlaySub := canvas.SubCanvas(x, y, overlayW+4, overlayH+2)
-			render.RenderPane(overlaySub, "SELECT TASK", pomo.PickerView(), true)
 		}
 	}
 
@@ -885,7 +769,7 @@ func (p *page) reviewHostPaneTarget(opener models.PaneID) models.PaneID {
 	if opener != "" {
 		return opener
 	}
-	return paneGitStatus
+	return paneWorktree
 }
 
 func (p *page) reviewSplitDirection(target models.PaneID) layout.SplitDirection {
@@ -901,7 +785,7 @@ func (p *page) openCommitPane(msg gitplugin.OpenCommitMsg) tea.Cmd {
 
 	baseFocus := p.focused
 	if baseFocus == "" {
-		baseFocus = paneGitStatus
+		baseFocus = paneWorktree
 	}
 
 	repoPath := msg.RepoPath
@@ -1009,6 +893,34 @@ func (p *page) openWorktreeHistoryPane() tea.Cmd {
 		Closable: true,
 	}
 	panel := newWorktreeHistoryPane(meta.ID, meta, *p.common)
+	p.registerPane(meta.ID, panel, meta)
+	if p.returnFocus == nil {
+		p.returnFocus = make(map[models.PaneID]models.PaneID)
+	}
+	p.returnFocus[meta.ID] = baseFocus
+	p.setFocus(meta.ID)
+	p.updateSizes(p.bodyBoundsSize())
+	return panel.Init()
+}
+
+func (p *page) openWorktreeDeleteConfirmPane(msg gitplugin.OpenWorktreeDeleteConfirmMsg) tea.Cmd {
+	p.closePane(paneWorktreeDeleteConfirm)
+
+	baseFocus := p.focused
+	if baseFocus == "" {
+		baseFocus = paneWorktree
+	}
+
+	meta := models.PaneMeta{
+		ID:       paneWorktreeDeleteConfirm,
+		Name:     "Delete Worktree",
+		Type:     paneTypeWorktreeDeleteConfirm,
+		CWD:      p.gitRepoPath(),
+		RepoID:   p.currentRepoID(),
+		Status:   models.PaneStatusReady,
+		Closable: true,
+	}
+	panel := newDeleteConfirmPane(meta.ID, msg.Worktree, msg.Force)
 	p.registerPane(meta.ID, panel, meta)
 	if p.returnFocus == nil {
 		p.returnFocus = make(map[models.PaneID]models.PaneID)
@@ -1186,69 +1098,31 @@ func (p *page) openWorktreeShell(msg gitplugin.OpenWorktreeShellMsg) tea.Cmd {
 	}
 	worktreeID := cwd
 
-	if meta, ok := p.paneMeta[paneShell]; ok && meta.WorktreeID == worktreeID {
+	if meta, ok := p.paneMeta[paneShell]; ok {
+		meta.WorktreeID = worktreeID
+		meta.CWD = worktreeID
+		p.paneMeta[paneShell] = meta
+		if sh, ok := p.pane(paneShell).(*shell.Model); ok {
+			sh.SetCWD(worktreeID)
+		}
 		p.setFocus(paneShell)
 		return nil
 	}
-	for id, meta := range p.paneMeta {
-		if meta.Type == models.PaneTypeShell && meta.WorktreeID == worktreeID {
-			p.setFocus(id)
-			return nil
-		}
-	}
-
-	repoID := p.currentRepoID()
-	if repoID == "" {
-		repoID = p.gitRepoPath()
-	}
-	branchSnapshot := msg.Worktree.Branch
-
-	id, cmd := p.createShellPaneFor(cwd, repoID, worktreeID, branchSnapshot)
-	p.bodyTree = layout.SplitLeaf(p.bodyTree, p.focused, id, layout.SplitHorizontal, true)
-	p.setFocus(id)
-	p.updateSizes(p.bodyBoundsSize())
-	return cmd
+	return nil
 }
 
 func (p *page) focusAgentShell(worktreeID string) tea.Cmd {
-	for id, meta := range p.paneMeta {
-		if meta.Type == models.PaneTypeShell && meta.WorktreeID == worktreeID {
-			p.setFocus(id)
-			return nil
-		}
+	if meta, ok := p.paneMeta[paneShell]; ok && meta.WorktreeID == worktreeID {
+		p.setFocus(paneShell)
+		return nil
 	}
 	return nil
 }
 
 func (p *page) openAgentShell(worktreeID string, provider agents.Provider, sessionID string) tea.Cmd {
-	repoID := p.currentRepoID()
-	if repoID == "" {
-		repoID = p.gitRepoPath()
-	}
-
-	cmdStr := agents.AutoTypeCommandWithSession(provider, sessionID)
-	id := p.nextShellPaneID()
-	panel := shell.NewWithCommand(p.common, id, worktreeID, cmdStr)
-	meta := models.PaneMeta{
-		ID:         id,
-		Name:       fmt.Sprintf("Shell %d", p.nextShell-1),
-		Type:       models.PaneTypeShell,
-		CWD:        worktreeID,
-		RepoID:     repoID,
-		WorktreeID: worktreeID,
-		Status:     models.PaneStatusStarting,
-		Closable:   true,
-	}
-	p.registerPane(id, panel, meta)
-	if frame, ok := p.frames[p.focused]; ok {
-		contentW := max(frame.W-4, 8)
-		contentH := max(frame.H-2, 3)
-		panel.SetSize(contentW, contentH)
-	}
-	p.bodyTree = layout.SplitLeaf(p.bodyTree, p.focused, id, layout.SplitHorizontal, true)
-	p.setFocus(id)
-	p.updateSizes(p.bodyBoundsSize())
-	return panel.Init()
+	// In the new single-page design, agents run in external terminals.
+	// This method is kept for compatibility but should not create new panes.
+	return nil
 }
 
 func (p *page) captureSnapshot() *PageSnapshot {
@@ -1299,30 +1173,8 @@ func (p *page) restoreSnapshot() {
 }
 
 func (m *model) loadPageSnapshots() {
-	if m.common.Store == nil {
-		return
-	}
-	records, err := m.common.Store.ListPageSnapshots()
-	if err != nil {
-		return
-	}
-	for _, r := range records {
-		if r.WorktreeID == "" {
-			continue
-		}
-		ss, err := store.UnmarshalPageSnapshot([]byte(r.SnapshotJSON))
-		if err != nil {
-			continue
-		}
-		repoRoot := m.gitRepoPath()
-		if repoRoot == "" {
-			cwd, _ := os.Getwd()
-			repoRoot, _ = gitRepoRoot(cwd)
-		}
-		p := newWorktreePage(m.common, m.pluginRegistry, m.adapterManager, m.common.Cfg, m.common.Store, r.WorktreeID, repoRoot)
-		p.snapshot = pageSnapshotFromStore(ss)
-		m.pages[r.WorktreeID] = p
-	}
+	// In the new single-page design, worktree-specific page snapshots are no longer used.
+	// Only the overview page snapshot may be restored.
 }
 
 func (m *model) persistActivePageSnapshot() {
@@ -1348,31 +1200,19 @@ func (m *model) persistActivePageSnapshot() {
 }
 
 func (m *model) switchToOverviewPage() {
-	m.persistActivePageSnapshot()
-	m.touchActiveWorktreeContext()
-	if m.activePage != nil {
-		m.activePage.snapshot = m.activePage.captureSnapshot()
-	}
-	m.state = StateOverviewPage
-	m.currentWorktreePage = ""
-	m.activePage = m.pages[""]
+	// In the new single-page design, there is no separate overview page.
+	// Just ensure the active page exists and focus the worktree pane.
 	if m.activePage == nil {
 		cwd, _ := os.Getwd()
 		repoRoot, _ := gitRepoRoot(cwd)
 		m.activePage = newOverviewPage(m.common, m.pluginRegistry, m.adapterManager, m.common.Cfg, m.common.Store, cwd, repoRoot)
 		m.pages[""] = m.activePage
 	}
-	if m.activePage.snapshot != nil {
-		m.activePage.restoreSnapshot()
-	}
-	if m.activePage.paneMeta[paneWorktree].ID != "" {
-		m.activePage.setFocus(paneWorktree)
-	}
+	m.state = StateOverviewPage
+	m.currentWorktreePage = ""
+	m.activePage.setFocus(paneWorktree)
 	if m.mode == ModeShell {
 		m.mode = ModeNormal
-	}
-	if m.activePage.zoomedPane != "" {
-		m.activePage.restoreZoom()
 	}
 	m.updateSizes(m.common.Width, m.common.Height)
 	m.invalidateView()
@@ -1383,45 +1223,30 @@ func (m *model) switchToWorktreePage(worktreeID, preferredPane string) tea.Cmd {
 		m.switchToOverviewPage()
 		return nil
 	}
-	m.persistActivePageSnapshot()
-	m.touchActiveWorktreeContext()
-	if m.activePage != nil {
-		m.activePage.snapshot = m.activePage.captureSnapshot()
+	// In the new single-page design, we don't create separate pages per worktree.
+	// Instead, we update the shell CWD and focus the appropriate pane.
+	if m.activePage == nil {
+		m.switchToOverviewPage()
 	}
 	m.state = StateWorktreePage
 	m.currentWorktreePage = worktreeID
-	var initCmds []tea.Cmd
-	if p, ok := m.pages[worktreeID]; ok && p != nil {
-		m.activePage = p
-	} else {
-		repoRoot := m.gitRepoPath()
-		if repoRoot == "" {
-			cwd, _ := os.Getwd()
-			repoRoot, _ = gitRepoRoot(cwd)
-		}
-		p = newWorktreePage(m.common, m.pluginRegistry, m.adapterManager, m.common.Cfg, m.common.Store, worktreeID, repoRoot)
-		m.pages[worktreeID] = p
-		m.activePage = p
+
+	// Update shell CWD to the selected worktree
+	if sh, ok := m.activePage.pane(paneShell).(*shell.Model); ok {
+		sh.SetCWD(worktreeID)
 	}
-	if !m.activePage.initialized {
-		m.activePage.initialized = true
-		for _, id := range m.activePage.paneOrder {
-			if cmd := m.activePage.pane(id).Init(); cmd != nil {
-				initCmds = append(initCmds, cmd)
-			}
-		}
+
+	// Notify worktree detail pane of the selection
+	if dp, ok := m.activePage.pane(paneWorktreeDetail).(*worktreeDetailPane); ok {
+		dp.setWorktree(worktreeID)
 	}
-	m.touchWorktreeContext(worktreeID)
-	if m.activePage.snapshot != nil {
-		m.activePage.restoreSnapshot()
-	}
+
 	if preferredPane != "" {
 		m.activePage.setFocus(models.PaneID(preferredPane))
+	} else {
+		m.activePage.setFocus(paneWorktreeDetail)
 	}
 	m.updateSizes(m.common.Width, m.common.Height)
 	m.invalidateView()
-	if len(initCmds) == 0 {
-		return nil
-	}
-	return tea.Batch(initCmds...)
+	return nil
 }
