@@ -102,6 +102,10 @@ type RequestPruneWorktreesMsg struct {
 	RepoPath string
 }
 
+type OpenWorktreeHistoryMsg struct {
+	RepoPath string
+}
+
 type WorktreeRemovedMsg struct {
 	Path  string
 	Force bool
@@ -308,6 +312,10 @@ func (p *WorktreePane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 			p.confirm = &worktreeConfirmState{kind: "prune"}
 			p.err = nil
 			return p, nil
+		case "H":
+			return p, func() tea.Msg {
+				return OpenWorktreeHistoryMsg{RepoPath: p.repoPath}
+			}
 		}
 	}
 	return p, nil

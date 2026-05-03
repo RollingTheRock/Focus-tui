@@ -184,6 +184,11 @@ func (s *Store) MarkAgentSessionDisconnected(sessionID string, reason string) er
 	return err
 }
 
+func (s *Store) DeleteAgentSessionsByWorktreeID(worktreeID string) error {
+	_, err := s.db.Exec(`DELETE FROM agent_sessions WHERE worktree_id = ?`, worktreeID)
+	return err
+}
+
 func (s *Store) UpdateAgentSessionHeartbeat(sessionID string, at time.Time, state string) error {
 	if sessionID == "" {
 		return fmt.Errorf("agent session id required")

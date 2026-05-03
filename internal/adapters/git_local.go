@@ -531,6 +531,18 @@ func (g *GitLocalAdapter) RemoveWorktree(repoPath, worktreePath string, opts git
 
 	g.invalidateWorktreeCache(repoPath)
 	g.invalidateStatusCache(worktreePath)
+
+	// Clean up residual filesystem entries that git worktree remove may leave
+	// behind when the directory contains untracked files.
+	if info, err := os.Stat(worktreePath); err == nil && info.IsDir() {
+		_ = os.RemoveAll(worktreePath)
+		// If the parent directory (e.g. .worktrees/) is now empty, remove it too.
+		parent := filepath.Dir(worktreePath)
+		if entries, err := os.ReadDir(parent); err == nil && len(entries) == 0 {
+			_ = os.Remove(parent)
+		}
+	}
+
 	return nil
 }
 

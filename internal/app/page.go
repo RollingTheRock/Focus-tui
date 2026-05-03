@@ -587,11 +587,14 @@ func (p *page) activeOverlayPane() models.PaneID {
 	if _, ok := p.paneMeta[paneAgentSelect]; ok {
 		return paneAgentSelect
 	}
+	if _, ok := p.paneMeta[paneWorktreeHistory]; ok {
+		return paneWorktreeHistory
+	}
 	return ""
 }
 
 func (p *page) isOverlayPane(id models.PaneID) bool {
-	return id == paneGitCommit || id == paneWorktreeCreate || id == paneTaskEdit || id == panePlanEdit || id == paneAgentSelect
+	return id == paneGitCommit || id == paneWorktreeCreate || id == paneTaskEdit || id == panePlanEdit || id == paneAgentSelect || id == paneWorktreeHistory
 }
 
 func (p *page) paneAt(x, y int) models.PaneID {
@@ -978,6 +981,34 @@ func (p *page) openAgentSelectPane(worktreeID string) tea.Cmd {
 		Closable:   true,
 	}
 	panel := newAgentSelectPane(meta.ID, meta, *p.common, worktreeID)
+	p.registerPane(meta.ID, panel, meta)
+	if p.returnFocus == nil {
+		p.returnFocus = make(map[models.PaneID]models.PaneID)
+	}
+	p.returnFocus[meta.ID] = baseFocus
+	p.setFocus(meta.ID)
+	p.updateSizes(p.bodyBoundsSize())
+	return panel.Init()
+}
+
+func (p *page) openWorktreeHistoryPane() tea.Cmd {
+	p.closePane(paneWorktreeHistory)
+
+	baseFocus := p.focused
+	if baseFocus == "" {
+		baseFocus = paneWorktree
+	}
+
+	meta := models.PaneMeta{
+		ID:       paneWorktreeHistory,
+		Name:     "Worktree History",
+		Type:     paneTypeWorktreeHistory,
+		CWD:      p.gitRepoPath(),
+		RepoID:   p.currentRepoID(),
+		Status:   models.PaneStatusReady,
+		Closable: true,
+	}
+	panel := newWorktreeHistoryPane(meta.ID, meta, *p.common)
 	p.registerPane(meta.ID, panel, meta)
 	if p.returnFocus == nil {
 		p.returnFocus = make(map[models.PaneID]models.PaneID)

@@ -78,3 +78,8 @@ func (s *Store) listTaskWorktreeLinks(where string, arg string) ([]TaskWorktreeL
 	}
 	return records, rows.Err()
 }
+
+func (s *Store) DeleteTaskWorktreeLinksByWorktreeID(worktreeID string) error {
+	_, err := s.db.Exec(`DELETE FROM task_worktree_links WHERE worktree_id = ?`, worktreeID)
+	return err
+}

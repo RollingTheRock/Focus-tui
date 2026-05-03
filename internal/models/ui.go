@@ -65,6 +65,12 @@ type Store interface {
 	ListKnowledgeFacts(planID string) ([]KnowledgeFactRecord, error)
 	SaveAgentMessage(record AgentMessageRecord) error
 	ListAgentMessages(target string, messageType string, limit int) ([]AgentMessageRecord, error)
+	SaveWorktreeHistory(record WorktreeHistoryRecord) error
+	ListWorktreeHistory(repoID string) ([]WorktreeHistoryRecord, error)
+	DeleteWorktreeHistory(id string) error
+	DeleteAgentSessionsByWorktreeID(worktreeID string) error
+	DeleteContextNotesByWorktreeID(worktreeID string) error
+	DeleteTaskWorktreeLinksByWorktreeID(worktreeID string) error
 }
 
 type PageSnapshotRecord struct {
@@ -176,6 +182,20 @@ type TaskWorktreeLinkRecord struct {
 	RelationType string
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
+}
+
+type WorktreeHistoryRecord struct {
+	ID             string
+	RepoID         string
+	Branch         string
+	Path           string
+	CreatedAt      time.Time
+	RemovedAt      time.Time
+	TaskID         *string
+	PlanID         *string
+	Provider       string
+	Summary        string
+	DurationMinutes int
 }
 
 type TaskPlanRecord struct {
