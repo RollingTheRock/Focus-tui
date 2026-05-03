@@ -10,6 +10,7 @@ import (
 
 func TestMCPHTTPServerStartsWithTUI(t *testing.T) {
 	cfg := config.DefaultConfig()
+	cfg.Agent.MCPPort = "127.0.0.1:18767" // dedicated test port to avoid conflicts with other tests
 	st, _ := store.New(":memory:")
 	defer st.Close()
 
