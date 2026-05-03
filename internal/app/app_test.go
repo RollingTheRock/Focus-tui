@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"focus/internal/a2a"
 	"focus/internal/agents"
 	"focus/internal/config"
 	gitmodel "focus/internal/git"
@@ -808,26 +807,19 @@ func TestA2AStatusUpdateBridgesToMCPAndTriggersDownstream(t *testing.T) {
 		t.Fatalf("save upstream session: %v", err)
 	}
 
-	if err := m.handleA2AMessage(a2a.Message{
-		From: "session-a2a-up-1",
-		Type: "status.heartbeat",
-		Payload: map[string]any{
-			"status": "running",
-		},
+	if _, err := m.mcpSessionHeartbeatTool(map[string]any{
+		"session_id": "session-a2a-up-1",
+		"status":     "running",
 	}); err != nil {
-		t.Fatalf("handle heartbeat: %v", err)
+		t.Fatalf("heartbeat tool: %v", err)
 	}
-
-	if err := m.handleA2AMessage(a2a.Message{
-		From: "session-a2a-up-1",
-		Type: "status.update",
-		Payload: map[string]any{
-			"task_id":    "task-upstream-a2a",
-			"task_state": "completed",
-			"summary":    "done by a2a",
-		},
+	if _, err := m.mcpTaskUpdateStatusTool(map[string]any{
+		"task_id":    "task-upstream-a2a",
+		"state":      "completed",
+		"session_id": "session-a2a-up-1",
+		"summary":    "done by a2a",
 	}); err != nil {
-		t.Fatalf("handle status update: %v", err)
+		t.Fatalf("update status tool: %v", err)
 	}
 
 	upstream, err := st.GetTaskContext("task-upstream-a2a")
@@ -1006,29 +998,19 @@ func TestProtocolClosedLoopSmoke(t *testing.T) {
 		t.Fatalf("add fact: %v", err)
 	}
 
-	if err := m.handleA2AMessage(a2a.Message{
-		ID:   "msg-smoke-heartbeat",
-		From: "session-smoke-up",
-		To:   "orchestrator",
-		Type: "status.heartbeat",
-		Payload: map[string]any{
-			"status": "running",
-		},
+	if _, err := m.mcpSessionHeartbeatTool(map[string]any{
+		"session_id": "session-smoke-up",
+		"status":     "running",
 	}); err != nil {
-		t.Fatalf("handle heartbeat: %v", err)
+		t.Fatalf("heartbeat tool: %v", err)
 	}
-	if err := m.handleA2AMessage(a2a.Message{
-		ID:   "msg-smoke-status",
-		From: "session-smoke-up",
-		To:   "orchestrator",
-		Type: "status.update",
-		Payload: map[string]any{
-			"task_id":    "task-smoke-up",
-			"task_state": "completed",
-			"summary":    "smoke task done",
-		},
+	if _, err := m.mcpTaskUpdateStatusTool(map[string]any{
+		"task_id":    "task-smoke-up",
+		"state":      "completed",
+		"session_id": "session-smoke-up",
+		"summary":    "smoke task done",
 	}); err != nil {
-		t.Fatalf("handle status update: %v", err)
+		t.Fatalf("update status tool: %v", err)
 	}
 
 	downSessions, err := st.ListAgentSessions("/repo/smoke-down")
@@ -1052,20 +1034,7 @@ func TestProtocolClosedLoopSmoke(t *testing.T) {
 		t.Fatalf("expected knowledge facts in smoke context, got %+v", ctx["knowledge_facts"])
 	}
 
-	msgs, err := st.ListAgentMessages("orchestrator", "status_update", 10)
-	if err != nil {
-		t.Fatalf("list status messages: %v", err)
-	}
-	if len(msgs) == 0 {
-		t.Fatal("expected persisted status messages")
-	}
-	delegations, err := st.ListAgentMessages("", "task_delegation", 20)
-	if err != nil {
-		t.Fatalf("list delegation messages: %v", err)
-	}
-	if len(delegations) == 0 {
-		t.Fatal("expected task delegation message persisted")
-	}
+
 }
 
 func TestResolveOrchestratedProviderUsesRoleDefaults(t *testing.T) {

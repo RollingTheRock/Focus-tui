@@ -3,7 +3,6 @@ package app
 import (
 	"encoding/json"
 	"fmt"
-	"focus/internal/a2a"
 	"focus/internal/adapters"
 	"focus/internal/agents"
 	"focus/internal/avatar"
@@ -106,7 +105,6 @@ type model struct {
 	agentRegistry      *agents.Registry
 	resumeSummaryCache map[string]gitmodel.WorktreeResumeSummary
 	mcpServer          *mcp.Server
-	a2aRouter          *a2a.Router
 
 	lastAgentSync time.Time
 }
@@ -139,13 +137,17 @@ func New(cfg config.Config, store models.Store) tea.Model {
 		agentRegistry:      agents.NewRegistry(),
 		pages:              make(map[string]*page),
 		resumeSummaryCache: make(map[string]gitmodel.WorktreeResumeSummary),
-		mcpServer:          mcp.NewServer(cfg.Agent.MCPSocket),
-		a2aRouter:          a2a.NewRouter(cfg.Agent.A2ASocket),
+		mcpServer:          mcp.NewServer(cfg.Agent.MCPSocket, cfg.Agent.MCPPort),
 	}
 	m.registerMCPTools()
-	_ = m.mcpServer.Start()
-	_ = m.a2aRouter.Start()
-	m.startA2AIngestor()
+	if err := m.mcpServer.Start(); err != nil {
+		fmt.Fprintf(os.Stderr, "focus: mcp server start failed: %v\n", err)
+	}
+	if url, err := m.mcpServer.StartHTTP(); err != nil {
+		fmt.Fprintf(os.Stderr, "focus: mcp http start failed: %v\n", err)
+	} else if url != "" {
+		m.common.Cfg.Agent.MCPSocket = url
+	}
 
 	gitAdapter := adapters.NewGitLocalAdapter()
 	_ = m.adapterManager.Register(gitAdapter.Name(), gitAdapter)
@@ -172,139 +174,16 @@ func (m *model) registerMCPTools() {
 	if m == nil || m.mcpServer == nil {
 		return
 	}
-	_ = m.mcpServer.RegisterTool("session.heartbeat", m.mcpSessionHeartbeatTool)
-	_ = m.mcpServer.RegisterTool("session.request_intervention", m.mcpSessionRequestInterventionTool)
-	_ = m.mcpServer.RegisterTool("task.get", m.mcpTaskGetTool)
-	_ = m.mcpServer.RegisterTool("task.create", m.mcpTaskCreateTool)
-	_ = m.mcpServer.RegisterTool("task.list", m.mcpTaskListTool)
-	_ = m.mcpServer.RegisterTool("task.add_dependency", m.mcpTaskAddDependencyTool)
-	_ = m.mcpServer.RegisterTool("task.create_output", m.mcpTaskCreateOutputTool)
-	_ = m.mcpServer.RegisterTool("task.update_status", m.mcpTaskUpdateStatusTool)
-	_ = m.mcpServer.RegisterTool("kg.add_fact", m.mcpKnowledgeAddFactTool)
-	_ = m.mcpServer.RegisterTool("context.get_for_task", m.mcpContextGetForTaskTool)
-}
-
-func (m *model) startA2AIngestor() {
-	if m == nil || m.a2aRouter == nil || !m.a2aRouter.Running() {
-		return
-	}
-	ch, _, err := m.a2aRouter.Subscribe("broadcast", 128)
-	if err != nil {
-		return
-	}
-	go func() {
-		for msg := range ch {
-			_ = m.handleA2AMessage(msg)
-		}
-	}()
-}
-
-func (m *model) handleA2AMessage(msg a2a.Message) error {
-	_ = m.logA2AMessage(msg)
-	if !shouldProcessOrchestratorMessage(msg) {
-		return nil
-	}
-	switch msg.Type {
-	case "session.heartbeat", "status.heartbeat":
-		sessionID := toolStringParam(msg.Payload, "session_id")
-		if sessionID == "" {
-			sessionID = strings.TrimSpace(msg.From)
-		}
-		_, err := m.mcpSessionHeartbeatTool(map[string]any{
-			"session_id": sessionID,
-			"status":     toolStringParam(msg.Payload, "status"),
-		})
-		return err
-	case "status.update":
-		taskID := toolStringParam(msg.Payload, "task_id")
-		if taskID == "" {
-			return nil
-		}
-		state := toolStringParam(msg.Payload, "task_state")
-		if state == "" {
-			state = toolStringParam(msg.Payload, "state")
-		}
-		if state == "" {
-			return nil
-		}
-		sessionID := toolStringParam(msg.Payload, "session_id")
-		if sessionID == "" {
-			sessionID = strings.TrimSpace(msg.From)
-		}
-		_, err := m.mcpTaskUpdateStatusTool(map[string]any{
-			"task_id":    taskID,
-			"state":      state,
-			"session_id": sessionID,
-			"actor":      toolStringParam(msg.Payload, "actor"),
-			"summary":    toolStringParam(msg.Payload, "summary"),
-		})
-		return err
-	default:
-		return nil
-	}
-}
-
-func shouldProcessOrchestratorMessage(msg a2a.Message) bool {
-	target := strings.TrimSpace(msg.To)
-	if target == "" || target == "orchestrator" || target == "broadcast" {
-		return true
-	}
-	return false
-}
-
-func (m *model) logA2AMessage(msg a2a.Message) error {
-	if m == nil || m.common == nil || m.common.Store == nil {
-		return nil
-	}
-	msgType := normalizeA2AMessageType(msg.Type)
-	if msgType == "" {
-		return nil
-	}
-	payloadJSON := toJSONString(msg.Payload)
-	if payloadJSON == "" {
-		payloadJSON = "{}"
-	}
-	msgID := strings.TrimSpace(msg.ID)
-	if msgID == "" {
-		msgID = uuid.NewString()
-	}
-	from := strings.TrimSpace(msg.From)
-	if from == "" {
-		from = "unknown"
-	}
-	to := strings.TrimSpace(msg.To)
-	if to == "" {
-		to = "orchestrator"
-	}
-	createdAt := msg.Timestamp
-	if createdAt.IsZero() {
-		createdAt = time.Now()
-	}
-	return m.common.Store.SaveAgentMessage(models.AgentMessageRecord{
-		ID:        msgID,
-		FromAgent: from,
-		ToAgent:   to,
-		MsgType:   msgType,
-		Payload:   payloadJSON,
-		CreatedAt: createdAt,
-	})
-}
-
-func normalizeA2AMessageType(messageType string) string {
-	switch strings.TrimSpace(messageType) {
-	case "task.delegation":
-		return "task_delegation"
-	case "artifact.reference":
-		return "artifact_reference"
-	case "intervention.request":
-		return "intervention_request"
-	case "intervention.response":
-		return "intervention_response"
-	case "status.update", "status.heartbeat", "session.heartbeat":
-		return "status_update"
-	default:
-		return ""
-	}
+	_ = m.mcpServer.RegisterTool("session.heartbeat", "Report agent session heartbeat", nil, m.mcpSessionHeartbeatTool)
+	_ = m.mcpServer.RegisterTool("session.request_intervention", "Request human intervention", nil, m.mcpSessionRequestInterventionTool)
+	_ = m.mcpServer.RegisterTool("task.get", "Get task details by ID", nil, m.mcpTaskGetTool)
+	_ = m.mcpServer.RegisterTool("task.create", "Create a new task", nil, m.mcpTaskCreateTool)
+	_ = m.mcpServer.RegisterTool("task.list", "List tasks", nil, m.mcpTaskListTool)
+	_ = m.mcpServer.RegisterTool("task.add_dependency", "Add dependency between tasks", nil, m.mcpTaskAddDependencyTool)
+	_ = m.mcpServer.RegisterTool("task.create_output", "Create task output/artifact", nil, m.mcpTaskCreateOutputTool)
+	_ = m.mcpServer.RegisterTool("task.update_status", "Update task status", nil, m.mcpTaskUpdateStatusTool)
+	_ = m.mcpServer.RegisterTool("kg.add_fact", "Add a knowledge graph fact", nil, m.mcpKnowledgeAddFactTool)
+	_ = m.mcpServer.RegisterTool("context.get_for_task", "Get full context for a task", nil, m.mcpContextGetForTaskTool)
 }
 
 func (m *model) mcpSessionHeartbeatTool(params map[string]any) (map[string]any, error) {
@@ -1525,11 +1404,8 @@ func (m *model) launchExternalAgent(session *agents.Session) tea.Cmd {
 	if session.PlanID != "" {
 		envVars = append(envVars, agents.PlanIDEnvVar+"="+session.PlanID)
 	}
-	if socket := strings.TrimSpace(m.common.Cfg.Agent.MCPSocket); socket != "" {
-		envVars = append(envVars, agents.MCPSocketEnvVar+"="+socket)
-	}
-	if socket := strings.TrimSpace(m.common.Cfg.Agent.A2ASocket); socket != "" {
-		envVars = append(envVars, agents.A2ASocketEnvVar+"="+socket)
+	if url := strings.TrimSpace(m.mcpServer.HTTPURL()); url != "" {
+		envVars = append(envVars, agents.MCPURLEnvVar+"="+url)
 	}
 	session.State = agents.SessionWaiting
 	session.EnvSnapshot = strings.Join(envVars, " ")
@@ -1977,6 +1853,9 @@ func renderWindowTooSmallBody(w, h int) string {
 
 func (m *model) closeShellPanes() {
 	m.activePage.closeShellPanes()
+	if m.mcpServer != nil {
+		_ = m.mcpServer.Stop()
+	}
 }
 
 func (m *model) openDiffPane(msg gitplugin.OpenDiffMsg) tea.Cmd {
@@ -2539,7 +2418,6 @@ func (l *protocolOrchestratorLauncher) LaunchTask(task orchestrator.Task) error 
 	provider := l.model.resolveOrchestratedProvider(task)
 	session := l.model.newProtocolAgentSession(task.ID, worktreeID, provider)
 	l.model.saveAgentSession(session)
-	l.model.emitDelegationMessage(task, session)
 	if l.model.common != nil && l.model.common.Cfg.Agent.ExternalTerminal {
 		cmd := l.model.launchExternalAgent(session)
 		if cmd != nil {
@@ -2555,36 +2433,6 @@ func (l *protocolOrchestratorLauncher) LaunchTask(task orchestrator.Task) error 
 	session.UpdatedAt = now
 	l.model.saveAgentSession(session)
 	return nil
-}
-
-func (m *model) emitDelegationMessage(task orchestrator.Task, session *agents.Session) {
-	if m == nil || m.common == nil || m.common.Store == nil || session == nil {
-		return
-	}
-	payload := map[string]any{
-		"task_id":    task.ID,
-		"task_ref":   fmt.Sprintf("mcp://task-board/%s", task.ID),
-		"session_id": session.ID,
-		"provider":   string(session.Provider),
-	}
-	payloadJSON := toJSONString(payload)
-	_ = m.common.Store.SaveAgentMessage(models.AgentMessageRecord{
-		ID:        "msg-" + uuid.NewString(),
-		FromAgent: "orchestrator",
-		ToAgent:   session.ID,
-		MsgType:   "task_delegation",
-		Payload:   payloadJSON,
-	})
-	if m.a2aRouter != nil {
-		_ = m.a2aRouter.Publish(a2a.Message{
-			ID:        "msg-" + uuid.NewString(),
-			From:      "orchestrator",
-			To:        session.ID,
-			Type:      "task.delegation",
-			Payload:   payload,
-			Timestamp: time.Now(),
-		})
-	}
 }
 
 func (m *model) resolveOrchestratedProvider(task orchestrator.Task) agents.Provider {

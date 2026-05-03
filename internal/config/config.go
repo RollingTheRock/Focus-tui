@@ -36,6 +36,7 @@ type Config struct {
 		ExternalTerminal     bool   `yaml:"external_terminal"`
 		TerminalEmulator     string `yaml:"terminal_emulator"`
 		MCPSocket            string `yaml:"mcp_socket"`
+		MCPPort              string `yaml:"mcp_port"`
 		A2ASocket            string `yaml:"a2a_socket"`
 		ResearchProvider     string `yaml:"research_provider"`
 		ArchitectureProvider string `yaml:"architecture_provider"`
@@ -60,8 +61,9 @@ func DefaultConfig() Config {
 	cfg.TimeFormat = "Mon Jan 2 · 15:04"
 	cfg.Agent.ExternalTerminal = false
 	cfg.Agent.TerminalEmulator = ""
-	cfg.Agent.MCPSocket = "/tmp/focus-mcp.sock"
-	cfg.Agent.A2ASocket = "/tmp/focus-a2a.sock"
+	cfg.Agent.MCPSocket = ""
+	cfg.Agent.MCPPort = "127.0.0.1:18766"
+	cfg.Agent.A2ASocket = ""
 	cfg.Agent.ResearchProvider = "kimi"
 	cfg.Agent.ArchitectureProvider = "claude"
 	cfg.Agent.CodingProvider = "codex,kimi,claude"
