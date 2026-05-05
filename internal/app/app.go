@@ -1179,6 +1179,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, pageCmd)
 		}
 		session := m.newAgentSession(msg.WorktreeID, msg.Provider)
+		session.ExtraArgs = msg.ExtraArgs
 		m.saveAgentSession(session)
 		if m.agentRegistry != nil {
 			m.agentRegistry.Register(session)
@@ -1799,6 +1800,7 @@ func (m *model) launchExternalAgent(session *agents.Session) tea.Cmd {
 		Provider:         session.Provider,
 		TerminalEmulator: emulator,
 		EnvVars:          envVars,
+		ExtraArgs:        session.ExtraArgs,
 	})
 }
 
