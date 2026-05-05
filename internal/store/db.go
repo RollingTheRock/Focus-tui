@@ -380,7 +380,10 @@ CREATE INDEX IF NOT EXISTS idx_worktree_history_repo
 	if err := s.migratePlanStepsExpansionColumns(); err != nil {
 		return err
 	}
-	return s.migrateAgentSessionsWorkflowColumns()
+	if err := s.migrateAgentSessionsWorkflowColumns(); err != nil {
+		return err
+	}
+	return s.migrateFixTaskPlansForeignKeys()
 }
 
 func (s *Store) migrateTaskPlansForPlanFirst() error {
@@ -442,8 +445,7 @@ func (s *Store) migrateTaskPlansForPlanFirst() error {
 		) SELECT
 			id, NULLIF(task_id, ''), title, status, current_step, plan_body,
 			created_at, updated_at, archived_at, done_at
-		FROM task_plans_legacy
-			WHERE EXISTS (SELECT 1 FROM sqlite_master WHERE type='table' AND name='task_plans_legacy')`,
+			FROM task_plans_legacy`,
 		`DROP TABLE IF EXISTS task_plans_legacy`,
 		`CREATE INDEX IF NOT EXISTS idx_task_plans_task_updated
 			ON task_plans(task_id, updated_at DESC)`,
@@ -519,6 +521,119 @@ func (s *Store) migrateAgentSessionsWorkflowColumns() error {
 		"last_heartbeat": "DATETIME",
 		"stop_reason":    "TEXT",
 	})
+}
+
+// migrateFixTaskPlansForeignKeys detects and repairs foreign keys in plan_steps
+// and session_handoffs that were left pointing to task_plans_legacy after a prior
+// migration (task_plans → task_plans_legacy rename). SQLite auto-updates FK references
+// on rename, so dependent tables end up referencing the legacy table. This migration
+// rebuilds those tables to point to the correct task_plans table.
+func (s *Store) migrateFixTaskPlansForeignKeys() error {
+	tables := []struct {
+		name       string
+		fkCol      string
+		refTable   string
+		onDelete   string
+		recreateSQL string
+		indexSQL   string
+	}{
+		{
+			name:     "plan_steps",
+			fkCol:    "plan_id",
+			refTable: "task_plans",
+			onDelete: "CASCADE",
+			recreateSQL: `CREATE TABLE plan_steps_new (
+				id           TEXT PRIMARY KEY,
+				plan_id      TEXT NOT NULL REFERENCES task_plans(id) ON DELETE CASCADE,
+				order_index  INTEGER NOT NULL,
+				title        TEXT NOT NULL,
+				state        TEXT NOT NULL CHECK(state IN ('pending', 'in_progress', 'blocked', 'done', 'invalidated')),
+				expanded_task_id TEXT REFERENCES task_contexts(id) ON DELETE SET NULL,
+				notes        TEXT,
+				created_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+				updated_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+				UNIQUE(plan_id, order_index)
+			)`,
+			indexSQL: `CREATE INDEX IF NOT EXISTS idx_plan_steps_plan_order ON plan_steps(plan_id, order_index ASC)`,
+		},
+		{
+			name:     "session_handoffs",
+			fkCol:    "plan_id",
+			refTable: "task_plans",
+			onDelete: "SET NULL",
+			recreateSQL: `CREATE TABLE session_handoffs_new (
+				id                   TEXT PRIMARY KEY,
+				task_id              TEXT NOT NULL REFERENCES task_contexts(id) ON DELETE CASCADE,
+				plan_id              TEXT REFERENCES task_plans(id) ON DELETE SET NULL,
+				session_id           TEXT,
+				done_summary         TEXT,
+				remaining_summary    TEXT,
+				decision_summary     TEXT,
+				uncertainty_summary  TEXT,
+				blocker_summary      TEXT,
+				entrypoint           TEXT,
+				created_at           DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+			)`,
+			indexSQL: `CREATE INDEX IF NOT EXISTS idx_session_handoffs_task_created ON session_handoffs(task_id, created_at DESC)`,
+		},
+	}
+
+	for _, tb := range tables {
+		needsFix, err := s.hasForeignKeyTo(s.legacyTableName(tb.name), tb.fkCol)
+		if err != nil {
+			return err
+		}
+		if !needsFix {
+			continue
+		}
+
+		// Rebuild the table with correct FK reference
+		if _, err := s.db.Exec(tb.recreateSQL); err != nil {
+			return err
+		}
+		if _, err := s.db.Exec(fmt.Sprintf(
+			`INSERT OR IGNORE INTO %s_new SELECT * FROM %s`, tb.name, tb.name,
+		)); err != nil {
+			return err
+		}
+		if _, err := s.db.Exec(fmt.Sprintf(`DROP TABLE %s`, tb.name)); err != nil {
+			return err
+		}
+		if _, err := s.db.Exec(fmt.Sprintf(
+			`ALTER TABLE %s_new RENAME TO %s`, tb.name, tb.name,
+		)); err != nil {
+			return err
+		}
+		if _, err := s.db.Exec(tb.indexSQL); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// legacyTableName returns the legacy table name for known task_plans references.
+func (s *Store) legacyTableName(tableName string) string {
+	return "task_plans_legacy"
+}
+
+// hasForeignKeyTo checks if the given table has a foreign key referencing the target table.
+func (s *Store) hasForeignKeyTo(tableName, fkCol string) (bool, error) {
+	rows, err := s.db.Query(fmt.Sprintf(`PRAGMA foreign_key_list(%s)`, tableName))
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id, seq int
+		var refTable, from, to, onUpdate, onDelete, match string
+		if err := rows.Scan(&id, &seq, &refTable, &from, &to, &onUpdate, &onDelete, &match); err != nil {
+			return false, err
+		}
+		if refTable == "task_plans_legacy" {
+			return true, nil
+		}
+	}
+	return false, rows.Err()
 }
 
 func ensureColumns(db *sql.DB, table string, columns map[string]string) error {
