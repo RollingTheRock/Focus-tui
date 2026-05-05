@@ -105,7 +105,7 @@ func DetectTerminalEmulator() string {
 	return ""
 }
 
-func BuildExternalTerminalCommand(emulator, title, directory string, envVars []string, provider Provider, zoom float64) (string, []string) {
+func BuildExternalTerminalCommand(emulator, title, directory string, envVars []string, provider Provider, extraArgs []string, zoom float64) (string, []string) {
 	bin, providerArgs := ProviderCommand(provider)
 	if emulator == "" {
 		emulator = DetectTerminalEmulator()
@@ -125,9 +125,11 @@ func BuildExternalTerminalCommand(emulator, title, directory string, envVars []s
 		args = append(args, envVars...)
 		args = append(args, bin)
 		args = append(args, providerArgs...)
+		args = append(args, extraArgs...)
 		return "kitty", args
 	case "alacritty":
 		cmdArgs := append([]string{bin}, providerArgs...)
+		cmdArgs = append(cmdArgs, extraArgs...)
 		cmd := strings.Join(cmdArgs, " ")
 		args := []string{"--title", title, "--working-directory", directory, "-e", "env"}
 		args = append(args, envVars...)
@@ -138,9 +140,11 @@ func BuildExternalTerminalCommand(emulator, title, directory string, envVars []s
 		args = append(args, envVars...)
 		args = append(args, bin)
 		args = append(args, providerArgs...)
+		args = append(args, extraArgs...)
 		return "wezterm", args
 	case "gnome-terminal":
 		cmdArgs := append([]string{bin}, providerArgs...)
+		cmdArgs = append(cmdArgs, extraArgs...)
 		cmd := strings.Join(cmdArgs, " ")
 		args := []string{"--window", "--title", title, "--working-directory", directory}
 		if zoom != 1.0 && zoom > 0 {
@@ -152,6 +156,7 @@ func BuildExternalTerminalCommand(emulator, title, directory string, envVars []s
 		return "gnome-terminal", args
 	case "ptyxis":
 		cmdArgs := append([]string{bin}, providerArgs...)
+		cmdArgs = append(cmdArgs, extraArgs...)
 		cmd := strings.Join(cmdArgs, " ")
 		// Use bash -lc so that ~/.bashrc is sourced and PATH is complete.
 		// ptyxis spawns commands directly without a shell, so agent binaries
@@ -173,7 +178,7 @@ func BuildExternalTerminalCommand(emulator, title, directory string, envVars []s
 		return "ptyxis", args
 	default:
 		// Fallback to shell execution so unknown terminal wrappers can still be attempted.
-		args := []string{"-lc", strings.Join(append([]string{bin}, providerArgs...), " ")}
+		args := []string{"-lc", strings.Join(append(append([]string{bin}, providerArgs...), extraArgs...), " ")}
 		return emulator, args
 	}
 }
@@ -195,6 +200,7 @@ type ExternalLaunchRequest struct {
 	Provider         Provider
 	TerminalEmulator string
 	EnvVars          []string
+	ExtraArgs        []string
 }
 
 type ExternalLaunchResultMsg struct {
@@ -223,6 +229,7 @@ func LaunchExternalCommand(req ExternalLaunchRequest) tea.Cmd {
 			req.WorktreeID,
 			req.EnvVars,
 			req.Provider,
+			req.ExtraArgs,
 			1.2,
 		)
 		cmd := exec.Command(name, args...)

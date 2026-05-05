@@ -284,6 +284,7 @@ func (p *dagPane) launchArchitectureAgentCmd() tea.Cmd {
 			RepoID:     p.repoID,
 			WorktreeID: wtID,
 			Provider:   agents.ProviderClaude,
+			ExtraArgs:  []string{"--agent", "arch"},
 		}
 	}
 }
@@ -323,6 +324,7 @@ type dagLaunchAgentMsg struct {
 	RepoID      string
 	WorktreeID  string
 	Provider    agents.Provider
+	ExtraArgs   []string
 }
 
 func (p *dagPane) SetSize(width, height int) {

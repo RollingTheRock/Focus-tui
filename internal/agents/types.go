@@ -49,6 +49,7 @@ type Session struct {
 	LaunchSource   string
 	Summary        string
 	EnvSnapshot    string
+	ExtraArgs      []string
 	StartedAt      time.Time
 	EndedAt        *time.Time
 	LastActivityAt *time.Time
