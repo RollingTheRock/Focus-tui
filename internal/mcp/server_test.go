@@ -95,7 +95,7 @@ func TestServerHTTPToolsList(t *testing.T) {
 		t.Fatalf("expected 1 tool, got %d", len(list))
 	}
 	tool, _ := list[0].(map[string]any)
-	if tool["name"] != "task.create" {
+	if tool["name"] != "task_create" {
 		t.Fatalf("unexpected tool: %v", tool)
 	}
 }
