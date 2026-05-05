@@ -184,6 +184,12 @@ func (m *model) registerMCPTools() {
 	_ = m.mcpServer.RegisterTool("task.update_status", "Update task status", nil, m.mcpTaskUpdateStatusTool)
 	_ = m.mcpServer.RegisterTool("kg.add_fact", "Add a knowledge graph fact", nil, m.mcpKnowledgeAddFactTool)
 	_ = m.mcpServer.RegisterTool("context.get_for_task", "Get full context for a task", nil, m.mcpContextGetForTaskTool)
+	_ = m.mcpServer.RegisterTool("plan.create", "Create a new task plan", nil, m.mcpPlanCreateTool)
+	_ = m.mcpServer.RegisterTool("plan.get", "Get plan details with steps", nil, m.mcpPlanGetTool)
+	_ = m.mcpServer.RegisterTool("plan.list", "List task plans", nil, m.mcpPlanListTool)
+	_ = m.mcpServer.RegisterTool("plan.add_step", "Add a step to a plan", nil, m.mcpPlanAddStepTool)
+	_ = m.mcpServer.RegisterTool("plan.expand_to_tasks", "Expand plan steps into tasks and dependencies", nil, m.mcpPlanExpandToTasksTool)
+	_ = m.mcpServer.RegisterTool("dag.get_status", "Get full DAG status with topology", nil, m.mcpDagGetStatusTool)
 }
 
 func (m *model) mcpSessionHeartbeatTool(params map[string]any) (map[string]any, error) {
@@ -620,6 +626,370 @@ func (m *model) mcpTaskListTool(params map[string]any) (map[string]any, error) {
 		"success": true,
 		"count":   len(tasks),
 		"tasks":   tasks,
+	}, nil
+}
+
+func (m *model) mcpPlanCreateTool(params map[string]any) (map[string]any, error) {
+	title := strings.TrimSpace(toolStringParam(params, "title"))
+	if title == "" {
+		return nil, fmt.Errorf("title required")
+	}
+	if m.common == nil || m.common.Store == nil {
+		return nil, fmt.Errorf("store unavailable")
+	}
+	record := models.TaskPlanRecord{
+		ID:         uuid.NewString(),
+		TaskID:     strings.TrimSpace(toolStringParam(params, "task_id")),
+		Title:      title,
+		WhyNow:     strings.TrimSpace(toolStringParam(params, "why_now")),
+		Success:    strings.TrimSpace(toolStringParam(params, "success")),
+		OutOfScope: strings.TrimSpace(toolStringParam(params, "out_of_scope")),
+		KnownRisks: strings.TrimSpace(toolStringParam(params, "known_risks")),
+		PlanBody:   strings.TrimSpace(toolStringParam(params, "plan_body")),
+		Status:     "draft",
+	}
+	if err := m.common.Store.SaveTaskPlan(record); err != nil {
+		return nil, err
+	}
+	return map[string]any{
+		"success": true,
+		"plan_id": record.ID,
+		"title":   record.Title,
+		"status":  record.Status,
+	}, nil
+}
+
+func (m *model) mcpPlanGetTool(params map[string]any) (map[string]any, error) {
+	planID := strings.TrimSpace(toolStringParam(params, "plan_id"))
+	if planID == "" {
+		return nil, fmt.Errorf("plan_id required")
+	}
+	if m.common == nil || m.common.Store == nil {
+		return nil, fmt.Errorf("store unavailable")
+	}
+	plan, err := m.common.Store.GetTaskPlan(planID)
+	if err != nil {
+		return nil, err
+	}
+	if plan == nil {
+		return nil, fmt.Errorf("plan %q not found", planID)
+	}
+	steps, err := m.common.Store.ListPlanSteps(planID)
+	if err != nil {
+		return nil, err
+	}
+	stepItems := make([]map[string]any, 0, len(steps))
+	for _, s := range steps {
+		stepItems = append(stepItems, map[string]any{
+			"id":              s.ID,
+			"order_index":     s.OrderIndex,
+			"title":           s.Title,
+			"state":           s.State,
+			"expanded_task_id": s.ExpandedTaskID,
+			"notes":           s.Notes,
+		})
+	}
+	return map[string]any{
+		"success": true,
+		"plan": map[string]any{
+			"id":          plan.ID,
+			"task_id":     plan.TaskID,
+			"title":       plan.Title,
+			"why_now":     plan.WhyNow,
+			"success":     plan.Success,
+			"out_of_scope": plan.OutOfScope,
+			"known_risks": plan.KnownRisks,
+			"status":      plan.Status,
+			"current_step": plan.CurrentStep,
+			"plan_body":   plan.PlanBody,
+		},
+		"steps": stepItems,
+	}, nil
+}
+
+func (m *model) mcpPlanListTool(params map[string]any) (map[string]any, error) {
+	taskID := strings.TrimSpace(toolStringParam(params, "task_id"))
+	if m.common == nil || m.common.Store == nil {
+		return nil, fmt.Errorf("store unavailable")
+	}
+	records, err := m.common.Store.ListTaskPlans(taskID)
+	if err != nil {
+		return nil, err
+	}
+	plans := make([]map[string]any, 0, len(records))
+	for _, p := range records {
+		plans = append(plans, map[string]any{
+			"id":           p.ID,
+			"task_id":      p.TaskID,
+			"title":        p.Title,
+			"status":       p.Status,
+			"current_step": p.CurrentStep,
+		})
+	}
+	return map[string]any{
+		"success": true,
+		"count":   len(plans),
+		"plans":   plans,
+	}, nil
+}
+
+func (m *model) mcpPlanAddStepTool(params map[string]any) (map[string]any, error) {
+	planID := strings.TrimSpace(toolStringParam(params, "plan_id"))
+	if planID == "" {
+		return nil, fmt.Errorf("plan_id required")
+	}
+	title := strings.TrimSpace(toolStringParam(params, "title"))
+	if title == "" {
+		return nil, fmt.Errorf("title required")
+	}
+	if m.common == nil || m.common.Store == nil {
+		return nil, fmt.Errorf("store unavailable")
+	}
+	// Verify plan exists
+	plan, err := m.common.Store.GetTaskPlan(planID)
+	if err != nil {
+		return nil, err
+	}
+	if plan == nil {
+		return nil, fmt.Errorf("plan %q not found", planID)
+	}
+	// Determine order_index if not provided
+	orderIndex := int(toolFloatParam(params, "order_index", -1))
+	if orderIndex < 0 {
+		steps, _ := m.common.Store.ListPlanSteps(planID)
+		orderIndex = len(steps)
+	}
+	record := models.PlanStepRecord{
+		ID:         uuid.NewString(),
+		PlanID:     planID,
+		OrderIndex: orderIndex,
+		Title:      title,
+		State:      "pending",
+		Notes:      strings.TrimSpace(toolStringParam(params, "notes")),
+	}
+	if err := m.common.Store.SavePlanStep(record); err != nil {
+		return nil, err
+	}
+	return map[string]any{
+		"success":     true,
+		"step_id":     record.ID,
+		"plan_id":     planID,
+		"order_index": orderIndex,
+	}, nil
+}
+
+func (m *model) mcpPlanExpandToTasksTool(params map[string]any) (map[string]any, error) {
+	planID := strings.TrimSpace(toolStringParam(params, "plan_id"))
+	if planID == "" {
+		return nil, fmt.Errorf("plan_id required")
+	}
+	if m.common == nil || m.common.Store == nil {
+		return nil, fmt.Errorf("store unavailable")
+	}
+	plan, err := m.common.Store.GetTaskPlan(planID)
+	if err != nil {
+		return nil, err
+	}
+	if plan == nil {
+		return nil, fmt.Errorf("plan %q not found", planID)
+	}
+	steps, err := m.common.Store.ListPlanSteps(planID)
+	if err != nil {
+		return nil, err
+	}
+	if len(steps) == 0 {
+		return nil, fmt.Errorf("plan %q has no steps to expand", planID)
+	}
+	repoID := strings.TrimSpace(toolStringParam(params, "repo_id"))
+	if repoID == "" {
+		repoID = m.gitRepoPath()
+	}
+	if repoID == "" {
+		return nil, fmt.Errorf("repo_id required")
+	}
+
+	// Create a task for each step and build dependency chain
+	taskIDs := make([]string, 0, len(steps))
+	taskIDMap := make(map[int]string) // step order_index -> task_id
+	dependencies := make([]map[string]any, 0)
+	var firstTaskID string
+
+	for i, step := range steps {
+		taskID := uuid.NewString()
+		taskIDMap[step.OrderIndex] = taskID
+		taskIDs = append(taskIDs, taskID)
+		if i == 0 {
+			firstTaskID = taskID
+		}
+
+		state := "paused"
+		if i == 0 {
+			state = "active"
+		}
+		task := models.TaskContextRecord{
+			ID:     taskID,
+			RepoID: repoID,
+			Title:  step.Title,
+			Goal:   step.Notes,
+			State:  state,
+		}
+		if err := m.common.Store.SaveTaskContext(task); err != nil {
+			return nil, fmt.Errorf("save task for step %q: %w", step.Title, err)
+		}
+
+		// Update step with expanded task ID
+		step.ExpandedTaskID = taskID
+		if err := m.common.Store.SavePlanStep(step); err != nil {
+			return nil, fmt.Errorf("update step %q: %w", step.Title, err)
+		}
+	}
+
+	// Create sequential dependencies: step[i] -> step[i+1]
+	sort.Slice(steps, func(i, j int) bool {
+		return steps[i].OrderIndex < steps[j].OrderIndex
+	})
+	for i := 0; i < len(steps)-1; i++ {
+		fromID := taskIDMap[steps[i].OrderIndex]
+		toID := taskIDMap[steps[i+1].OrderIndex]
+		dep := models.TaskDependencyRecord{
+			FromTaskID:     fromID,
+			ToTaskID:       toID,
+			DependencyType: "hard",
+		}
+		if err := m.common.Store.SaveTaskDependency(dep); err != nil {
+			return nil, fmt.Errorf("save dependency: %w", err)
+		}
+		dependencies = append(dependencies, map[string]any{
+			"from_task_id": fromID,
+			"to_task_id":   toID,
+		})
+	}
+
+	// Update plan status to active
+	plan.Status = "active"
+	if err := m.common.Store.SaveTaskPlan(*plan); err != nil {
+		return nil, err
+	}
+
+	// Refresh DAG if visible
+	if dp, ok := m.activePage.pane(paneDAG).(*dagPane); ok {
+		dp.buildDAG()
+	}
+	m.invalidateView()
+	m.syncWorktreeActivities()
+
+	return map[string]any{
+		"success":        true,
+		"plan_id":        planID,
+		"task_ids":       taskIDs,
+		"first_task_id":  firstTaskID,
+		"dependencies":   dependencies,
+		"task_count":     len(taskIDs),
+	}, nil
+}
+
+func (m *model) mcpDagGetStatusTool(params map[string]any) (map[string]any, error) {
+	repoID := strings.TrimSpace(toolStringParam(params, "repo_id"))
+	if repoID == "" {
+		repoID = m.gitRepoPath()
+	}
+	if m.common == nil || m.common.Store == nil {
+		return nil, fmt.Errorf("store unavailable")
+	}
+	tasks, err := m.common.Store.ListTaskContexts(repoID)
+	if err != nil {
+		return nil, err
+	}
+
+	nodes := make([]map[string]any, 0, len(tasks))
+	nodeMap := make(map[string]map[string]any)
+	for _, t := range tasks {
+		node := map[string]any{
+			"id":       t.ID,
+			"title":    t.Title,
+			"state":    t.State,
+			"priority": t.Priority,
+		}
+		nodes = append(nodes, node)
+		nodeMap[t.ID] = node
+	}
+
+	edges := make([]map[string]any, 0)
+	adjacency := make(map[string][]string)
+	indegree := make(map[string]int)
+	seen := make(map[string]struct{})
+
+	for _, t := range tasks {
+		downstream, err := m.common.Store.ListDownstreamTaskContexts(t.ID)
+		if err != nil {
+			continue
+		}
+		for _, d := range downstream {
+			if _, ok := nodeMap[d.ID]; !ok {
+				continue
+			}
+			key := t.ID + "->" + d.ID
+			if _, dup := seen[key]; dup {
+				continue
+			}
+			seen[key] = struct{}{}
+			edges = append(edges, map[string]any{
+				"from": t.ID,
+				"to":   d.ID,
+				"type": "hard",
+			})
+			adjacency[t.ID] = append(adjacency[t.ID], d.ID)
+			indegree[d.ID]++
+		}
+	}
+
+	// Compute levels via topological BFS
+	levels := make(map[string]int)
+	queue := make([]string, 0)
+	for _, t := range tasks {
+		if indegree[t.ID] == 0 {
+			queue = append(queue, t.ID)
+			levels[t.ID] = 0
+		}
+	}
+	for len(queue) > 0 {
+		curr := queue[0]
+		queue = queue[1:]
+		for _, next := range adjacency[curr] {
+			if levels[next] < levels[curr]+1 {
+				levels[next] = levels[curr] + 1
+			}
+			queue = append(queue, next)
+		}
+	}
+	for _, n := range nodes {
+		id := n["id"].(string)
+		if lv, ok := levels[id]; ok {
+			n["level"] = lv
+		} else {
+			n["level"] = 0
+		}
+	}
+
+	readyCount, doneCount := 0, 0
+	for _, t := range tasks {
+		switch t.State {
+		case "ready":
+			readyCount++
+		case "done":
+			doneCount++
+		}
+	}
+
+	return map[string]any{
+		"success":      true,
+		"repo_id":      repoID,
+		"nodes":        nodes,
+		"edges":        edges,
+		"total_count":  len(tasks),
+		"ready_count":  readyCount,
+		"done_count":   doneCount,
+		"active_count": len(tasks) - readyCount - doneCount,
 	}, nil
 }
 
