@@ -544,7 +544,7 @@ func (m *model) mcpTaskCreateTool(params map[string]any) (map[string]any, error)
 		PreferredWorktreeID: strings.TrimSpace(toolStringParam(params, "preferred_worktree_id")),
 	}
 	if record.State == "" {
-		record.State = "pending"
+		record.State = "active"
 	}
 	if record.Priority == "" {
 		record.Priority = "medium"

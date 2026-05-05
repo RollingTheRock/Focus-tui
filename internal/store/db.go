@@ -442,8 +442,9 @@ func (s *Store) migrateTaskPlansForPlanFirst() error {
 		) SELECT
 			id, NULLIF(task_id, ''), title, status, current_step, plan_body,
 			created_at, updated_at, archived_at, done_at
-		FROM task_plans_legacy`,
-		`DROP TABLE task_plans_legacy`,
+		FROM task_plans_legacy
+			WHERE EXISTS (SELECT 1 FROM sqlite_master WHERE type='table' AND name='task_plans_legacy')`,
+		`DROP TABLE IF EXISTS task_plans_legacy`,
 		`CREATE INDEX IF NOT EXISTS idx_task_plans_task_updated
 			ON task_plans(task_id, updated_at DESC)`,
 	}
