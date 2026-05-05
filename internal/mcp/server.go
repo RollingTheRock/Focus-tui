@@ -21,7 +21,8 @@ type ToolHandler func(params map[string]any) (map[string]any, error)
 
 // ToolMeta holds metadata and handler for a registered tool.
 type ToolMeta struct {
-	Name        string
+	Name        string // original registered name (may contain '.')
+	DisplayName string // sanitized name for LLM function calling (dots → underscores)
 	Description string
 	InputSchema map[string]any
 	Handler     ToolHandler
@@ -75,6 +76,7 @@ func (s *Server) RegisterTool(name, description string, schema map[string]any, h
 	defer s.mu.Unlock()
 	s.tools[name] = ToolMeta{
 		Name:        name,
+		DisplayName: strings.ReplaceAll(name, ".", "_"),
 		Description: description,
 		InputSchema: schema,
 		Handler:     handler,
@@ -323,7 +325,7 @@ func (s *Server) listTools() ListToolsResult {
 			schema = map[string]any{"type": "object"}
 		}
 		tools = append(tools, Tool{
-			Name:        meta.Name,
+			Name:        meta.DisplayName,
 			Description: meta.Description,
 			InputSchema: schema,
 		})
@@ -337,7 +339,15 @@ func (s *Server) callTool(params map[string]any) (CallToolResult, error) {
 		return CallToolResult{}, fmt.Errorf("tool name required")
 	}
 	s.mu.RLock()
-	meta, ok := s.tools[name]
+	var meta ToolMeta
+	var ok bool
+	for _, m := range s.tools {
+		if m.Name == name || m.DisplayName == name {
+			meta = m
+			ok = true
+			break
+		}
+	}
 	s.mu.RUnlock()
 	if !ok {
 		return CallToolResult{}, fmt.Errorf("tool %q not found", name)
