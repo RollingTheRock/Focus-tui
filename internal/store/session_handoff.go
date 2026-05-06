@@ -69,15 +69,15 @@ func (s *Store) SaveSessionHandoff(record SessionHandoffRecord) error {
 }
 
 func (s *Store) ListSessionHandoffs(taskID string) ([]SessionHandoffRecord, error) {
-	const q = `
+	q := fmt.Sprintf(`
 		SELECT id, task_id, plan_id, session_id,
 		       done_summary, remaining_summary, decision_summary,
 		       uncertainty_summary, blocker_summary, entrypoint, created_at
-		FROM session_handoffs
+		FROM %s
 		WHERE task_id = ?
 		ORDER BY created_at DESC
-	`
-	rows, err := s.db.Query(q, taskID)
+	`, s.tbl("session_handoffs", "proj_session_handoffs"))
+	rows, err := s.qRows(q, taskID)
 	if err != nil {
 		return nil, err
 	}

@@ -50,12 +50,12 @@ func (s *Store) ListWorktreeTaskLinks(worktreeID string) ([]TaskWorktreeLinkReco
 }
 
 func (s *Store) listTaskWorktreeLinks(where string, arg string) ([]TaskWorktreeLinkRecord, error) {
-	q := `
+	q := fmt.Sprintf(`
 		SELECT id, task_id, worktree_id, relation_type, created_at, updated_at
-		FROM task_worktree_links ` + where + `
+		FROM %s `, s.tbl("task_worktree_links", "proj_task_worktree_links")) + where + `
 		ORDER BY updated_at DESC, created_at DESC
 	`
-	rows, err := s.db.Query(q, arg)
+	rows, err := s.qRows(q, arg)
 	if err != nil {
 		return nil, err
 	}

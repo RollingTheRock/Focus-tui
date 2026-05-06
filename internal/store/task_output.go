@@ -52,10 +52,10 @@ func (s *Store) SaveTaskOutput(record TaskOutputRecord) error {
 }
 
 func (s *Store) ListTaskOutputs(taskID string) ([]TaskOutputRecord, error) {
-	const base = `
+	base := fmt.Sprintf(`
 		SELECT id, task_id, content, COALESCE(actor, ''), created_at, updated_at
-		FROM task_outputs
-	`
+		FROM %s
+	`, s.tbl("task_outputs", "proj_task_outputs"))
 	q := base
 	args := []any{}
 	if taskID != "" {
@@ -64,7 +64,7 @@ func (s *Store) ListTaskOutputs(taskID string) ([]TaskOutputRecord, error) {
 	}
 	q += ` ORDER BY created_at DESC`
 
-	rows, err := s.db.Query(q, args...)
+	rows, err := s.qRows(q, args...)
 	if err != nil {
 		return nil, err
 	}

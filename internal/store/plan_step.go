@@ -70,13 +70,13 @@ func (s *Store) DeletePlanSteps(planID string) error {
 }
 
 func (s *Store) ListPlanSteps(planID string) ([]PlanStepRecord, error) {
-	const q = `
+	q := fmt.Sprintf(`
 		SELECT id, plan_id, order_index, title, state, expanded_task_id, notes, created_at, updated_at
-		FROM plan_steps
+		FROM %s
 		WHERE plan_id = ?
 		ORDER BY order_index ASC, created_at ASC
-	`
-	rows, err := s.db.Query(q, planID)
+	`, s.tbl("plan_steps", "proj_plan_steps"))
+	rows, err := s.qRows(q, planID)
 	if err != nil {
 		return nil, err
 	}

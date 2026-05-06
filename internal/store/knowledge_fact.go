@@ -73,10 +73,10 @@ func (s *Store) SaveKnowledgeFact(record KnowledgeFactRecord) error {
 }
 
 func (s *Store) ListKnowledgeFacts(planID string) ([]KnowledgeFactRecord, error) {
-	const base = `
+	base := fmt.Sprintf(`
 		SELECT id, COALESCE(plan_id, ''), subject, predicate, object, source, confidence, created_at
-		FROM knowledge_facts
-	`
+		FROM %s
+	`, s.tbl("knowledge_facts", "proj_knowledge_facts"))
 	q := base
 	args := []any{}
 	if planID != "" {
@@ -85,7 +85,7 @@ func (s *Store) ListKnowledgeFacts(planID string) ([]KnowledgeFactRecord, error)
 	}
 	q += ` ORDER BY created_at DESC`
 
-	rows, err := s.db.Query(q, args...)
+	rows, err := s.qRows(q, args...)
 	if err != nil {
 		return nil, err
 	}

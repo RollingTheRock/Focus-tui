@@ -50,23 +50,24 @@ func (s *Store) CreateTodo(text, list string) (*models.Todo, error) {
 
 // GetTodo returns a single todo by ID.
 func (s *Store) GetTodo(id int) (*models.Todo, error) {
-	row := s.db.QueryRow(
-		`SELECT id, text, status, list, created_at, updated_at FROM todos WHERE id = ?`, id,
+	q := fmt.Sprintf(
+		`SELECT id, text, status, list, created_at, updated_at FROM %s WHERE id = ?`,
+		s.tbl("todos", "proj_todos"),
 	)
-	return scanTodo(row)
+	return scanTodo(s.qRow(q, id))
 }
 
 // ListTodos returns todos for a given list, with done/overdue items sorted to the bottom.
 func (s *Store) ListTodos(list string) ([]models.Todo, error) {
-	rows, err := s.db.Query(
-		`SELECT id, text, status, list, created_at, updated_at
-		 FROM todos WHERE list = ?
-		 ORDER BY CASE status
-		     WHEN 'todo' THEN 0
-		     WHEN 'overdue' THEN 1
-		     WHEN 'done' THEN 2
-		 END, id ASC`, list,
-	)
+	q := fmt.Sprintf(`
+		SELECT id, text, status, list, created_at, updated_at
+		FROM %s WHERE list = ?
+		ORDER BY CASE status
+			WHEN 'todo' THEN 0
+			WHEN 'overdue' THEN 1
+			WHEN 'done' THEN 2
+		END, id ASC`, s.tbl("todos", "proj_todos"))
+	rows, err := s.qRows(q, list)
 	if err != nil {
 		return nil, err
 	}
@@ -132,15 +133,12 @@ func (s *Store) MarkOverdue() error {
 
 // TodayDoneCount returns (done_count, total_count) for today's list.
 func (s *Store) TodayDoneCount() (done int, total int, err error) {
-	err = s.db.QueryRow(
-		`SELECT COUNT(*) FROM todos WHERE list = 'today'`,
-	).Scan(&total)
+	tbl := s.tbl("todos", "proj_todos")
+	err = s.qRow(fmt.Sprintf(`SELECT COUNT(*) FROM %s WHERE list = 'today'`, tbl)).Scan(&total)
 	if err != nil {
 		return
 	}
-	err = s.db.QueryRow(
-		`SELECT COUNT(*) FROM todos WHERE list = 'today' AND status = 'done'`,
-	).Scan(&done)
+	err = s.qRow(fmt.Sprintf(`SELECT COUNT(*) FROM %s WHERE list = 'today' AND status = 'done'`, tbl)).Scan(&done)
 	return
 }
 

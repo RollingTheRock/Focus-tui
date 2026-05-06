@@ -68,11 +68,11 @@ func (s *Store) SaveContextNote(record ContextNoteRecord) error {
 }
 
 func (s *Store) ListContextNotes(taskID string, worktreeID string) ([]ContextNoteRecord, error) {
-	q := `
+	q := fmt.Sprintf(`
 		SELECT id, task_id, worktree_id, note_type, body, pinned, created_at, updated_at
-		FROM context_notes
+		FROM %s
 		WHERE 1 = 1
-	`
+	`, s.tbl("context_notes", "proj_context_notes"))
 	args := []any{}
 	if taskID != "" {
 		q += ` AND task_id = ?`
@@ -84,7 +84,7 @@ func (s *Store) ListContextNotes(taskID string, worktreeID string) ([]ContextNot
 	}
 	q += ` ORDER BY pinned DESC, updated_at DESC, created_at DESC`
 
-	rows, err := s.db.Query(q, args...)
+	rows, err := s.qRows(q, args...)
 	if err != nil {
 		return nil, err
 	}

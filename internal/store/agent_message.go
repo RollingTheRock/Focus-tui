@@ -54,10 +54,10 @@ func (s *Store) SaveAgentMessage(record AgentMessageRecord) error {
 }
 
 func (s *Store) ListAgentMessages(target string, messageType string, limit int) ([]AgentMessageRecord, error) {
-	const base = `
+	base := fmt.Sprintf(`
 		SELECT id, from_agent, to_agent, msg_type, payload, read_at, created_at
-		FROM agent_messages
-	`
+		FROM %s
+	`, s.tbl("agent_messages", "proj_agent_messages"))
 	filters := make([]string, 0, 2)
 	args := make([]any, 0, 3)
 	if strings.TrimSpace(target) != "" {
@@ -79,7 +79,7 @@ func (s *Store) ListAgentMessages(target string, messageType string, limit int) 
 		args = append(args, limit)
 	}
 
-	rows, err := s.db.Query(q, args...)
+	rows, err := s.qRows(q, args...)
 	if err != nil {
 		return nil, err
 	}
