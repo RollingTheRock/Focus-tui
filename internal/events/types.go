@@ -67,6 +67,14 @@ const (
 	TaskPlanCreated    = "TaskPlanCreated"
 	TaskOutputAdded    = "TaskOutputAdded"
 	TaskBriefUpdated   = "TaskBriefUpdated"
+
+	PomodoroStarted   = "PomodoroStarted"
+	PomodoroCompleted = "PomodoroCompleted"
+	PomodoroCancelled = "PomodoroCancelled"
+
+	StreakUpdated = "StreakUpdated"
+
+	WorktreeHistoryRecorded = "WorktreeHistoryRecorded"
 )
 
 // Actor types.
@@ -211,6 +219,49 @@ type TaskBriefUpdatedPayload struct {
 	SuccessCriteria  string `json:"success_criteria,omitempty"`
 	OutOfScope       string `json:"out_of_scope,omitempty"`
 	KnownRisks       string `json:"known_risks,omitempty"`
+}
+
+// PomodoroStartedPayload is emitted when a pomodoro session begins.
+type PomodoroStartedPayload struct {
+	Date         string `json:"date"`
+	StartTime    string `json:"start_time"`
+	LinkedTodoID *int   `json:"linked_todo_id,omitempty"`
+}
+
+// PomodoroCompletedPayload is emitted when a pomodoro session finishes.
+type PomodoroCompletedPayload struct {
+	ID           int64  `json:"id"`
+	Date         string `json:"date"`
+	EndTime      string `json:"end_time"`
+	LinkedTodoID *int   `json:"linked_todo_id,omitempty"`
+}
+
+// PomodoroCancelledPayload is emitted when a pomodoro session is cancelled.
+type PomodoroCancelledPayload struct {
+	ID      int64  `json:"id"`
+	Date    string `json:"date"`
+	EndTime string `json:"end_time"`
+}
+
+// StreakUpdatedPayload is emitted when a streak record is created or updated.
+type StreakUpdatedPayload struct {
+	Date         string `json:"date"`
+	HasPomodoro  bool   `json:"has_pomodoro"`
+}
+
+// WorktreeHistoryRecordedPayload is emitted when a worktree history entry is saved.
+type WorktreeHistoryRecordedPayload struct {
+	ID               string `json:"id"`
+	RepoID           string `json:"repo_id"`
+	Branch           string `json:"branch,omitempty"`
+	Path             string `json:"path,omitempty"`
+	CreatedAt        string `json:"created_at,omitempty"`
+	RemovedAt        string `json:"removed_at"`
+	TaskID           string `json:"task_id,omitempty"`
+	PlanID           string `json:"plan_id,omitempty"`
+	Provider         string `json:"provider,omitempty"`
+	Summary          string `json:"summary,omitempty"`
+	DurationMinutes  int    `json:"duration_minutes,omitempty"`
 }
 
 // Serialize returns the JSON payload for an event payload struct.

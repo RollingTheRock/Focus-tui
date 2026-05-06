@@ -114,6 +114,16 @@ func (b *Builder) applyEvent(ctx context.Context, ev events.Event) error {
 		return b.applySessionHandoffCreated(ctx, ev)
 	case events.TaskBriefUpdated:
 		return b.applyTaskBriefUpdated(ctx, ev)
+	case events.PomodoroStarted:
+		return b.applyPomodoroStarted(ctx, ev)
+	case events.PomodoroCompleted:
+		return b.applyPomodoroCompleted(ctx, ev)
+	case events.PomodoroCancelled:
+		return b.applyPomodoroCancelled(ctx, ev)
+	case events.StreakUpdated:
+		return b.applyStreakUpdated(ctx, ev)
+	case events.WorktreeHistoryRecorded:
+		return b.applyWorktreeHistoryRecorded(ctx, ev)
 	default:
 		return nil
 	}
@@ -420,5 +430,90 @@ func (b *Builder) applyTaskBriefUpdated(ctx context.Context, ev events.Event) er
 			event_version = EXCLUDED.event_version,
 			updated_at = NOW()
 	`, p.TaskID, p.WhyNow, p.SuccessCriteria, p.OutOfScope, p.KnownRisks, ev.EventID)
+	return err
+}
+
+func (b *Builder) applyPomodoroStarted(ctx context.Context, ev events.Event) error {
+	var p events.PomodoroStartedPayload
+	if err := json.Unmarshal(ev.Payload, &p); err != nil {
+		return err
+	}
+	_, err := b.pool.Exec(ctx, `
+		INSERT INTO proj_pomodoro_sessions (id, date, start_time, linked_todo_id, status, event_version)
+		VALUES ($1, $2, $3, $4, 'running', $5)
+		ON CONFLICT (id) DO UPDATE SET
+			date = EXCLUDED.date,
+			start_time = EXCLUDED.start_time,
+			linked_todo_id = EXCLUDED.linked_todo_id,
+			status = EXCLUDED.status,
+			event_version = EXCLUDED.event_version
+	`, ev.AggregateID, p.Date, p.StartTime, p.LinkedTodoID, ev.EventID)
+	return err
+}
+
+func (b *Builder) applyPomodoroCompleted(ctx context.Context, ev events.Event) error {
+	var p events.PomodoroCompletedPayload
+	if err := json.Unmarshal(ev.Payload, &p); err != nil {
+		return err
+	}
+	_, err := b.pool.Exec(ctx, `
+		UPDATE proj_pomodoro_sessions
+		SET end_time = $1, status = 'completed', event_version = $2
+		WHERE id = $3
+	`, p.EndTime, ev.EventID, p.ID)
+	return err
+}
+
+func (b *Builder) applyPomodoroCancelled(ctx context.Context, ev events.Event) error {
+	var p events.PomodoroCancelledPayload
+	if err := json.Unmarshal(ev.Payload, &p); err != nil {
+		return err
+	}
+	_, err := b.pool.Exec(ctx, `
+		UPDATE proj_pomodoro_sessions
+		SET end_time = $1, status = 'cancelled', event_version = $2
+		WHERE id = $3
+	`, p.EndTime, ev.EventID, p.ID)
+	return err
+}
+
+func (b *Builder) applyStreakUpdated(ctx context.Context, ev events.Event) error {
+	var p events.StreakUpdatedPayload
+	if err := json.Unmarshal(ev.Payload, &p); err != nil {
+		return err
+	}
+	_, err := b.pool.Exec(ctx, `
+		INSERT INTO proj_streaks (date, has_pomodoro, event_version)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (date) DO UPDATE SET
+			has_pomodoro = EXCLUDED.has_pomodoro,
+			event_version = EXCLUDED.event_version
+	`, p.Date, p.HasPomodoro, ev.EventID)
+	return err
+}
+
+func (b *Builder) applyWorktreeHistoryRecorded(ctx context.Context, ev events.Event) error {
+	var p events.WorktreeHistoryRecordedPayload
+	if err := json.Unmarshal(ev.Payload, &p); err != nil {
+		return err
+	}
+	_, err := b.pool.Exec(ctx, `
+		INSERT INTO proj_worktree_history (
+			id, repo_id, branch, path, created_at, removed_at, task_id, plan_id, provider, summary, duration_minutes, event_version
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		ON CONFLICT (id) DO UPDATE SET
+			repo_id = EXCLUDED.repo_id,
+			branch = EXCLUDED.branch,
+			path = EXCLUDED.path,
+			created_at = EXCLUDED.created_at,
+			removed_at = EXCLUDED.removed_at,
+			task_id = EXCLUDED.task_id,
+			plan_id = EXCLUDED.plan_id,
+			provider = EXCLUDED.provider,
+			summary = EXCLUDED.summary,
+			duration_minutes = EXCLUDED.duration_minutes,
+			event_version = EXCLUDED.event_version
+	`, ev.AggregateID, p.RepoID, p.Branch, p.Path, p.CreatedAt, p.RemovedAt,
+		p.TaskID, p.PlanID, p.Provider, p.Summary, p.DurationMinutes, ev.EventID)
 	return err
 }
