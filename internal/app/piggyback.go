@@ -44,6 +44,9 @@ func (m *model) piggybackForParams(params map[string]any) string {
 	if m.disablePiggyback {
 		return ""
 	}
+	if m.common == nil || m.common.Store == nil {
+		return ""
+	}
 	scopes := extractScopes(params)
 	if len(scopes) == 0 {
 		return ""
