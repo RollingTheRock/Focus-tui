@@ -53,10 +53,10 @@ func (s *Store) SaveWorktreeHistory(record WorktreeHistoryRecord) error {
 }
 
 func (s *Store) ListWorktreeHistory(repoID string) ([]WorktreeHistoryRecord, error) {
-	const base = `
+	base := fmt.Sprintf(`
 		SELECT id, repo_id, branch, path, created_at, removed_at, task_id, plan_id, provider, summary, duration_minutes
-		FROM worktree_history
-	`
+		FROM %s
+	`, s.tbl("worktree_history", "proj_worktree_history"))
 	q := base
 	args := []any{}
 	if repoID != "" {
@@ -64,7 +64,7 @@ func (s *Store) ListWorktreeHistory(repoID string) ([]WorktreeHistoryRecord, err
 		args = append(args, repoID)
 	}
 	q += ` ORDER BY removed_at DESC`
-	rows, err := s.db.Query(q, args...)
+	rows, err := s.qRows(q, args...)
 	if err != nil {
 		return nil, err
 	}

@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 
+	"focus/internal/events"
 	"focus/internal/models"
 )
 
@@ -19,6 +20,16 @@ func (s *Store) SaveWorktreeContext(record WorktreeContextRecord) error {
 	if record.TaskMode == "" {
 		record.TaskMode = "single"
 	}
+
+	s.tryAppendEvent(events.AggregateWorktree, record.WorktreeID, events.WorktreeContextUpdated,
+		events.WorktreeContextUpdatedPayload{
+			RepoID:         record.RepoID,
+			TaskMode:       record.TaskMode,
+			TaskName:       record.TaskName,
+			BranchSnapshot: record.BranchSnapshot,
+			PrimaryTaskID:  record.PrimaryTaskID,
+		}, events.AggregateWorktree, record.WorktreeID)
+
 	const q = `
 		INSERT INTO worktree_contexts (
 			worktree_id, repo_id, primary_task_id, current_plan_id, task_mode, task_name,
@@ -52,25 +63,24 @@ func (s *Store) SaveWorktreeContext(record WorktreeContextRecord) error {
 }
 
 func (s *Store) GetWorktreeContext(worktreeID string) (*WorktreeContextRecord, error) {
-	const q = `
+	q := fmt.Sprintf(`
 		SELECT worktree_id, repo_id, primary_task_id, current_plan_id, task_mode, task_name,
 		       branch_snapshot, last_active_at, last_opened_at, last_agent_at, updated_at
-		FROM worktree_contexts WHERE worktree_id = ?
-	`
-	row := s.db.QueryRow(q, worktreeID)
-	record, err := scanWorktreeContext(row)
-	if err == sql.ErrNoRows {
+		FROM %s WHERE worktree_id = ?
+	`, s.tbl("worktree_contexts", "proj_worktree_contexts"))
+	record, err := scanWorktreeContext(s.qRow(q, worktreeID))
+	if isNoRows(err) {
 		return nil, nil
 	}
 	return record, err
 }
 
 func (s *Store) ListWorktreeContexts(repoID string) ([]WorktreeContextRecord, error) {
-	const base = `
+	base := fmt.Sprintf(`
 		SELECT worktree_id, repo_id, primary_task_id, current_plan_id, task_mode, task_name,
 		       branch_snapshot, last_active_at, last_opened_at, last_agent_at, updated_at
-		FROM worktree_contexts
-	`
+		FROM %s
+	`, s.tbl("worktree_contexts", "proj_worktree_contexts"))
 	q := base
 	args := []any{}
 	if repoID != "" {
@@ -78,7 +88,7 @@ func (s *Store) ListWorktreeContexts(repoID string) ([]WorktreeContextRecord, er
 		args = append(args, repoID)
 	}
 	q += ` ORDER BY last_active_at DESC, updated_at DESC`
-	rows, err := s.db.Query(q, args...)
+	rows, err := s.qRows(q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -100,7 +110,7 @@ func (s *Store) DeleteWorktreeContext(worktreeID string) error {
 	return err
 }
 
-func scanWorktreeContext(row *sql.Row) (*WorktreeContextRecord, error) {
+func scanWorktreeContext(row rowScanner) (*WorktreeContextRecord, error) {
 	var record WorktreeContextRecord
 	var primaryTaskID sql.NullString
 	var currentPlanID sql.NullString
@@ -146,7 +156,7 @@ func scanWorktreeContext(row *sql.Row) (*WorktreeContextRecord, error) {
 	return &record, nil
 }
 
-func scanWorktreeContextRows(rows *sql.Rows) (*WorktreeContextRecord, error) {
+func scanWorktreeContextRows(rows rowIter) (*WorktreeContextRecord, error) {
 	var record WorktreeContextRecord
 	var primaryTaskID sql.NullString
 	var currentPlanID sql.NullString

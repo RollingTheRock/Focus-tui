@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"focus/internal/events"
 	"focus/internal/models"
 )
 
@@ -22,6 +23,14 @@ func (s *Store) SaveTaskOutput(record TaskOutputRecord) error {
 	if record.CreatedAt.IsZero() {
 		record.CreatedAt = time.Now()
 	}
+
+	s.tryAppendEvent(events.AggregateTask, record.TaskID, events.TaskOutputAdded,
+		events.TaskOutputAddedPayload{
+			TaskID:  record.TaskID,
+			Content: record.Content,
+			Actor:   record.Actor,
+		}, events.AggregateTask, record.TaskID)
+
 	const q = `
 		INSERT INTO task_outputs (id, task_id, content, actor, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
@@ -43,10 +52,10 @@ func (s *Store) SaveTaskOutput(record TaskOutputRecord) error {
 }
 
 func (s *Store) ListTaskOutputs(taskID string) ([]TaskOutputRecord, error) {
-	const base = `
+	base := fmt.Sprintf(`
 		SELECT id, task_id, content, COALESCE(actor, ''), created_at, updated_at
-		FROM task_outputs
-	`
+		FROM %s
+	`, s.tbl("task_outputs", "proj_task_outputs"))
 	q := base
 	args := []any{}
 	if taskID != "" {
@@ -55,7 +64,7 @@ func (s *Store) ListTaskOutputs(taskID string) ([]TaskOutputRecord, error) {
 	}
 	q += ` ORDER BY created_at DESC`
 
-	rows, err := s.db.Query(q, args...)
+	rows, err := s.qRows(q, args...)
 	if err != nil {
 		return nil, err
 	}

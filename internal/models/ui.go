@@ -2,6 +2,7 @@ package models
 
 import (
 	"focus/internal/config"
+	"focus/internal/events"
 	"focus/internal/styles"
 	"time"
 
@@ -71,6 +72,13 @@ type Store interface {
 	DeleteAgentSessionsByWorktreeID(worktreeID string) error
 	DeleteContextNotesByWorktreeID(worktreeID string) error
 	DeleteTaskWorktreeLinksByWorktreeID(worktreeID string) error
+	ListADRs() ([]ADRRecord, error)
+	GetADR(id string) (*ADRRecord, error)
+	ListADRConstraints(adrID string) ([]ADRConstraintRecord, error)
+	// EventStore returns the event store (nil when not using PostgreSQL).
+	EventStore() any
+	// EventBus returns the in-memory event bus (nil when not using PostgreSQL).
+	EventBus() *events.EventBus
 }
 
 type PageSnapshotRecord struct {
@@ -267,6 +275,31 @@ type Panel interface {
 	Update(msg tea.Msg) (Panel, tea.Cmd)
 	View() string
 	SetSize(width, height int)
+}
+
+type ADRRecord struct {
+	ID           string
+	Title        string
+	Status       string
+	Version      int
+	Context      string
+	Decision     string
+	Consequences string
+	SupersededBy *string
+	CreatedBy    string
+	CreatedAt    time.Time
+	AcceptedAt   *time.Time
+	AcceptedBy   *string
+	UpdatedAt    time.Time
+}
+
+type ADRConstraintRecord struct {
+	ID        string
+	ADRID     string
+	Category  string
+	Rule      string
+	Rationale string
+	CreatedAt time.Time
 }
 
 // StatsRefreshMsg tells the footer to reload statistics.

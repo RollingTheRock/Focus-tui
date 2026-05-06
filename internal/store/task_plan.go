@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 
+	"focus/internal/events"
 	"focus/internal/models"
 )
 
@@ -19,6 +20,17 @@ func (s *Store) SaveTaskPlan(record TaskPlanRecord) error {
 	if record.Status == "" {
 		record.Status = "draft"
 	}
+
+	s.tryAppendEvent(events.AggregatePlan, record.ID, events.TaskPlanCreated,
+		events.TaskPlanCreatedPayload{
+			TaskID:     record.TaskID,
+			Title:      record.Title,
+			WhyNow:     record.WhyNow,
+			Success:    record.Success,
+			OutOfScope: record.OutOfScope,
+			KnownRisks: record.KnownRisks,
+		}, events.AggregatePlan, record.ID)
+
 	const q = `
 		INSERT INTO task_plans (
 			id, task_id, title, why_now, success, out_of_scope, known_risks, status, current_step, plan_body,
@@ -57,21 +69,20 @@ func (s *Store) SaveTaskPlan(record TaskPlanRecord) error {
 }
 
 func (s *Store) GetTaskPlan(id string) (*TaskPlanRecord, error) {
-	const q = `
+	q := fmt.Sprintf(`
 		SELECT id, task_id, title, why_now, success, out_of_scope, known_risks, status, current_step, plan_body,
 		       created_at, updated_at, archived_at, done_at
-		FROM task_plans WHERE id = ?
-	`
-	row := s.db.QueryRow(q, id)
-	return scanTaskPlan(row)
+		FROM %s WHERE id = ?
+	`, s.tbl("task_plans", "proj_task_plans"))
+	return scanTaskPlan(s.qRow(q, id))
 }
 
 func (s *Store) ListTaskPlans(taskID string) ([]TaskPlanRecord, error) {
-	const base = `
+	base := fmt.Sprintf(`
 		SELECT id, task_id, title, why_now, success, out_of_scope, known_risks, status, current_step, plan_body,
 		       created_at, updated_at, archived_at, done_at
-		FROM task_plans
-	`
+		FROM %s
+	`, s.tbl("task_plans", "proj_task_plans"))
 	q := base
 	args := []any{}
 	if taskID != "" {
@@ -79,7 +90,7 @@ func (s *Store) ListTaskPlans(taskID string) ([]TaskPlanRecord, error) {
 		args = append(args, taskID)
 	}
 	q += ` ORDER BY updated_at DESC, created_at DESC`
-	rows, err := s.db.Query(q, args...)
+	rows, err := s.qRows(q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -95,7 +106,7 @@ func (s *Store) ListTaskPlans(taskID string) ([]TaskPlanRecord, error) {
 	return records, rows.Err()
 }
 
-func scanTaskPlan(row *sql.Row) (*TaskPlanRecord, error) {
+func scanTaskPlan(row rowScanner) (*TaskPlanRecord, error) {
 	var record TaskPlanRecord
 	var taskID sql.NullString
 	var whyNow, success, outOfScope, knownRisks sql.NullString
@@ -139,7 +150,7 @@ func scanTaskPlan(row *sql.Row) (*TaskPlanRecord, error) {
 	return &record, nil
 }
 
-func scanTaskPlanRows(rows *sql.Rows) (*TaskPlanRecord, error) {
+func scanTaskPlanRows(rows rowIter) (*TaskPlanRecord, error) {
 	var record TaskPlanRecord
 	var taskID sql.NullString
 	var whyNow, success, outOfScope, knownRisks sql.NullString

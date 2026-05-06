@@ -2,13 +2,24 @@ package store
 
 import (
 	"database/sql"
+	"fmt"
 
+	"focus/internal/events"
 	"focus/internal/models"
 )
 
 type TaskBriefRecord = models.TaskBriefRecord
 
 func (s *Store) SaveTaskBrief(record TaskBriefRecord) error {
+	s.tryAppendEvent(events.AggregateTask, record.TaskID, events.TaskBriefUpdated,
+		events.TaskBriefUpdatedPayload{
+			TaskID:          record.TaskID,
+			WhyNow:          record.WhyNow,
+			SuccessCriteria: record.SuccessCriteria,
+			OutOfScope:      record.OutOfScope,
+			KnownRisks:      record.KnownRisks,
+		}, events.AggregateTask, record.TaskID)
+
 	const q = `
 		INSERT INTO task_briefs (
 			task_id, why_now, success_criteria, out_of_scope, known_risks, created_at, updated_at
@@ -32,15 +43,15 @@ func (s *Store) SaveTaskBrief(record TaskBriefRecord) error {
 }
 
 func (s *Store) GetTaskBrief(taskID string) (*TaskBriefRecord, error) {
-	const q = `
+	q := fmt.Sprintf(`
 		SELECT task_id, why_now, success_criteria, out_of_scope, known_risks, created_at, updated_at
-		FROM task_briefs WHERE task_id = ?
-	`
-	row := s.db.QueryRow(q, taskID)
+		FROM %s WHERE task_id = ?
+	`, s.tbl("task_briefs", "proj_task_briefs"))
+	row := s.qRow(q, taskID)
 	var record TaskBriefRecord
 	var whyNow, successCriteria, outOfScope, knownRisks sql.NullString
 	if err := row.Scan(&record.TaskID, &whyNow, &successCriteria, &outOfScope, &knownRisks, &record.CreatedAt, &record.UpdatedAt); err != nil {
-		if err == sql.ErrNoRows {
+		if isNoRows(err) {
 			return nil, nil
 		}
 		return nil, err

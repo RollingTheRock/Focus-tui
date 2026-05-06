@@ -1,9 +1,13 @@
 package store
 
 import (
-	"database/sql"
-	"focus/internal/models"
+	"context"
+	"fmt"
+	"log"
 	"time"
+
+	"focus/internal/events"
+	"focus/internal/models"
 )
 
 // CreateTodo inserts a new todo item.
@@ -16,28 +20,54 @@ func (s *Store) CreateTodo(text, list string) (*models.Todo, error) {
 		return nil, err
 	}
 	id, _ := res.LastInsertId()
+
+	// Phase 1: best-effort event append.
+	if s.events != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		payload, _ := events.Serialize(map[string]any{
+			"text": text,
+			"list": list,
+		})
+		todoID := fmt.Sprintf("todo-%d", id)
+		_, evErr := s.events.AppendEvent(ctx, events.Event{
+			OccurredAt:    time.Now(),
+			AggregateType: "todo",
+			AggregateID:   todoID,
+			EventType:     events.TodoCreated,
+			Payload:       payload,
+			ActorType:     events.ActorSystem,
+			ScopeType:     "todo",
+			ScopeID:       todoID,
+		})
+		if evErr != nil {
+			log.Printf("[event-store] append todo event failed (non-critical): %v", evErr)
+		}
+	}
+
 	return s.GetTodo(int(id))
 }
 
 // GetTodo returns a single todo by ID.
 func (s *Store) GetTodo(id int) (*models.Todo, error) {
-	row := s.db.QueryRow(
-		`SELECT id, text, status, list, created_at, updated_at FROM todos WHERE id = ?`, id,
+	q := fmt.Sprintf(
+		`SELECT id, text, status, list, created_at, updated_at FROM %s WHERE id = ?`,
+		s.tbl("todos", "proj_todos"),
 	)
-	return scanTodo(row)
+	return scanTodo(s.qRow(q, id))
 }
 
 // ListTodos returns todos for a given list, with done/overdue items sorted to the bottom.
 func (s *Store) ListTodos(list string) ([]models.Todo, error) {
-	rows, err := s.db.Query(
-		`SELECT id, text, status, list, created_at, updated_at
-		 FROM todos WHERE list = ?
-		 ORDER BY CASE status
-		     WHEN 'todo' THEN 0
-		     WHEN 'overdue' THEN 1
-		     WHEN 'done' THEN 2
-		 END, id ASC`, list,
-	)
+	q := fmt.Sprintf(`
+		SELECT id, text, status, list, created_at, updated_at
+		FROM %s WHERE list = ?
+		ORDER BY CASE status
+			WHEN 'todo' THEN 0
+			WHEN 'overdue' THEN 1
+			WHEN 'done' THEN 2
+		END, id ASC`, s.tbl("todos", "proj_todos"))
+	rows, err := s.qRows(q, list)
 	if err != nil {
 		return nil, err
 	}
@@ -103,19 +133,16 @@ func (s *Store) MarkOverdue() error {
 
 // TodayDoneCount returns (done_count, total_count) for today's list.
 func (s *Store) TodayDoneCount() (done int, total int, err error) {
-	err = s.db.QueryRow(
-		`SELECT COUNT(*) FROM todos WHERE list = 'today'`,
-	).Scan(&total)
+	tbl := s.tbl("todos", "proj_todos")
+	err = s.qRow(fmt.Sprintf(`SELECT COUNT(*) FROM %s WHERE list = 'today'`, tbl)).Scan(&total)
 	if err != nil {
 		return
 	}
-	err = s.db.QueryRow(
-		`SELECT COUNT(*) FROM todos WHERE list = 'today' AND status = 'done'`,
-	).Scan(&done)
+	err = s.qRow(fmt.Sprintf(`SELECT COUNT(*) FROM %s WHERE list = 'today' AND status = 'done'`, tbl)).Scan(&done)
 	return
 }
 
-func scanTodo(row *sql.Row) (*models.Todo, error) {
+func scanTodo(row rowScanner) (*models.Todo, error) {
 	var t models.Todo
 	if err := row.Scan(&t.ID, &t.Text, &t.Status, &t.List, &t.CreatedAt, &t.UpdatedAt); err != nil {
 		return nil, err

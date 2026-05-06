@@ -100,7 +100,7 @@ func newPage(common *models.CommonModel, pluginRegistry *plugins.Registry, adapt
 func newOverviewPage(common *models.CommonModel, pluginRegistry *plugins.Registry, adapterManager *adapters.Manager, cfg config.Config, store models.Store, cwd, repoRoot string) *page {
 	p := newPage(common, pluginRegistry, adapterManager)
 
-	dagMeta := models.PaneMeta{ID: paneDAG, Name: "Task DAG", Type: models.PaneTypeWorktree, CWD: cwd, RepoID: cwd, WorktreeID: cwd, Status: models.PaneStatusIdle, Closable: false}
+	dagMeta := models.PaneMeta{ID: paneDAG, Name: "DAG", Type: models.PaneTypeWorktree, CWD: cwd, RepoID: cwd, WorktreeID: cwd, Status: models.PaneStatusIdle, Closable: false}
 	worktreeMeta := models.PaneMeta{ID: paneWorktree, Name: "Worktrees", Type: models.PaneTypeWorktree, CWD: cwd, RepoID: cwd, WorktreeID: cwd, Status: models.PaneStatusIdle, Closable: false}
 	detailMeta := models.PaneMeta{ID: paneWorktreeDetail, Name: "Worktree Detail", Type: models.PaneTypeWorktree, CWD: cwd, RepoID: cwd, WorktreeID: cwd, Status: models.PaneStatusIdle, Closable: false}
 
@@ -117,8 +117,11 @@ func newOverviewPage(common *models.CommonModel, pluginRegistry *plugins.Registr
 		detailMeta.RepoID = repoRoot
 	}
 
-	// DAG pane
-	p.registerPane(paneDAG, newDagPane(paneDAG, dagMeta, common, repoRoot, adapterManager.Git()), dagMeta)
+	// DAG pane (tab container: Tasks + ADRs)
+	dag := newDagPane(paneDAG, dagMeta, common, repoRoot, adapterManager.Git())
+	adr := newAdrPane(paneDAG+"-adr", dagMeta, common)
+	tc := newTabContainer(paneDAG, dagMeta, common, dag, adr)
+	p.registerPane(paneDAG, tc, dagMeta)
 
 	// Worktree list pane (via plugin registry so it gets the real GitAdapter)
 	if panel, err := pluginRegistry.CreatePane(models.PaneTypeWorktree, paneWorktree, worktreeMeta, *common); err == nil {

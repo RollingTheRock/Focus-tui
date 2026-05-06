@@ -1,17 +1,20 @@
 package app
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"focus/internal/adapters"
 	"focus/internal/agents"
 	"focus/internal/avatar"
 	"focus/internal/config"
+	"focus/internal/events"
 	gitmodel "focus/internal/git"
 	"focus/internal/mcp"
 	"focus/internal/models"
 	"focus/internal/orchestrator"
 	"focus/internal/plugins"
+	"focus/internal/store"
 	agentsplugin "focus/internal/plugins/agents"
 	editorplugin "focus/internal/plugins/editor"
 	filebrowser "focus/internal/plugins/filebrowser"
@@ -76,6 +79,9 @@ type avatarRenderedMsg struct {
 	art string
 }
 
+// orchNotificationMsg wraps an orchestrator.Notification for Bubbletea routing.
+type orchNotificationMsg orchestrator.Notification
+
 // viewCache holds the cached View() output.
 // Using a pointer so it survives value-receiver copies in Bubbletea.
 type viewCache struct {
@@ -107,12 +113,19 @@ type model struct {
 	mcpServer          *mcp.Server
 
 	lastAgentSync time.Time
+
+	orch          *orchestrator.Orchestrator
+	notifications []orchestrator.Notification
 }
 
 type editorMetaProvider interface {
 	FilePath() string
 	Dirty() bool
 	DisplayName() string
+}
+
+type tabHandler interface {
+	HandleTab() bool
 }
 
 // New creates and returns the initial application model.
@@ -166,6 +179,11 @@ func New(cfg config.Config, store models.Store) tea.Model {
 
 	m.loadPageSnapshots()
 	m.syncWorktreeActivities()
+
+	// Phase 4: start resident orchestrator when event bus is available.
+	if bus := store.EventBus(); bus != nil {
+		m.orch = orchestrator.New(appOrchestratorStore{model: &m}, bus)
+	}
 
 	return m
 }
@@ -497,7 +515,10 @@ func (m *model) mcpContextGetForTaskTool(params map[string]any) (map[string]any,
 		})
 	}
 
-	return map[string]any{
+	// Phase 2: Piggyback — attach recent context events for this task.
+	piggyback := m.piggybackEventsForTask(taskID)
+
+	result := map[string]any{
 		"task": map[string]any{
 			"id":                    task.ID,
 			"repo_id":               task.RepoID,
@@ -515,7 +536,53 @@ func (m *model) mcpContextGetForTaskTool(params map[string]any) (map[string]any,
 		"knowledge_facts":  knowledgeFacts,
 		"worktree_info":    worktreeInfo,
 		"adr_constraints":  []any{},
-	}, nil
+	}
+	if piggyback != "" {
+		result["_context_updates"] = piggyback
+	}
+	return result, nil
+}
+
+// piggybackEventsForTask returns a human-readable summary of recent events
+// for the given task. It is appended to MCP tool results so agents see
+// context changes without extra tool calls.
+func (m *model) piggybackEventsForTask(taskID string) string {
+	if m.common == nil || m.common.Store == nil {
+		return ""
+	}
+	raw := m.common.Store.EventStore()
+	if raw == nil {
+		return ""
+	}
+	evStore, ok := raw.(*store.EventStore)
+	if !ok {
+		return ""
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+
+	evs, err := evStore.GetRecentEventsForScope(ctx, events.AggregateTask, taskID, 5)
+	if err != nil || len(evs) == 0 {
+		return ""
+	}
+
+	var lines []string
+	lines = append(lines, "\n---\n📬 Context Updates (recent activity on this task):")
+	for _, ev := range evs {
+		switch ev.EventType {
+		case events.TaskCreated:
+			lines = append(lines, fmt.Sprintf("• Task created by %s", ev.ActorID))
+		case events.TaskStateChanged:
+			lines = append(lines, fmt.Sprintf("• State changed at %s", ev.OccurredAt.Format("15:04")))
+		case events.TaskGoalUpdated:
+			lines = append(lines, fmt.Sprintf("• Goal/next-step updated at %s", ev.OccurredAt.Format("15:04")))
+		default:
+			lines = append(lines, fmt.Sprintf("• %s at %s", ev.EventType, ev.OccurredAt.Format("15:04")))
+		}
+	}
+	lines = append(lines, "---")
+	return strings.Join(lines, "\n")
 }
 
 func (m *model) mcpTaskCreateTool(params map[string]any) (map[string]any, error) {
@@ -553,8 +620,8 @@ func (m *model) mcpTaskCreateTool(params map[string]any) (map[string]any, error)
 		return nil, err
 	}
 	// Refresh DAG if visible
-	if dp, ok := m.activePage.pane(paneDAG).(*dagPane); ok {
-		dp.buildDAG()
+	if tc, ok := m.activePage.pane(paneDAG).(*tabContainer); ok {
+		tc.refreshDAG()
 	}
 	m.invalidateView()
 	m.syncWorktreeActivities()
@@ -587,8 +654,8 @@ func (m *model) mcpTaskAddDependencyTool(params map[string]any) (map[string]any,
 	if err := m.common.Store.SaveTaskDependency(record); err != nil {
 		return nil, err
 	}
-	if dp, ok := m.activePage.pane(paneDAG).(*dagPane); ok {
-		dp.buildDAG()
+	if tc, ok := m.activePage.pane(paneDAG).(*tabContainer); ok {
+		tc.refreshDAG()
 	}
 	m.invalidateView()
 	return map[string]any{
@@ -872,8 +939,8 @@ func (m *model) mcpPlanExpandToTasksTool(params map[string]any) (map[string]any,
 	}
 
 	// Refresh DAG if visible
-	if dp, ok := m.activePage.pane(paneDAG).(*dagPane); ok {
-		dp.buildDAG()
+	if tc, ok := m.activePage.pane(paneDAG).(*tabContainer); ok {
+		tc.refreshDAG()
 	}
 	m.invalidateView()
 	m.syncWorktreeActivities()
@@ -994,12 +1061,10 @@ func (m *model) mcpDagGetStatusTool(params map[string]any) (map[string]any, erro
 }
 
 func (m *model) launchDownstreamTasksProtocol(taskID string) ([]string, error) {
-	if m.common == nil || m.common.Store == nil || taskID == "" {
-		return nil, nil
-	}
-	launcher := &protocolOrchestratorLauncher{model: m}
-	engine := orchestrator.New(appOrchestratorStore{model: m}, launcher)
-	return engine.OnTaskCompleted(taskID)
+	// Phase 4: Orchestrator is now resident. Downstream readiness is
+	// detected via the event bus and surfaced as TUI notifications.
+	// Auto-launch is intentionally removed per ADR-0000 Human Sovereignty.
+	return nil, nil
 }
 
 func (m *model) markSessionCompleted(sessionID, summary string) {
@@ -1137,11 +1202,29 @@ func (m model) Init() tea.Cmd {
 			return avatarRenderedMsg{art: art}
 		})
 	}
+	if m.orch != nil {
+		m.orch.Start(context.Background())
+		cmds = append(cmds, m.orchestratorCmd())
+	}
 	return tea.Batch(cmds...)
 }
 
 func (m *model) invalidateView() {
 	m.viewGen++
+}
+
+// orchestratorCmd blocks until the next orchestrator notification arrives.
+func (m *model) orchestratorCmd() tea.Cmd {
+	return func() tea.Msg {
+		if m.orch == nil {
+			return nil
+		}
+		n, ok := <-m.orch.Notifications()
+		if !ok {
+			return nil
+		}
+		return orchNotificationMsg(n)
+	}
 }
 
 // Update implements tea.Model.
@@ -1151,6 +1234,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.avatarRendered = msg.art
 		m.invalidateView()
 		return m, nil
+
+	case orchNotificationMsg:
+		m.notifications = append(m.notifications, orchestrator.Notification(msg))
+		m.invalidateView()
+		// Re-subscribe to the next notification.
+		return m, m.orchestratorCmd()
 
 	case tea.KeyMsg:
 		return m.handleKey(msg)
@@ -1591,6 +1680,11 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "q", "ctrl+c":
 		m.closeShellPanes()
 		return m, tea.Quit
+	case "d":
+		if len(m.notifications) > 0 {
+			m.notifications = m.notifications[1:]
+		}
+		return m, nil
 	case "ctrl+left", "ctrl+shift+left":
 		return m.adjustFocusedSplit(layout.FocusLeft)
 	case "ctrl+right", "ctrl+shift+right":
@@ -1600,6 +1694,11 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+down", "ctrl+shift+down":
 		return m.adjustFocusedSplit(layout.FocusDown)
 	case "tab":
+		if th, ok := m.activePage.pane(m.activePage.focused).(tabHandler); ok {
+			if th.HandleTab() {
+				return m, nil
+			}
+		}
 		m.focusCycle(1)
 		return m, nil
 	case "shift+tab":
@@ -2070,7 +2169,13 @@ func (m model) buildView(dims layout.Dimensions, w, h int) string {
 		headerView = hdr.ViewCompact(w, dims.ShowQuote)
 	}
 
-	bodyHeight := h - dims.HeaderH - 1
+	notifBar := m.renderNotificationBar(w)
+	notifH := 0
+	if notifBar != "" {
+		notifH = 1
+	}
+
+	bodyHeight := h - dims.HeaderH - notifH - 1
 	if footerVisible(h) {
 		bodyHeight--
 	}
@@ -2083,12 +2188,44 @@ func (m model) buildView(dims layout.Dimensions, w, h int) string {
 	}
 	helpLine := m.renderHelpLine(w)
 
-	sections := []string{headerView, bodyView}
+	sections := []string{headerView}
+	if notifBar != "" {
+		sections = append(sections, notifBar)
+	}
+	sections = append(sections, bodyView)
 	if footerVisible(h) {
 		sections = append(sections, m.pane(paneFooter).View())
 	}
 	sections = append(sections, helpLine)
 	return lipgloss.JoinVertical(lipgloss.Left, sections...)
+}
+
+func (m model) renderNotificationBar(w int) string {
+	if len(m.notifications) == 0 {
+		return ""
+	}
+	n := m.notifications[0]
+	icon := "ℹ"
+	bgColor := lipgloss.Color("#3B82F6") // blue for info
+	switch n.Severity {
+	case "warning":
+		icon = "⚠"
+		bgColor = lipgloss.Color("#F59E0B") // amber
+	case "critical":
+		icon = "✖"
+		bgColor = lipgloss.Color("#EF4444") // red
+	}
+	var countHint string
+	if len(m.notifications) > 1 {
+		countHint = fmt.Sprintf(" [%d more]", len(m.notifications)-1)
+	}
+	text := fmt.Sprintf("%s %s: %s%s [d]dismiss", icon, n.Title, n.Body, countHint)
+	style := lipgloss.NewStyle().
+		Width(w).
+		Background(bgColor).
+		Foreground(lipgloss.Color("#FFFFFF")).
+		Padding(0, 1)
+	return style.Render(text)
 }
 
 func (m model) renderBody(w, h int) string {
@@ -2227,6 +2364,9 @@ func (m *model) closeShellPanes() {
 	m.activePage.closeShellPanes()
 	if m.mcpServer != nil {
 		_ = m.mcpServer.Stop()
+	}
+	if m.orch != nil {
+		m.orch.Stop()
 	}
 }
 
@@ -2712,18 +2852,10 @@ func (m *model) cycleTaskState(msg gitplugin.CycleTaskStateMsg) tea.Cmd {
 }
 
 func (m *model) launchDownstreamTasks(taskID string) tea.Cmd {
-	if m.common == nil || m.common.Store == nil || taskID == "" {
-		return nil
-	}
-	launcher := &appOrchestratorLauncher{model: m}
-	engine := orchestrator.New(appOrchestratorStore{model: m}, launcher)
-	if _, err := engine.OnTaskCompleted(taskID); err != nil {
-		return nil
-	}
-	if len(launcher.cmds) == 0 {
-		return nil
-	}
-	return tea.Batch(launcher.cmds...)
+	// Phase 4: Orchestrator is now resident. Downstream readiness is
+	// detected via the event bus and surfaced as TUI notifications.
+	// Auto-launch is intentionally removed per ADR-0000 Human Sovereignty.
+	return nil
 }
 
 type appOrchestratorStore struct {
@@ -2751,8 +2883,44 @@ func (s appOrchestratorStore) AllPrerequisitesMet(taskID string) (bool, error) {
 	return s.model.common.Store.AreTaskPrerequisitesMet(taskID)
 }
 
-func (s appOrchestratorStore) MarkSessionDisconnected(sessionID string) error {
-	return s.model.common.Store.MarkAgentSessionDisconnected(sessionID, "heartbeat timeout")
+func (s appOrchestratorStore) MarkSessionDisconnected(sessionID string, reason string) error {
+	return s.model.common.Store.MarkAgentSessionDisconnected(sessionID, reason)
+}
+
+func (s appOrchestratorStore) ListActiveAgentSessions() ([]orchestrator.AgentSession, error) {
+	records, err := s.model.common.Store.ListAgentSessions("")
+	if err != nil {
+		return nil, err
+	}
+	var out []orchestrator.AgentSession
+	for _, r := range records {
+		if r.State == "active" || r.State == "running" {
+			out = append(out, orchestrator.AgentSession{
+				ID:            r.ID,
+				TaskID:        r.TaskID,
+				WorktreeID:    r.WorktreeID,
+				Provider:      r.Provider,
+				LastHeartbeat: r.LastHeartbeat,
+				State:         r.State,
+			})
+		}
+	}
+	return out, nil
+}
+
+func (s appOrchestratorStore) GetTaskContext(taskID string) (*orchestrator.TaskContext, error) {
+	record, err := s.model.common.Store.GetTaskContext(taskID)
+	if err != nil {
+		return nil, err
+	}
+	if record == nil {
+		return nil, nil
+	}
+	return &orchestrator.TaskContext{
+		ID:    record.ID,
+		Title: record.Title,
+		State: record.State,
+	}, nil
 }
 
 type appOrchestratorLauncher struct {

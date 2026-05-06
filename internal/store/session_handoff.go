@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 
+	"focus/internal/events"
 	"focus/internal/models"
 )
 
@@ -16,6 +17,24 @@ func (s *Store) SaveSessionHandoff(record SessionHandoffRecord) error {
 	if record.TaskID == "" {
 		return fmt.Errorf("session handoff task_id required")
 	}
+
+	var planID string
+	if record.PlanID != nil {
+		planID = *record.PlanID
+	}
+	s.tryAppendEvent(events.AggregateSessionHandoff, record.ID, events.SessionHandoffCreated,
+		events.SessionHandoffCreatedPayload{
+			TaskID:             record.TaskID,
+			PlanID:             planID,
+			SessionID:          record.SessionID,
+			DoneSummary:        record.DoneSummary,
+			RemainingSummary:   record.RemainingSummary,
+			DecisionSummary:    record.DecisionSummary,
+			UncertaintySummary: record.UncertaintySummary,
+			BlockerSummary:     record.BlockerSummary,
+			Entrypoint:         record.Entrypoint,
+		}, events.AggregateSessionHandoff, record.TaskID)
+
 	const q = `
 		INSERT INTO session_handoffs (
 			id, task_id, plan_id, session_id,
@@ -50,15 +69,15 @@ func (s *Store) SaveSessionHandoff(record SessionHandoffRecord) error {
 }
 
 func (s *Store) ListSessionHandoffs(taskID string) ([]SessionHandoffRecord, error) {
-	const q = `
+	q := fmt.Sprintf(`
 		SELECT id, task_id, plan_id, session_id,
 		       done_summary, remaining_summary, decision_summary,
 		       uncertainty_summary, blocker_summary, entrypoint, created_at
-		FROM session_handoffs
+		FROM %s
 		WHERE task_id = ?
 		ORDER BY created_at DESC
-	`
-	rows, err := s.db.Query(q, taskID)
+	`, s.tbl("session_handoffs", "proj_session_handoffs"))
+	rows, err := s.qRows(q, taskID)
 	if err != nil {
 		return nil, err
 	}

@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 
+	"focus/internal/events"
 	"focus/internal/models"
 )
 
@@ -22,6 +23,26 @@ func (s *Store) SaveContextNote(record ContextNoteRecord) error {
 	if record.Body == "" {
 		return fmt.Errorf("context note body required")
 	}
+
+	scopeID := ""
+	if record.TaskID != nil {
+		scopeID = *record.TaskID
+	} else {
+		scopeID = record.WorktreeID
+	}
+	var taskID string
+	if record.TaskID != nil {
+		taskID = *record.TaskID
+	}
+	s.tryAppendEvent(events.AggregateContextNote, record.ID, events.ContextNoteAdded,
+		events.ContextNoteAddedPayload{
+			TaskID:     taskID,
+			WorktreeID: record.WorktreeID,
+			NoteType:   record.NoteType,
+			Body:       record.Body,
+			Pinned:     record.Pinned,
+		}, events.AggregateContextNote, scopeID)
+
 	const q = `
 		INSERT INTO context_notes (
 			id, task_id, worktree_id, note_type, body, pinned, created_at, updated_at
@@ -47,11 +68,11 @@ func (s *Store) SaveContextNote(record ContextNoteRecord) error {
 }
 
 func (s *Store) ListContextNotes(taskID string, worktreeID string) ([]ContextNoteRecord, error) {
-	q := `
+	q := fmt.Sprintf(`
 		SELECT id, task_id, worktree_id, note_type, body, pinned, created_at, updated_at
-		FROM context_notes
+		FROM %s
 		WHERE 1 = 1
-	`
+	`, s.tbl("context_notes", "proj_context_notes"))
 	args := []any{}
 	if taskID != "" {
 		q += ` AND task_id = ?`
@@ -63,7 +84,7 @@ func (s *Store) ListContextNotes(taskID string, worktreeID string) ([]ContextNot
 	}
 	q += ` ORDER BY pinned DESC, updated_at DESC, created_at DESC`
 
-	rows, err := s.db.Query(q, args...)
+	rows, err := s.qRows(q, args...)
 	if err != nil {
 		return nil, err
 	}
