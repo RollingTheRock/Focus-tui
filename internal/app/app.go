@@ -195,19 +195,111 @@ func (m *model) registerMCPTools() {
 	_ = m.mcpServer.RegisterTool("session.heartbeat", "Report agent session heartbeat", nil, m.mcpSessionHeartbeatTool)
 	_ = m.mcpServer.RegisterTool("session.request_intervention", "Request human intervention", nil, m.mcpSessionRequestInterventionTool)
 	_ = m.mcpServer.RegisterTool("task.get", "Get task details by ID", nil, m.mcpTaskGetTool)
-	_ = m.mcpServer.RegisterTool("task.create", "Create a new task", nil, m.mcpTaskCreateTool)
+	// Schemas with Chinese-first title instructions
+	taskCreateSchema := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"title": map[string]any{
+				"type":        "string",
+				"description": "任务标题，必须使用中文，简洁明了，采用动宾结构（如「修复登录接口缓存问题」）",
+			},
+			"goal": map[string]any{
+				"type":        "string",
+				"description": "任务目标描述（中文优先）",
+			},
+			"next_step": map[string]any{
+				"type":        "string",
+				"description": "下一步行动（中文优先）",
+			},
+			"state": map[string]any{
+				"type":        "string",
+				"description": "初始状态：active, paused, ready, blocked, done",
+			},
+			"priority": map[string]any{
+				"type":        "string",
+				"description": "优先级：low, medium, high, critical",
+			},
+			"repo_id": map[string]any{
+				"type":        "string",
+				"description": "仓库路径（可选，默认当前仓库）",
+			},
+			"preferred_worktree_id": map[string]any{
+				"type":        "string",
+				"description": "偏好的工作树 ID",
+			},
+		},
+		"required": []string{"title"},
+	}
+	planCreateSchema := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"title": map[string]any{
+				"type":        "string",
+				"description": "计划标题，必须使用中文，概括整个计划的核心目标（如「重构认证模块 v2」）",
+			},
+			"task_id": map[string]any{
+				"type":        "string",
+				"description": "关联的任务 ID",
+			},
+			"why_now": map[string]any{
+				"type":        "string",
+				"description": "为什么要现在做这个计划（中文优先）",
+			},
+			"success": map[string]any{
+				"type":        "string",
+				"description": "成功标准（中文优先）",
+			},
+			"out_of_scope": map[string]any{
+				"type":        "string",
+				"description": "明确排除的范围（中文优先）",
+			},
+			"known_risks": map[string]any{
+				"type":        "string",
+				"description": "已知风险（中文优先）",
+			},
+			"plan_body": map[string]any{
+				"type":        "string",
+				"description": "计划正文，使用中文描述各步骤",
+			},
+		},
+		"required": []string{"title"},
+	}
+	planAddStepSchema := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"plan_id": map[string]any{
+				"type":        "string",
+				"description": "计划 ID",
+			},
+			"title": map[string]any{
+				"type":        "string",
+				"description": "步骤标题，必须使用中文，简洁具体（如「编写单元测试覆盖登录流程」）",
+			},
+			"order_index": map[string]any{
+				"type":        "number",
+				"description": "步骤顺序索引（可选，默认追加到最后）",
+			},
+			"notes": map[string]any{
+				"type":        "string",
+				"description": "步骤备注（中文优先）",
+			},
+		},
+		"required": []string{"plan_id", "title"},
+	}
+
+	_ = m.mcpServer.RegisterTool("task.create", "创建一个新任务。title 必须使用中文，简洁动宾结构", taskCreateSchema, m.mcpTaskCreateTool)
 	_ = m.mcpServer.RegisterTool("task.list", "List tasks", nil, m.mcpTaskListTool)
 	_ = m.mcpServer.RegisterTool("task.add_dependency", "Add dependency between tasks", nil, m.mcpTaskAddDependencyTool)
 	_ = m.mcpServer.RegisterTool("task.create_output", "Create task output/artifact", nil, m.mcpTaskCreateOutputTool)
 	_ = m.mcpServer.RegisterTool("task.update_status", "Update task status", nil, m.mcpTaskUpdateStatusTool)
 	_ = m.mcpServer.RegisterTool("kg.add_fact", "Add a knowledge graph fact", nil, m.mcpKnowledgeAddFactTool)
 	_ = m.mcpServer.RegisterTool("context.get_for_task", "Get full context for a task", nil, m.mcpContextGetForTaskTool)
-	_ = m.mcpServer.RegisterTool("plan.create", "Create a new task plan", nil, m.mcpPlanCreateTool)
+	_ = m.mcpServer.RegisterTool("plan.create", "创建一个新的任务计划。title 必须使用中文，概括核心目标", planCreateSchema, m.mcpPlanCreateTool)
 	_ = m.mcpServer.RegisterTool("plan.get", "Get plan details with steps", nil, m.mcpPlanGetTool)
 	_ = m.mcpServer.RegisterTool("plan.list", "List task plans", nil, m.mcpPlanListTool)
-	_ = m.mcpServer.RegisterTool("plan.add_step", "Add a step to a plan", nil, m.mcpPlanAddStepTool)
-	_ = m.mcpServer.RegisterTool("plan.expand_to_tasks", "Expand plan steps into tasks and dependencies", nil, m.mcpPlanExpandToTasksTool)
-	_ = m.mcpServer.RegisterTool("dag.get_status", "Get full DAG status with topology", nil, m.mcpDagGetStatusTool)
+	_ = m.mcpServer.RegisterTool("plan.add_step", "为计划添加一个步骤。title 必须使用中文，简洁具体", planAddStepSchema, m.mcpPlanAddStepTool)
+	_ = m.mcpServer.RegisterTool("plan.expand_to_tasks", "将计划步骤展开为任务和依赖关系", nil, m.mcpPlanExpandToTasksTool)
+	_ = m.mcpServer.RegisterTool("dag.get_status", "获取完整 DAG 状态和拓扑结构", nil, m.mcpDagGetStatusTool)
 }
 
 func (m *model) mcpSessionHeartbeatTool(params map[string]any) (map[string]any, error) {

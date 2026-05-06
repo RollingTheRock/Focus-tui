@@ -188,7 +188,12 @@ func (p *dagPane) moveCursor(dLevel, dIndex int) {
 	if p.cursorNode == "" {
 		return
 	}
-	curLevel := p.levels[p.cursorNode]
+	// Defensive: if cursorNode is stale (not in current levels/layers), reset it
+	curLevel, ok := p.levels[p.cursorNode]
+	if !ok {
+		p.resetCursor()
+		return
+	}
 	curIdx := -1
 	for i, id := range p.layerIDs[curLevel] {
 		if id == p.cursorNode {
@@ -197,6 +202,7 @@ func (p *dagPane) moveCursor(dLevel, dIndex int) {
 		}
 	}
 	if curIdx < 0 {
+		p.resetCursor()
 		return
 	}
 
@@ -224,6 +230,20 @@ func (p *dagPane) moveCursor(dLevel, dIndex int) {
 			return
 		}
 		p.cursorNode = ids[target]
+	}
+}
+
+func (p *dagPane) resetCursor() {
+	for _, t := range p.tasks {
+		if t.State == "ready" || t.State == "" {
+			p.cursorNode = t.ID
+			return
+		}
+	}
+	if len(p.tasks) > 0 {
+		p.cursorNode = p.tasks[0].ID
+	} else {
+		p.cursorNode = ""
 	}
 }
 
@@ -341,18 +361,25 @@ func (p *dagPane) View() string {
 		h = 10
 	}
 
+	// header: 2 rows (title + hints), body: rest
+	headerRows := 2
+	bodyH := h - headerRows
+	if bodyH < minRows {
+		bodyH = minRows
+	}
+
 	var lines []string
-	lines = append(lines, dagHeaderStyle.Render("  Task DAG  ")+dagHintStyle.Render("[j/k/h/l]move  [enter]select  [c]create-wt  [r]research  [a]arch  [R]refresh"))
+	lines = append(lines,
+		dagHeaderStyle.Render(" Task DAG ")+
+			dagHintStyle.Render("  [j/k]↑↓  [h/l]←→  [enter]select  [c]wt  [r]research  [a]arch  [R]refresh"),
+	)
+	lines = append(lines, "")
 
 	if !p.hasDAG() {
 		lines = append(lines, dagMutedStyle.Render("  No tasks yet. Press [r] to refresh."))
 		return p.clampAndJoin(lines, h, w)
 	}
 
-	bodyH := h - 1
-	if bodyH < 3 {
-		bodyH = 3
-	}
 
 	dagStr := renderHorizontalDAG(p.nodes, p.edges, p.levels, p.layerIDs, p.maxLevel, p.cursorNode, w, bodyH)
 	lines = append(lines, dagStr)
