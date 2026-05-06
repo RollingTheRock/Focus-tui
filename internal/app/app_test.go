@@ -2074,3 +2074,12 @@ func TestSyncPaneMetaMarksDirtyEditorName(t *testing.T) {
 		t.Fatalf("expected dirty editor title '*main.go', got %q", got)
 	}
 }
+
+func TestCmdBusAlwaysAvailable(t *testing.T) {
+	cfg := config.DefaultConfig()
+	st, _ := store.New(":memory:")
+	m := New(cfg, st).(model)
+	if m.cmdBus == nil {
+		t.Fatal("cmdBus should be available when store is *store.Store")
+	}
+}

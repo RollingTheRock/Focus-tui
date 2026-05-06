@@ -252,3 +252,68 @@ func LaunchExternalCommand(req ExternalLaunchRequest) tea.Cmd {
 		}
 	}
 }
+
+// BuildExternalShellCommand builds a command to open an interactive shell in an
+// external terminal emulator for the given directory. It reuses the emulator
+// detection logic but launches $SHELL instead of an agent provider.
+func BuildExternalShellCommand(emulator, title, directory string, zoom float64) (string, []string) {
+	if emulator == "" {
+		emulator = DetectTerminalEmulator()
+		if emulator == "" {
+			emulator = "kitty"
+		}
+	}
+
+	shell := os.Getenv("SHELL")
+	if shell == "" {
+		shell = "/bin/sh"
+	}
+
+	switch emulator {
+	case "kitty":
+		return "kitty", []string{"--title", title, "--directory", directory, shell}
+	case "alacritty":
+		return "alacritty", []string{"--title", title, "--working-directory", directory, "-e", shell}
+	case "wezterm":
+		return "wezterm", []string{"cli", "spawn", "--cwd", directory, "--", shell}
+	case "gnome-terminal":
+		args := []string{"--window", "--title", title, "--working-directory", directory}
+		if zoom != 1.0 && zoom > 0 {
+			args = append(args, "--zoom", fmt.Sprintf("%.2f", zoom))
+		}
+		args = append(args, "--", shell)
+		return "gnome-terminal", args
+	case "ptyxis":
+		args := []string{"--new-window", "-d", directory, "-x", shell}
+		if title != "" {
+			args = append([]string{"-T", title}, args...)
+		}
+		return "ptyxis", args
+	default:
+		// Fallback: attempt to open a shell through the unknown terminal wrapper.
+		return emulator, []string{"-e", shell}
+	}
+}
+
+type ExternalShellLaunchedMsg struct {
+	PID int
+	CWD string
+	Err error
+}
+
+// LaunchExternalShell opens an external terminal with an interactive shell at
+// the given working directory. The caller should handle ExternalShellLaunchedMsg
+// to report success or failure.
+func LaunchExternalShell(cwd, title, terminalEmulator string, zoom float64) tea.Cmd {
+	return func() tea.Msg {
+		if cwd == "" {
+			return ExternalShellLaunchedMsg{Err: fmt.Errorf("cwd required")}
+		}
+		name, args := BuildExternalShellCommand(terminalEmulator, title, cwd, zoom)
+		cmd := exec.Command(name, args...)
+		if err := cmd.Start(); err != nil {
+			return ExternalShellLaunchedMsg{CWD: cwd, Err: err}
+		}
+		return ExternalShellLaunchedMsg{PID: cmd.Process.Pid, CWD: cwd}
+	}
+}
