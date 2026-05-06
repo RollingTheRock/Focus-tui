@@ -36,6 +36,13 @@ type TaskContext struct {
 	State string
 }
 
+// PlanStep is a lightweight view of a plan step for the orchestrator.
+type PlanStep struct {
+	ID     string
+	Title  string
+	State  string
+}
+
 // Notification is an actionable alert produced by the orchestrator.
 type Notification struct {
 	Type     string // e.g. "downstream_ready", "heartbeat_timeout", "plan_completed", "task_blocked"
@@ -52,6 +59,7 @@ type Store interface {
 	MarkSessionDisconnected(sessionID string, reason string) error
 	ListActiveAgentSessions() ([]AgentSession, error)
 	GetTaskContext(taskID string) (*TaskContext, error)
+	ListPlanSteps(planID string) ([]PlanStep, error)
 }
 
 // Orchestrator is a resident goroutine that consumes domain events and
@@ -95,12 +103,22 @@ func (o *Orchestrator) Notifications() <-chan Notification {
 
 // --- event loop ---
 
+// orchestratorFilter returns true for event types the orchestrator cares about.
+func orchestratorFilter(ev events.Event) bool {
+	switch ev.EventType {
+	case events.TaskStateChanged, events.PlanStepStateChanged:
+		return true
+	default:
+		return false
+	}
+}
+
 func (o *Orchestrator) eventLoop(ctx context.Context) {
 	defer o.wg.Done()
 	if o.bus == nil {
 		return
 	}
-	ch := o.bus.Subscribe("orchestrator")
+	ch := o.bus.Subscribe("orchestrator", orchestratorFilter)
 	defer o.bus.Unsubscribe("orchestrator")
 
 	for {
@@ -138,7 +156,7 @@ func (o *Orchestrator) handleEvent(ev events.Event) {
 			return
 		}
 		if p.NewState == "done" {
-			o.checkPlanCompletion(ev.AggregateID)
+			o.checkPlanCompletion(p.PlanID)
 		}
 	}
 }
@@ -177,16 +195,27 @@ func (o *Orchestrator) notifyBlocked(taskID string) {
 	})
 }
 
-func (o *Orchestrator) checkPlanCompletion(stepID string) {
-	// Phase 4 stub: plan completion checks require plan store integration.
-	// For now we emit a generic info notification when a step completes.
-	o.send(Notification{
-		Type:     "plan_step_done",
-		Title:    "计划步骤完成",
-		Body:     fmt.Sprintf("步骤 %s 已完成", stepID),
-		TaskID:   "",
-		Severity: "info",
-	})
+func (o *Orchestrator) checkPlanCompletion(planID string) {
+	steps, err := o.store.ListPlanSteps(planID)
+	if err != nil {
+		return
+	}
+	allDone := true
+	for _, step := range steps {
+		if step.State != "done" {
+			allDone = false
+			break
+		}
+	}
+	if allDone && len(steps) > 0 {
+		o.send(Notification{
+			Type:     "plan_completed",
+			Title:    "计划全部完成",
+			Body:     fmt.Sprintf("计划 %s 的所有步骤已完成", planID),
+			TaskID:   "",
+			Severity: "info",
+		})
+	}
 }
 
 // --- heartbeat loop ---

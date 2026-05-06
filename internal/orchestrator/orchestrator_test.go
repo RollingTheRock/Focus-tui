@@ -41,6 +41,10 @@ func (f *fakeStore) GetTaskContext(taskID string) (*TaskContext, error) {
 	return f.taskContexts[taskID], nil
 }
 
+func (f *fakeStore) ListPlanSteps(planID string) ([]PlanStep, error) {
+	return nil, nil
+}
+
 func TestOrchestratorDownstreamReadyNotification(t *testing.T) {
 	bus := events.NewEventBus()
 	store := &fakeStore{
