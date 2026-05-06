@@ -1,9 +1,14 @@
 package store
 
 import (
+	"context"
 	"database/sql"
-	"focus/internal/models"
+	"fmt"
+	"log"
 	"time"
+
+	"focus/internal/events"
+	"focus/internal/models"
 )
 
 // CreateTodo inserts a new todo item.
@@ -16,6 +21,31 @@ func (s *Store) CreateTodo(text, list string) (*models.Todo, error) {
 		return nil, err
 	}
 	id, _ := res.LastInsertId()
+
+	// Phase 1: best-effort event append.
+	if s.events != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		payload, _ := events.Serialize(map[string]any{
+			"text": text,
+			"list": list,
+		})
+		todoID := fmt.Sprintf("todo-%d", id)
+		_, evErr := s.events.AppendEvent(ctx, events.Event{
+			OccurredAt:    time.Now(),
+			AggregateType: "todo",
+			AggregateID:   todoID,
+			EventType:     "TodoCreated",
+			Payload:       payload,
+			ActorType:     events.ActorSystem,
+			ScopeType:     "todo",
+			ScopeID:       todoID,
+		})
+		if evErr != nil {
+			log.Printf("[event-store] append todo event failed (non-critical): %v", evErr)
+		}
+	}
+
 	return s.GetTodo(int(id))
 }
 

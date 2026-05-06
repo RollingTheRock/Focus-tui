@@ -1,9 +1,13 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
+	"log"
+	"time"
 
+	"focus/internal/events"
 	"focus/internal/models"
 )
 
@@ -25,6 +29,12 @@ func (s *Store) SaveTaskContext(record TaskContextRecord) error {
 	if record.Priority == "" {
 		record.Priority = "medium"
 	}
+
+	// Phase 1: dual-write to Event Store (best-effort).
+	if s.events != nil {
+		s.tryAppendTaskEvent(record)
+	}
+
 	const q = `
 		INSERT INTO task_contexts (
 			id, repo_id, title, goal, next_step, state, priority,
@@ -54,6 +64,61 @@ func (s *Store) SaveTaskContext(record TaskContextRecord) error {
 		nullableTimeValue(record.CreatedAt),
 	)
 	return err
+}
+
+// tryAppendTaskEvent attempts to write an event to the Event Store.
+// Failures are logged but never block the SQLite write.
+func (s *Store) tryAppendTaskEvent(record TaskContextRecord) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	old, _ := s.GetTaskContext(record.ID)
+
+	var evType string
+	var payload []byte
+
+	if old == nil {
+		evType = events.TaskCreated
+		p := events.TaskCreatedPayload{
+			RepoID:       record.RepoID,
+			Title:        record.Title,
+			Goal:         record.Goal,
+			Priority:     record.Priority,
+			ParentTaskID: record.ParentTaskID,
+		}
+		payload, _ = events.Serialize(p)
+	} else if old.State != record.State {
+		evType = events.TaskStateChanged
+		p := events.TaskStateChangedPayload{
+			PreviousState: old.State,
+			NewState:      record.State,
+		}
+		payload, _ = events.Serialize(p)
+	} else if old.Goal != record.Goal || old.NextStep != record.NextStep {
+		evType = events.TaskGoalUpdated
+		p := events.TaskGoalUpdatedPayload{
+			Goal:     record.Goal,
+			NextStep: record.NextStep,
+		}
+		payload, _ = events.Serialize(p)
+	} else {
+		// No meaningful change; skip event emission.
+		return
+	}
+
+	_, err := s.events.AppendEvent(ctx, events.Event{
+		OccurredAt:    time.Now(),
+		AggregateType: events.AggregateTask,
+		AggregateID:   record.ID,
+		EventType:     evType,
+		Payload:       payload,
+		ActorType:     events.ActorSystem,
+		ScopeType:     events.AggregateTask,
+		ScopeID:       record.ID,
+	})
+	if err != nil {
+		log.Printf("[event-store] append task event failed (non-critical): %v", err)
+	}
 }
 
 func (s *Store) GetTaskContext(id string) (*TaskContextRecord, error) {

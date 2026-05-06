@@ -71,6 +71,8 @@ type Store interface {
 	DeleteAgentSessionsByWorktreeID(worktreeID string) error
 	DeleteContextNotesByWorktreeID(worktreeID string) error
 	DeleteTaskWorktreeLinksByWorktreeID(worktreeID string) error
+	// EventStore returns the event store (nil when not using PostgreSQL).
+	EventStore() any
 }
 
 type PageSnapshotRecord struct {

@@ -1,17 +1,20 @@
 package app
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"focus/internal/adapters"
 	"focus/internal/agents"
 	"focus/internal/avatar"
 	"focus/internal/config"
+	"focus/internal/events"
 	gitmodel "focus/internal/git"
 	"focus/internal/mcp"
 	"focus/internal/models"
 	"focus/internal/orchestrator"
 	"focus/internal/plugins"
+	"focus/internal/store"
 	agentsplugin "focus/internal/plugins/agents"
 	editorplugin "focus/internal/plugins/editor"
 	filebrowser "focus/internal/plugins/filebrowser"
@@ -497,7 +500,10 @@ func (m *model) mcpContextGetForTaskTool(params map[string]any) (map[string]any,
 		})
 	}
 
-	return map[string]any{
+	// Phase 2: Piggyback — attach recent context events for this task.
+	piggyback := m.piggybackEventsForTask(taskID)
+
+	result := map[string]any{
 		"task": map[string]any{
 			"id":                    task.ID,
 			"repo_id":               task.RepoID,
@@ -515,7 +521,53 @@ func (m *model) mcpContextGetForTaskTool(params map[string]any) (map[string]any,
 		"knowledge_facts":  knowledgeFacts,
 		"worktree_info":    worktreeInfo,
 		"adr_constraints":  []any{},
-	}, nil
+	}
+	if piggyback != "" {
+		result["_context_updates"] = piggyback
+	}
+	return result, nil
+}
+
+// piggybackEventsForTask returns a human-readable summary of recent events
+// for the given task. It is appended to MCP tool results so agents see
+// context changes without extra tool calls.
+func (m *model) piggybackEventsForTask(taskID string) string {
+	if m.common == nil || m.common.Store == nil {
+		return ""
+	}
+	raw := m.common.Store.EventStore()
+	if raw == nil {
+		return ""
+	}
+	evStore, ok := raw.(*store.EventStore)
+	if !ok {
+		return ""
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+
+	evs, err := evStore.GetRecentEventsForScope(ctx, events.AggregateTask, taskID, 5)
+	if err != nil || len(evs) == 0 {
+		return ""
+	}
+
+	var lines []string
+	lines = append(lines, "\n---\n📬 Context Updates (recent activity on this task):")
+	for _, ev := range evs {
+		switch ev.EventType {
+		case events.TaskCreated:
+			lines = append(lines, fmt.Sprintf("• Task created by %s", ev.ActorID))
+		case events.TaskStateChanged:
+			lines = append(lines, fmt.Sprintf("• State changed at %s", ev.OccurredAt.Format("15:04")))
+		case events.TaskGoalUpdated:
+			lines = append(lines, fmt.Sprintf("• Goal/next-step updated at %s", ev.OccurredAt.Format("15:04")))
+		default:
+			lines = append(lines, fmt.Sprintf("• %s at %s", ev.EventType, ev.OccurredAt.Format("15:04")))
+		}
+	}
+	lines = append(lines, "---")
+	return strings.Join(lines, "\n")
 }
 
 func (m *model) mcpTaskCreateTool(params map[string]any) (map[string]any, error) {

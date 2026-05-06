@@ -1,23 +1,45 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"os"
 	"path/filepath"
 
+	"focus/internal/store/pgconn"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 	_ "modernc.org/sqlite"
 )
 
-// Store wraps the SQLite database connection.
+// Store wraps database connections. During migration it supports both SQLite
+// (legacy primary) and PostgreSQL (new event store + projections).
 type Store struct {
-	db *sql.DB
+	db      *sql.DB
+	pgPool  *pgxpool.Pool
+	events  *EventStore
+	mode    string // "sqlite" or "postgresql"
 }
 
-// New opens (or creates) the SQLite database and runs migrations.
-// dbPath is the full path to the database file; its parent directory
-// will be created automatically.
+// New opens (or creates) the database and runs migrations.
+// By default it opens SQLite. If FOCUS_STORE=postgresql is set, it starts an
+// embedded PostgreSQL instance instead.
 func New(dbPath string) (*Store, error) {
+	mode := os.Getenv("FOCUS_STORE")
+	if mode == "" {
+		mode = "sqlite"
+	}
+
+	switch mode {
+	case "postgresql":
+		return newPostgresStore()
+	default:
+		return newSQLiteStore(dbPath)
+	}
+}
+
+func newSQLiteStore(dbPath string) (*Store, error) {
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0o755); err != nil {
 		return nil, fmt.Errorf("create data dir: %w", err)
 	}
@@ -37,7 +59,7 @@ func New(dbPath string) (*Store, error) {
 		return nil, fmt.Errorf("enable foreign keys: %w", err)
 	}
 
-	s := &Store{db: db}
+	s := &Store{db: db, mode: "sqlite"}
 	if err := s.migrate(); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("migrate: %w", err)
@@ -45,9 +67,65 @@ func New(dbPath string) (*Store, error) {
 	return s, nil
 }
 
-// Close closes the database connection.
+func newPostgresStore() (*Store, error) {
+	ctx := context.Background()
+
+	dataDir, err := pgconn.DefaultDataDir()
+	if err != nil {
+		return nil, fmt.Errorf("pg data dir: %w", err)
+	}
+
+	emb, err := pgconn.Start(ctx, dataDir)
+	if err != nil {
+		return nil, fmt.Errorf("start embedded postgres: %w", err)
+	}
+
+	pool := emb.Pool()
+
+	s := &Store{
+		pgPool: pool,
+		events: NewEventStore(pool),
+		mode:   "postgresql",
+	}
+
+	// Migrate event store and projection schemas.
+	if err := s.events.MigrateEventSchema(ctx); err != nil {
+		emb.Stop()
+		return nil, fmt.Errorf("migrate event schema: %w", err)
+	}
+	if err := MigrateProjectionSchema(ctx, pool); err != nil {
+		emb.Stop()
+		return nil, fmt.Errorf("migrate projection schema: %w", err)
+	}
+
+	return s, nil
+}
+
+// Close closes all database connections.
 func (s *Store) Close() error {
-	return s.db.Close()
+	var errs []error
+	if s.db != nil {
+		if err := s.db.Close(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if s.pgPool != nil {
+		s.pgPool.Close()
+	}
+	if len(errs) > 0 {
+		return errs[0]
+	}
+	return nil
+}
+
+// Mode returns the current storage mode ("sqlite" or "postgresql").
+func (s *Store) Mode() string {
+	return s.mode
+}
+
+// EventStore returns the event store (nil in sqlite mode).
+func (s *Store) EventStore() any {
+	return s.events
 }
 
 // DefaultDBPath returns ~/.local/share/focus/focus.db.
