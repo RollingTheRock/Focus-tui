@@ -124,6 +124,10 @@ type editorMetaProvider interface {
 	DisplayName() string
 }
 
+type tabHandler interface {
+	HandleTab() bool
+}
+
 // New creates and returns the initial application model.
 func New(cfg config.Config, store models.Store) tea.Model {
 	cm := &models.CommonModel{
@@ -616,8 +620,8 @@ func (m *model) mcpTaskCreateTool(params map[string]any) (map[string]any, error)
 		return nil, err
 	}
 	// Refresh DAG if visible
-	if dp, ok := m.activePage.pane(paneDAG).(*dagPane); ok {
-		dp.buildDAG()
+	if tc, ok := m.activePage.pane(paneDAG).(*tabContainer); ok {
+		tc.refreshDAG()
 	}
 	m.invalidateView()
 	m.syncWorktreeActivities()
@@ -650,8 +654,8 @@ func (m *model) mcpTaskAddDependencyTool(params map[string]any) (map[string]any,
 	if err := m.common.Store.SaveTaskDependency(record); err != nil {
 		return nil, err
 	}
-	if dp, ok := m.activePage.pane(paneDAG).(*dagPane); ok {
-		dp.buildDAG()
+	if tc, ok := m.activePage.pane(paneDAG).(*tabContainer); ok {
+		tc.refreshDAG()
 	}
 	m.invalidateView()
 	return map[string]any{
@@ -935,8 +939,8 @@ func (m *model) mcpPlanExpandToTasksTool(params map[string]any) (map[string]any,
 	}
 
 	// Refresh DAG if visible
-	if dp, ok := m.activePage.pane(paneDAG).(*dagPane); ok {
-		dp.buildDAG()
+	if tc, ok := m.activePage.pane(paneDAG).(*tabContainer); ok {
+		tc.refreshDAG()
 	}
 	m.invalidateView()
 	m.syncWorktreeActivities()
@@ -1690,6 +1694,11 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+down", "ctrl+shift+down":
 		return m.adjustFocusedSplit(layout.FocusDown)
 	case "tab":
+		if th, ok := m.activePage.pane(m.activePage.focused).(tabHandler); ok {
+			if th.HandleTab() {
+				return m, nil
+			}
+		}
 		m.focusCycle(1)
 		return m, nil
 	case "shift+tab":
