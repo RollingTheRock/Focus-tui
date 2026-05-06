@@ -35,7 +35,7 @@ func (s *Store) CreateTodo(text, list string) (*models.Todo, error) {
 			OccurredAt:    time.Now(),
 			AggregateType: "todo",
 			AggregateID:   todoID,
-			EventType:     "TodoCreated",
+			EventType:     events.TodoCreated,
 			Payload:       payload,
 			ActorType:     events.ActorSystem,
 			ScopeType:     "todo",

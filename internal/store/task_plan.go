@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 
+	"focus/internal/events"
 	"focus/internal/models"
 )
 
@@ -19,6 +20,17 @@ func (s *Store) SaveTaskPlan(record TaskPlanRecord) error {
 	if record.Status == "" {
 		record.Status = "draft"
 	}
+
+	s.tryAppendEvent(events.AggregatePlan, record.ID, events.TaskPlanCreated,
+		events.TaskPlanCreatedPayload{
+			TaskID:     record.TaskID,
+			Title:      record.Title,
+			WhyNow:     record.WhyNow,
+			Success:    record.Success,
+			OutOfScope: record.OutOfScope,
+			KnownRisks: record.KnownRisks,
+		}, events.AggregatePlan, record.ID)
+
 	const q = `
 		INSERT INTO task_plans (
 			id, task_id, title, why_now, success, out_of_scope, known_risks, status, current_step, plan_body,

@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 
+	"focus/internal/events"
 	"focus/internal/models"
 )
 
@@ -19,6 +20,16 @@ func (s *Store) SaveWorktreeContext(record WorktreeContextRecord) error {
 	if record.TaskMode == "" {
 		record.TaskMode = "single"
 	}
+
+	s.tryAppendEvent(events.AggregateWorktree, record.WorktreeID, events.WorktreeContextUpdated,
+		events.WorktreeContextUpdatedPayload{
+			RepoID:         record.RepoID,
+			TaskMode:       record.TaskMode,
+			TaskName:       record.TaskName,
+			BranchSnapshot: record.BranchSnapshot,
+			PrimaryTaskID:  record.PrimaryTaskID,
+		}, events.AggregateWorktree, record.WorktreeID)
+
 	const q = `
 		INSERT INTO worktree_contexts (
 			worktree_id, repo_id, primary_task_id, current_plan_id, task_mode, task_name,

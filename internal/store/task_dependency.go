@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 
+	"focus/internal/events"
 	"focus/internal/models"
 )
 
@@ -16,6 +17,14 @@ func (s *Store) SaveTaskDependency(record TaskDependencyRecord) error {
 	if record.DependencyType == "" {
 		record.DependencyType = "hard"
 	}
+
+	s.tryAppendEvent(events.AggregateTask, record.FromTaskID, events.TaskDependencyAdded,
+		events.TaskDependencyAddedPayload{
+			FromTaskID:     record.FromTaskID,
+			ToTaskID:       record.ToTaskID,
+			DependencyType: record.DependencyType,
+		}, events.AggregateTask, record.FromTaskID)
+
 	const q = `
 		INSERT INTO task_dependencies (from_task_id, to_task_id, dependency_type, created_at)
 		VALUES (?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"focus/internal/events"
 	"focus/internal/models"
 )
 
@@ -26,6 +27,20 @@ func (s *Store) SaveAgentSession(record AgentSessionRecord) error {
 	if record.StartedAt.IsZero() {
 		record.StartedAt = time.Now()
 	}
+
+	s.tryAppendEvent(events.AggregateAgentSession, record.ID, events.AgentSessionCreated,
+		events.AgentSessionCreatedPayload{
+			Provider:       record.Provider,
+			WorktreeID:     record.WorktreeID,
+			RepoID:         record.RepoID,
+			TaskID:         record.TaskID,
+			PlanID:         record.PlanID,
+			StepID:         record.StepID,
+			BranchSnapshot: record.BranchSnapshot,
+			PID:            record.PID,
+			LaunchSource:   record.LaunchSource,
+		}, events.AggregateAgentSession, record.ID)
+
 	const q = `
 		INSERT INTO agent_sessions (
 			id, provider, worktree_id, repo_id, task_id, plan_id, step_id, branch_snapshot,
@@ -173,6 +188,11 @@ func (s *Store) MarkAgentSessionDisconnected(sessionID string, reason string) er
 		return fmt.Errorf("agent session id required")
 	}
 	now := time.Now()
+
+	s.tryAppendEvent(events.AggregateAgentSession, sessionID, events.AgentSessionDisconnected,
+		events.AgentSessionDisconnectedPayload{Reason: reason},
+		events.AggregateAgentSession, sessionID)
+
 	_, err := s.db.Exec(`
 		UPDATE agent_sessions
 		SET state = 'disconnected',
@@ -196,6 +216,11 @@ func (s *Store) UpdateAgentSessionHeartbeat(sessionID string, at time.Time, stat
 	if at.IsZero() {
 		at = time.Now()
 	}
+
+	s.tryAppendEvent(events.AggregateAgentSession, sessionID, events.AgentSessionHeartbeat,
+		events.AgentSessionHeartbeatPayload{State: state},
+		events.AggregateAgentSession, sessionID)
+
 	if state == "" {
 		_, err := s.db.Exec(`
 			UPDATE agent_sessions

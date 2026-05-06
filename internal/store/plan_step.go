@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 
+	"focus/internal/events"
 	"focus/internal/models"
 )
 
@@ -22,6 +23,18 @@ func (s *Store) SavePlanStep(record PlanStepRecord) error {
 	if record.State == "" {
 		record.State = "pending"
 	}
+
+	var expandedTaskID *string
+	if record.ExpandedTaskID != "" {
+		expandedTaskID = &record.ExpandedTaskID
+	}
+	s.tryAppendEvent(events.AggregatePlan, record.PlanID, events.PlanStepStateChanged,
+		events.PlanStepStateChangedPayload{
+			PlanID:         record.PlanID,
+			NewState:       record.State,
+			ExpandedTaskID: expandedTaskID,
+		}, events.AggregatePlan, record.PlanID)
+
 	const q = `
 		INSERT INTO plan_steps (
 			id, plan_id, order_index, title, state, expanded_task_id, notes, created_at, updated_at

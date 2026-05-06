@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 
+	"focus/internal/events"
 	"focus/internal/models"
 )
 
@@ -16,6 +17,24 @@ func (s *Store) SaveSessionHandoff(record SessionHandoffRecord) error {
 	if record.TaskID == "" {
 		return fmt.Errorf("session handoff task_id required")
 	}
+
+	var planID string
+	if record.PlanID != nil {
+		planID = *record.PlanID
+	}
+	s.tryAppendEvent(events.AggregateSessionHandoff, record.ID, events.SessionHandoffCreated,
+		events.SessionHandoffCreatedPayload{
+			TaskID:             record.TaskID,
+			PlanID:             planID,
+			SessionID:          record.SessionID,
+			DoneSummary:        record.DoneSummary,
+			RemainingSummary:   record.RemainingSummary,
+			DecisionSummary:    record.DecisionSummary,
+			UncertaintySummary: record.UncertaintySummary,
+			BlockerSummary:     record.BlockerSummary,
+			Entrypoint:         record.Entrypoint,
+		}, events.AggregateSessionHandoff, record.TaskID)
+
 	const q = `
 		INSERT INTO session_handoffs (
 			id, task_id, plan_id, session_id,

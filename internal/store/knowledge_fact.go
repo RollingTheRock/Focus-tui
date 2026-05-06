@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"focus/internal/events"
 	"focus/internal/models"
 )
 
@@ -31,6 +32,21 @@ func (s *Store) SaveKnowledgeFact(record KnowledgeFactRecord) error {
 	if record.CreatedAt.IsZero() {
 		record.CreatedAt = time.Now()
 	}
+
+	scopeID := record.PlanID
+	if scopeID == "" {
+		scopeID = record.ID
+	}
+	s.tryAppendEvent(events.AggregateKnowledgeFact, record.ID, events.KnowledgeFactAdded,
+		events.KnowledgeFactAddedPayload{
+			PlanID:     record.PlanID,
+			Subject:    record.Subject,
+			Predicate:  record.Predicate,
+			Object:     record.Object,
+			Source:     record.Source,
+			Confidence: record.Confidence,
+		}, events.AggregateKnowledgeFact, scopeID)
+
 	const q = `
 		INSERT INTO knowledge_facts (id, plan_id, subject, predicate, object, source, confidence, created_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)

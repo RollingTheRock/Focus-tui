@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"focus/internal/events"
 	"focus/internal/models"
 )
 
@@ -22,6 +23,14 @@ func (s *Store) SaveTaskOutput(record TaskOutputRecord) error {
 	if record.CreatedAt.IsZero() {
 		record.CreatedAt = time.Now()
 	}
+
+	s.tryAppendEvent(events.AggregateTask, record.TaskID, events.TaskOutputAdded,
+		events.TaskOutputAddedPayload{
+			TaskID:  record.TaskID,
+			Content: record.Content,
+			Actor:   record.Actor,
+		}, events.AggregateTask, record.TaskID)
+
 	const q = `
 		INSERT INTO task_outputs (id, task_id, content, actor, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)

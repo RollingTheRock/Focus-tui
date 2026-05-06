@@ -62,6 +62,11 @@ const (
 
 	TaskDependencyAdded    = "TaskDependencyAdded"
 	TaskDependencyRemoved  = "TaskDependencyRemoved"
+
+	TodoCreated        = "TodoCreated"
+	TaskPlanCreated    = "TaskPlanCreated"
+	TaskOutputAdded    = "TaskOutputAdded"
+	TaskBriefUpdated   = "TaskBriefUpdated"
 )
 
 // Actor types.
@@ -172,6 +177,38 @@ type TaskDependencyAddedPayload struct {
 	FromTaskID      string `json:"from_task_id"`
 	ToTaskID        string `json:"to_task_id"`
 	DependencyType  string `json:"dependency_type"`
+}
+
+// TodoCreatedPayload is emitted when a todo is created.
+type TodoCreatedPayload struct {
+	Text string `json:"text"`
+	List string `json:"list"`
+}
+
+// TaskPlanCreatedPayload is emitted when a task plan is created.
+type TaskPlanCreatedPayload struct {
+	TaskID     string `json:"task_id,omitempty"`
+	Title      string `json:"title"`
+	WhyNow     string `json:"why_now,omitempty"`
+	Success    string `json:"success,omitempty"`
+	OutOfScope string `json:"out_of_scope,omitempty"`
+	KnownRisks string `json:"known_risks,omitempty"`
+}
+
+// TaskOutputAddedPayload is emitted when a task output is recorded.
+type TaskOutputAddedPayload struct {
+	TaskID  string `json:"task_id"`
+	Content string `json:"content"`
+	Actor   string `json:"actor,omitempty"`
+}
+
+// TaskBriefUpdatedPayload is emitted when a task brief is updated.
+type TaskBriefUpdatedPayload struct {
+	TaskID           string `json:"task_id"`
+	WhyNow           string `json:"why_now,omitempty"`
+	SuccessCriteria  string `json:"success_criteria,omitempty"`
+	OutOfScope       string `json:"out_of_scope,omitempty"`
+	KnownRisks       string `json:"known_risks,omitempty"`
 }
 
 // Serialize returns the JSON payload for an event payload struct.
