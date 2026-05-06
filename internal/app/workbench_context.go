@@ -357,6 +357,7 @@ func buildOverviewDAGProjection(store models.Store, repoID string, focusTaskID s
 }
 
 func computeDAGLevels(nodes map[string]dagNode, adjacency map[string][]dagEdge, indegree map[string]int) map[string]int {
+	levels := make(map[string]int, len(nodes))
 	queue := make([]string, 0, len(nodes))
 	indegreeLeft := make(map[string]int, len(indegree))
 	for id := range nodes {
@@ -365,10 +366,10 @@ func computeDAGLevels(nodes map[string]dagNode, adjacency map[string][]dagEdge, 
 	for id := range nodes {
 		if indegreeLeft[id] == 0 {
 			queue = append(queue, id)
+			levels[id] = 0 // explicitly record root level
 		}
 	}
 	sort.Strings(queue)
-	levels := make(map[string]int, len(nodes))
 	processed := make(map[string]bool, len(nodes))
 	for len(queue) > 0 {
 		current := queue[0]
