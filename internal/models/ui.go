@@ -2,6 +2,7 @@ package models
 
 import (
 	"focus/internal/config"
+	"focus/internal/events"
 	"focus/internal/styles"
 	"time"
 
@@ -73,6 +74,8 @@ type Store interface {
 	DeleteTaskWorktreeLinksByWorktreeID(worktreeID string) error
 	// EventStore returns the event store (nil when not using PostgreSQL).
 	EventStore() any
+	// EventBus returns the in-memory event bus (nil when not using PostgreSQL).
+	EventBus() *events.EventBus
 }
 
 type PageSnapshotRecord struct {

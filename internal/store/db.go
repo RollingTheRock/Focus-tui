@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"focus/internal/events"
 	"focus/internal/store/pgconn"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -19,6 +20,7 @@ type Store struct {
 	db      *sql.DB
 	pgPool  *pgxpool.Pool
 	events  *EventStore
+	bus     *events.EventBus
 	mode    string // "sqlite" or "postgresql"
 }
 
@@ -82,9 +84,14 @@ func newPostgresStore() (*Store, error) {
 
 	pool := emb.Pool()
 
+	bus := events.NewEventBus()
+	es := NewEventStore(pool)
+	es.SetBus(bus)
+
 	s := &Store{
 		pgPool: pool,
-		events: NewEventStore(pool),
+		events: es,
+		bus:    bus,
 		mode:   "postgresql",
 	}
 
@@ -126,6 +133,11 @@ func (s *Store) Mode() string {
 // EventStore returns the event store (nil in sqlite mode).
 func (s *Store) EventStore() any {
 	return s.events
+}
+
+// EventBus returns the in-memory event bus (nil in sqlite mode).
+func (s *Store) EventBus() *events.EventBus {
+	return s.bus
 }
 
 // DefaultDBPath returns ~/.local/share/focus/focus.db.

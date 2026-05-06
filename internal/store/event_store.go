@@ -13,11 +13,17 @@ import (
 // EventStore handles append-only event persistence on PostgreSQL.
 type EventStore struct {
 	pool *pgxpool.Pool
+	bus  *events.EventBus
 }
 
 // NewEventStore creates an EventStore backed by the given pool.
 func NewEventStore(pool *pgxpool.Pool) *EventStore {
 	return &EventStore{pool: pool}
+}
+
+// SetBus attaches an in-memory event bus for real-time pub/sub.
+func (es *EventStore) SetBus(bus *events.EventBus) {
+	es.bus = bus
 }
 
 // MigrateEventSchema creates the events table and indexes if they don't exist.
@@ -92,6 +98,11 @@ func (es *EventStore) AppendEvent(ctx context.Context, ev events.Event) (int64, 
 
 	if err != nil {
 		return 0, fmt.Errorf("append event: %w", err)
+	}
+	// Publish to in-memory bus for real-time consumers (ProjectionBuilder, Orchestrator, TUI).
+	if es.bus != nil {
+		ev.EventID = eventID
+		es.bus.Publish(ev)
 	}
 	return eventID, nil
 }

@@ -1,7 +1,6 @@
 package app
 
 import (
-	"fmt"
 	"sort"
 	"strings"
 
@@ -350,35 +349,15 @@ func (p *dagPane) View() string {
 		return p.clampAndJoin(lines, h, w)
 	}
 
-	for lv := 0; lv <= p.maxLevel; lv++ {
-		ids := p.layerIDs[lv]
-		if len(ids) == 0 {
-			continue
-		}
-		var parts []string
-		for _, id := range ids {
-			node := p.nodes[id]
-			chip := p.renderNodeChip(node, id == p.cursorNode)
-			parts = append(parts, chip)
-		}
-		line := fmt.Sprintf("  L%d  %s", lv, strings.Join(parts, "    "))
-		lines = append(lines, lipgloss.NewStyle().MaxWidth(w).Render(line))
+	bodyH := h - 1
+	if bodyH < 3 {
+		bodyH = 3
 	}
+
+	dagStr := renderHorizontalDAG(p.nodes, p.edges, p.levels, p.layerIDs, p.maxLevel, p.cursorNode, w, bodyH)
+	lines = append(lines, dagStr)
 
 	return p.clampAndJoin(lines, h, w)
-}
-
-func (p *dagPane) renderNodeChip(node dagNode, focused bool) string {
-	label := compactTaskLabel(node)
-	state := node.State
-	if state == "" {
-		state = "pending"
-	}
-	chip := fmt.Sprintf("[%s] %s", state, clipText(label, 22))
-	if focused {
-		return dagFocusedStyle.Render("▸ "+chip+" ")
-	}
-	return dagNodeStyle.Render("  "+chip+" ")
 }
 
 func (p *dagPane) clampAndJoin(lines []string, h, w int) string {
