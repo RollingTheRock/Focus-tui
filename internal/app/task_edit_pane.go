@@ -91,37 +91,37 @@ const (
 func NewTaskEditPane(id models.PaneID, meta models.PaneMeta, common models.CommonModel, seed taskEditorSeed) *TaskEditPane {
 	titleInput := textinput.New()
 	titleInput.Prompt = "Title: "
-	titleInput.Placeholder = "Tighten resume pipeline"
+	titleInput.Placeholder = "修复用户登录接口缓存问题"
 	titleInput.SetValue(seed.Title)
 
 	goalInput := textinput.New()
 	goalInput.Prompt = "Goal: "
-	goalInput.Placeholder = "What outcome should this task produce?"
+	goalInput.Placeholder = "这个任务应该产出什么结果？"
 	goalInput.SetValue(seed.Goal)
 
 	whyNowInput := textinput.New()
 	whyNowInput.Prompt = "Why now: "
-	whyNowInput.Placeholder = "Why is this worth doing before coding?"
+	whyNowInput.Placeholder = "为什么值得在编码前先做这件事？"
 	whyNowInput.SetValue(seed.WhyNow)
 
 	successInput := textinput.New()
 	successInput.Prompt = "Success: "
-	successInput.Placeholder = "What outcome proves this worked?"
+	successInput.Placeholder = "什么结果能证明这件事做成功了？"
 	successInput.SetValue(seed.Success)
 
 	outOfScopeInput := textinput.New()
 	outOfScopeInput.Prompt = "Out of scope: "
-	outOfScopeInput.Placeholder = "What are we explicitly not doing?"
+	outOfScopeInput.Placeholder = "明确排除不做的事情有哪些？"
 	outOfScopeInput.SetValue(seed.OutOfScope)
 
 	knownRisksInput := textinput.New()
 	knownRisksInput.Prompt = "Known risks: "
-	knownRisksInput.Placeholder = "What could still blow up later?"
+	knownRisksInput.Placeholder = "后续可能出现什么风险？"
 	knownRisksInput.SetValue(seed.KnownRisks)
 
 	nextStepInput := textinput.New()
 	nextStepInput.Prompt = "Next: "
-	nextStepInput.Placeholder = "Render summary in overview"
+	nextStepInput.Placeholder = "在概览中渲染摘要"
 	nextStepInput.SetValue(seed.NextStep)
 
 	stateInput := textinput.New()
