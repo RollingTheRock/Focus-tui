@@ -62,9 +62,9 @@ func newWorktreeDetailPane(id models.PaneID, meta models.PaneMeta, common *model
 	return p
 }
 
-func (p *worktreeDetailPane) setWorktree(worktreeID string) {
+func (p *worktreeDetailPane) setWorktree(worktreeID string) tea.Cmd {
 	if p.worktreeID == worktreeID {
-		return
+		return nil
 	}
 	p.worktreeID = worktreeID
 	p.taskCursor = 0
@@ -72,6 +72,19 @@ func (p *worktreeDetailPane) setWorktree(worktreeID string) {
 	p.filesPane = nil
 	p.initSubPanes()
 	p.loadTasks()
+
+	var cmds []tea.Cmd
+	if p.gitPane != nil {
+		if cmd := p.gitPane.Init(); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	}
+	if p.filesPane != nil {
+		if cmd := p.filesPane.Init(); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	}
+	return tea.Batch(cmds...)
 }
 
 func (p *worktreeDetailPane) initSubPanes() {
@@ -123,14 +136,26 @@ func (p *worktreeDetailPane) loadTasks() {
 func (p *worktreeDetailPane) Init() tea.Cmd {
 	p.initSubPanes()
 	p.loadTasks()
-	return nil
+
+	var cmds []tea.Cmd
+	if p.gitPane != nil {
+		if cmd := p.gitPane.Init(); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	}
+	if p.filesPane != nil {
+		if cmd := p.filesPane.Init(); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	}
+	return tea.Batch(cmds...)
 }
 
 func (p *worktreeDetailPane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 	switch msg := msg.(type) {
 	case worktreeSelectedMsg:
-		p.setWorktree(msg.WorktreeID)
-		return p, nil
+		cmd := p.setWorktree(msg.WorktreeID)
+		return p, cmd
 	case agents.LaunchAgentMsg:
 		// An agent was launched for this worktree – refresh sessions.
 		if msg.WorktreeID == p.worktreeID {
