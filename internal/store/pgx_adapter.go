@@ -97,3 +97,12 @@ func isNoRows(err error) bool {
 	}
 	return errors.Is(err, sql.ErrNoRows) || errors.Is(err, pgx.ErrNoRows)
 }
+
+// tbl returns the PostgreSQL projection table name when in postgresql mode,
+// otherwise the legacy SQLite table name.
+func (s *Store) tbl(sqliteName, pgName string) string {
+	if s.mode == "postgresql" {
+		return pgName
+	}
+	return sqliteName
+}

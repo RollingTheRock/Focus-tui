@@ -122,11 +122,11 @@ func (s *Store) tryAppendTaskEvent(record TaskContextRecord) {
 }
 
 func (s *Store) GetTaskContext(id string) (*TaskContextRecord, error) {
-	const q = `
+	q := fmt.Sprintf(`
 		SELECT id, repo_id, title, goal, next_step, state, priority,
 		       parent_task_id, preferred_worktree_id, created_at, updated_at
-		FROM task_contexts WHERE id = ?
-	`
+		FROM %s WHERE id = ?
+	`, s.tbl("task_contexts", "proj_tasks"))
 	record, err := scanTaskContext(s.qRow(q, id))
 	if isNoRows(err) {
 		return nil, nil
@@ -135,11 +135,11 @@ func (s *Store) GetTaskContext(id string) (*TaskContextRecord, error) {
 }
 
 func (s *Store) ListTaskContexts(repoID string) ([]TaskContextRecord, error) {
-	const base = `
+	base := fmt.Sprintf(`
 		SELECT id, repo_id, title, goal, next_step, state, priority,
 		       parent_task_id, preferred_worktree_id, created_at, updated_at
-		FROM task_contexts
-	`
+		FROM %s
+	`, s.tbl("task_contexts", "proj_tasks"))
 	q := base
 	args := []any{}
 	if repoID != "" {

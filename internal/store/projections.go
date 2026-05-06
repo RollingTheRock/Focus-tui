@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS proj_tasks (
     parent_task_id        TEXT,
     preferred_worktree_id TEXT,
     event_version         BIGINT NOT NULL DEFAULT 0,
+    created_at            TIMESTAMPTZ DEFAULT NOW(),
     updated_at            TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -32,6 +33,7 @@ CREATE TABLE IF NOT EXISTS proj_worktree_contexts (
     worktree_id      TEXT PRIMARY KEY,
     repo_id          TEXT NOT NULL,
     primary_task_id  TEXT,
+    current_plan_id  TEXT,
     task_mode        TEXT NOT NULL DEFAULT 'single',
     task_name        TEXT,
     branch_snapshot  TEXT,

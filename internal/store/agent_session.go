@@ -93,12 +93,12 @@ func (s *Store) SaveAgentSession(record AgentSessionRecord) error {
 }
 
 func (s *Store) ListAgentSessions(worktreeID string) ([]AgentSessionRecord, error) {
-	const base = `
+	base := fmt.Sprintf(`
 		SELECT id, provider, worktree_id, repo_id, task_id, plan_id, step_id, branch_snapshot,
 		       pid, state, launch_source, summary, env_snapshot,
 		       started_at, ended_at, last_activity_at, last_heartbeat, stop_reason, updated_at
-		FROM agent_sessions
-	`
+		FROM %s
+	`, s.tbl("agent_sessions", "proj_agent_sessions"))
 	q := base
 	args := []any{}
 	if worktreeID != "" {
@@ -107,7 +107,7 @@ func (s *Store) ListAgentSessions(worktreeID string) ([]AgentSessionRecord, erro
 	}
 	q += ` ORDER BY updated_at DESC, started_at DESC`
 
-	rows, err := s.db.Query(q, args...)
+	rows, err := s.qRows(q, args...)
 	if err != nil {
 		return nil, err
 	}

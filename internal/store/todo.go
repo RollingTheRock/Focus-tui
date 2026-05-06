@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"log"
 	"time"
@@ -145,7 +144,7 @@ func (s *Store) TodayDoneCount() (done int, total int, err error) {
 	return
 }
 
-func scanTodo(row *sql.Row) (*models.Todo, error) {
+func scanTodo(row rowScanner) (*models.Todo, error) {
 	var t models.Todo
 	if err := row.Scan(&t.ID, &t.Text, &t.Status, &t.List, &t.CreatedAt, &t.UpdatedAt); err != nil {
 		return nil, err

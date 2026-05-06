@@ -127,8 +127,8 @@ func (b *Builder) applyTaskCreated(ctx context.Context, ev events.Event) error {
 	_, err := b.pool.Exec(ctx, `
 		INSERT INTO proj_tasks (
 			id, repo_id, title, goal, state, priority,
-			parent_task_id, event_version, updated_at
-		) VALUES ($1, $2, $3, $4, 'active', $5, $6, $7, NOW())
+			parent_task_id, event_version, created_at, updated_at
+		) VALUES ($1, $2, $3, $4, 'active', $5, $6, $7, NOW(), NOW())
 		ON CONFLICT (id) DO UPDATE SET
 			repo_id = EXCLUDED.repo_id,
 			title = EXCLUDED.title,
@@ -249,9 +249,9 @@ func (b *Builder) applyWorktreeContextUpdated(ctx context.Context, ev events.Eve
 	}
 	_, err := b.pool.Exec(ctx, `
 		INSERT INTO proj_worktree_contexts (
-			worktree_id, repo_id, primary_task_id, task_mode, task_name,
+			worktree_id, repo_id, primary_task_id, current_plan_id, task_mode, task_name,
 			branch_snapshot, last_active_at, event_version, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, NOW(), $7, NOW())
+		) VALUES ($1, $2, $3, NULL, $4, $5, $6, NOW(), $7, NOW())
 		ON CONFLICT (worktree_id) DO UPDATE SET
 			repo_id = EXCLUDED.repo_id,
 			primary_task_id = EXCLUDED.primary_task_id,
