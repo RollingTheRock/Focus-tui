@@ -127,9 +127,8 @@ func (s *Store) GetTaskContext(id string) (*TaskContextRecord, error) {
 		       parent_task_id, preferred_worktree_id, created_at, updated_at
 		FROM task_contexts WHERE id = ?
 	`
-	row := s.db.QueryRow(q, id)
-	record, err := scanTaskContext(row)
-	if err == sql.ErrNoRows {
+	record, err := scanTaskContext(s.qRow(q, id))
+	if isNoRows(err) {
 		return nil, nil
 	}
 	return record, err
@@ -148,7 +147,7 @@ func (s *Store) ListTaskContexts(repoID string) ([]TaskContextRecord, error) {
 		args = append(args, repoID)
 	}
 	q += ` ORDER BY updated_at DESC, created_at DESC`
-	rows, err := s.db.Query(q, args...)
+	rows, err := s.qRows(q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -165,7 +164,7 @@ func (s *Store) ListTaskContexts(repoID string) ([]TaskContextRecord, error) {
 	return records, rows.Err()
 }
 
-func scanTaskContext(row *sql.Row) (*TaskContextRecord, error) {
+func scanTaskContext(row rowScanner) (*TaskContextRecord, error) {
 	var record TaskContextRecord
 	var goal sql.NullString
 	var nextStep sql.NullString
@@ -201,7 +200,7 @@ func scanTaskContext(row *sql.Row) (*TaskContextRecord, error) {
 	return &record, nil
 }
 
-func scanTaskContextRows(rows *sql.Rows) (*TaskContextRecord, error) {
+func scanTaskContextRows(rows rowIter) (*TaskContextRecord, error) {
 	var record TaskContextRecord
 	var goal sql.NullString
 	var nextStep sql.NullString
