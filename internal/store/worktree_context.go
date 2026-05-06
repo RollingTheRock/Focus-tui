@@ -30,8 +30,8 @@ func (s *Store) SaveWorktreeContext(record WorktreeContextRecord) error {
 			PrimaryTaskID:  record.PrimaryTaskID,
 		}, events.AggregateWorktree, record.WorktreeID)
 
-	const q = `
-		INSERT INTO worktree_contexts (
+	q := fmt.Sprintf(`
+		INSERT INTO %s (
 			worktree_id, repo_id, primary_task_id, current_plan_id, task_mode, task_name,
 			branch_snapshot, last_active_at, last_opened_at, last_agent_at, updated_at
 		) VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP), ?, ?, CURRENT_TIMESTAMP)
@@ -46,8 +46,8 @@ func (s *Store) SaveWorktreeContext(record WorktreeContextRecord) error {
 			last_opened_at = excluded.last_opened_at,
 			last_agent_at = excluded.last_agent_at,
 			updated_at = CURRENT_TIMESTAMP
-	`
-	_, err := s.db.Exec(q,
+	`, s.tbl("worktree_contexts", "proj_worktree_contexts"))
+	_, err := s.exec(q,
 		record.WorktreeID,
 		record.RepoID,
 		record.PrimaryTaskID,
@@ -106,7 +106,8 @@ func (s *Store) ListWorktreeContexts(repoID string) ([]WorktreeContextRecord, er
 }
 
 func (s *Store) DeleteWorktreeContext(worktreeID string) error {
-	_, err := s.db.Exec(`DELETE FROM worktree_contexts WHERE worktree_id = ?`, worktreeID)
+	q := fmt.Sprintf(`DELETE FROM %s WHERE worktree_id = ?`, s.tbl("worktree_contexts", "proj_worktree_contexts"))
+	_, err := s.exec(q, worktreeID)
 	return err
 }
 

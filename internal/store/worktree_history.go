@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"focus/internal/events"
 	"focus/internal/models"
 )
 
@@ -20,8 +21,8 @@ func (s *Store) SaveWorktreeHistory(record WorktreeHistoryRecord) error {
 	if record.RemovedAt.IsZero() {
 		record.RemovedAt = time.Now()
 	}
-	const q = `
-		INSERT INTO worktree_history (
+	q := fmt.Sprintf(`
+		INSERT INTO %s (
 			id, repo_id, branch, path, created_at, removed_at, task_id, plan_id, provider, summary, duration_minutes
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
@@ -35,8 +36,8 @@ func (s *Store) SaveWorktreeHistory(record WorktreeHistoryRecord) error {
 			provider = excluded.provider,
 			summary = excluded.summary,
 			duration_minutes = excluded.duration_minutes
-	`
-	_, err := s.db.Exec(q,
+	`, s.tbl("worktree_history", "proj_worktree_history"))
+	_, err := s.exec(q,
 		record.ID,
 		record.RepoID,
 		nullIfEmpty(record.Branch),
@@ -49,7 +50,33 @@ func (s *Store) SaveWorktreeHistory(record WorktreeHistoryRecord) error {
 		nullIfEmpty(record.Summary),
 		record.DurationMinutes,
 	)
-	return err
+	if err != nil {
+		return err
+	}
+
+	var taskID, planID string
+	if record.TaskID != nil {
+		taskID = *record.TaskID
+	}
+	if record.PlanID != nil {
+		planID = *record.PlanID
+	}
+	s.tryAppendEvent(events.AggregateWorktree, record.ID, events.WorktreeHistoryRecorded,
+		events.WorktreeHistoryRecordedPayload{
+			ID:              record.ID,
+			RepoID:          record.RepoID,
+			Branch:          record.Branch,
+			Path:            record.Path,
+			CreatedAt:       record.CreatedAt.Format(time.RFC3339),
+			RemovedAt:       record.RemovedAt.Format(time.RFC3339),
+			TaskID:          taskID,
+			PlanID:          planID,
+			Provider:        record.Provider,
+			Summary:         record.Summary,
+			DurationMinutes: record.DurationMinutes,
+		}, events.AggregateWorktree, record.ID)
+
+	return nil
 }
 
 func (s *Store) ListWorktreeHistory(repoID string) ([]WorktreeHistoryRecord, error) {
@@ -121,6 +148,6 @@ func (s *Store) ListWorktreeHistory(repoID string) ([]WorktreeHistoryRecord, err
 }
 
 func (s *Store) DeleteWorktreeHistory(id string) error {
-	_, err := s.db.Exec(`DELETE FROM worktree_history WHERE id = ?`, id)
+	_, err := s.exec(fmt.Sprintf(`DELETE FROM %s WHERE id = ?`, s.tbl("worktree_history", "proj_worktree_history")), id)
 	return err
 }

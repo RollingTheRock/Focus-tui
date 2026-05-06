@@ -1,57 +1,93 @@
 package store
 
 import (
+	"fmt"
 	"time"
+
+	"focus/internal/events"
 )
 
 // StartSession creates a new pomodoro session, optionally linked to a todo.
 func (s *Store) StartSession(linkedTodoID *int) (int64, error) {
 	now := time.Now()
-	res, err := s.db.Exec(
-		`INSERT INTO pomodoro_sessions (date, start_time, linked_todo_id)
-		 VALUES (?, ?, ?)`,
-		now.Format("2006-01-02"), now, linkedTodoID,
-	)
+	q := fmt.Sprintf(`INSERT INTO %s (date, start_time, linked_todo_id) VALUES (?, ?, ?) RETURNING id`, s.tbl("pomodoro_sessions", "proj_pomodoro_sessions"))
+	id, err := s.insertReturningID(q, now.Format("2006-01-02"), now, linkedTodoID)
 	if err != nil {
 		return 0, err
 	}
-	return res.LastInsertId()
+
+	s.tryAppendEvent(events.AggregateTask, fmt.Sprintf("pomodoro-%d", id), events.PomodoroStarted,
+		events.PomodoroStartedPayload{
+			Date:         now.Format("2006-01-02"),
+			StartTime:    now.Format(time.RFC3339),
+			LinkedTodoID: linkedTodoID,
+		}, events.AggregateTask, fmt.Sprintf("pomodoro-%d", id))
+
+	return id, nil
 }
 
 // CompleteSession marks a session as completed with the current time.
 func (s *Store) CompleteSession(id int64) error {
 	now := time.Now()
-	_, err := s.db.Exec(
-		`UPDATE pomodoro_sessions SET end_time = ?, status = 'completed' WHERE id = ?`,
+	_, err := s.exec(
+		fmt.Sprintf(`UPDATE %s SET end_time = ?, status = 'completed' WHERE id = ?`, s.tbl("pomodoro_sessions", "proj_pomodoro_sessions")),
 		now, id,
 	)
 	if err != nil {
 		return err
 	}
 	// Also record in streaks table.
-	_, err = s.db.Exec(
-		`INSERT INTO streaks (date, has_pomodoro) VALUES (?, 1)
-		 ON CONFLICT(date) DO UPDATE SET has_pomodoro = 1`,
+	_, err = s.exec(
+		fmt.Sprintf(`INSERT INTO %s (date, has_pomodoro) VALUES (?, 1) ON CONFLICT(date) DO UPDATE SET has_pomodoro = 1`, s.tbl("streaks", "proj_streaks")),
 		now.Format("2006-01-02"),
 	)
-	return err
+	if err != nil {
+		return err
+	}
+
+	dateStr := now.Format("2006-01-02")
+	s.tryAppendEvent(events.AggregateTask, fmt.Sprintf("pomodoro-%d", id), events.PomodoroCompleted,
+		events.PomodoroCompletedPayload{
+			ID:           id,
+			Date:         dateStr,
+			EndTime:      now.Format(time.RFC3339),
+		}, events.AggregateTask, fmt.Sprintf("pomodoro-%d", id))
+
+	s.tryAppendEvent(events.AggregateTask, "streak-"+dateStr, events.StreakUpdated,
+		events.StreakUpdatedPayload{
+			Date:        dateStr,
+			HasPomodoro: true,
+		}, events.AggregateTask, "streak-"+dateStr)
+
+	return nil
 }
 
 // CancelSession marks a session as cancelled.
 func (s *Store) CancelSession(id int64) error {
-	_, err := s.db.Exec(
-		`UPDATE pomodoro_sessions SET end_time = ?, status = 'cancelled' WHERE id = ?`,
-		time.Now(), id,
+	now := time.Now()
+	_, err := s.exec(
+		fmt.Sprintf(`UPDATE %s SET end_time = ?, status = 'cancelled' WHERE id = ?`, s.tbl("pomodoro_sessions", "proj_pomodoro_sessions")),
+		now, id,
 	)
-	return err
+	if err != nil {
+		return err
+	}
+
+	s.tryAppendEvent(events.AggregateTask, fmt.Sprintf("pomodoro-%d", id), events.PomodoroCancelled,
+		events.PomodoroCancelledPayload{
+			ID:      id,
+			Date:    now.Format("2006-01-02"),
+			EndTime: now.Format(time.RFC3339),
+		}, events.AggregateTask, fmt.Sprintf("pomodoro-%d", id))
+
+	return nil
 }
 
 // TodaySessionCount returns the number of completed sessions today.
 func (s *Store) TodaySessionCount() (int, error) {
 	var count int
-	err := s.db.QueryRow(
-		`SELECT COUNT(*) FROM pomodoro_sessions
-		 WHERE date = ? AND status = 'completed'`,
+	err := s.qRow(
+		fmt.Sprintf(`SELECT COUNT(*) FROM %s WHERE date = ? AND status = 'completed'`, s.tbl("pomodoro_sessions", "proj_pomodoro_sessions")),
 		time.Now().Format("2006-01-02"),
 	).Scan(&count)
 	return count, err
@@ -64,12 +100,15 @@ func (s *Store) GetStreak() (int, error) {
 
 	for d := today; ; d = d.AddDate(0, 0, -1) {
 		var has bool
-		err := s.db.QueryRow(
-			`SELECT has_pomodoro FROM streaks WHERE date = ?`,
+		err := s.qRow(
+			fmt.Sprintf(`SELECT has_pomodoro FROM %s WHERE date = ?`, s.tbl("streaks", "proj_streaks")),
 			d.Format("2006-01-02"),
 		).Scan(&has)
-		if err != nil || !has {
+		if isNoRows(err) || !has {
 			break
+		}
+		if err != nil {
+			return 0, err
 		}
 		streak++
 	}

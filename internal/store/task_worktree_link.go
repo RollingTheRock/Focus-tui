@@ -21,8 +21,8 @@ func (s *Store) SaveTaskWorktreeLink(record TaskWorktreeLinkRecord) error {
 	if record.RelationType == "" {
 		return fmt.Errorf("task worktree link relation required")
 	}
-	const q = `
-		INSERT INTO task_worktree_links (
+	q := fmt.Sprintf(`
+		INSERT INTO %s (
 			id, task_id, worktree_id, relation_type, created_at, updated_at
 		) VALUES (?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP), CURRENT_TIMESTAMP)
 		ON CONFLICT(id) DO UPDATE SET
@@ -30,8 +30,8 @@ func (s *Store) SaveTaskWorktreeLink(record TaskWorktreeLinkRecord) error {
 			worktree_id = excluded.worktree_id,
 			relation_type = excluded.relation_type,
 			updated_at = CURRENT_TIMESTAMP
-	`
-	_, err := s.db.Exec(q,
+	`, s.tbl("task_worktree_links", "proj_task_worktree_links"))
+	_, err := s.exec(q,
 		record.ID,
 		record.TaskID,
 		record.WorktreeID,
@@ -80,6 +80,6 @@ func (s *Store) listTaskWorktreeLinks(where string, arg string) ([]TaskWorktreeL
 }
 
 func (s *Store) DeleteTaskWorktreeLinksByWorktreeID(worktreeID string) error {
-	_, err := s.db.Exec(`DELETE FROM task_worktree_links WHERE worktree_id = ?`, worktreeID)
+	_, err := s.exec(fmt.Sprintf(`DELETE FROM %s WHERE worktree_id = ?`, s.tbl("task_worktree_links", "proj_task_worktree_links")), worktreeID)
 	return err
 }

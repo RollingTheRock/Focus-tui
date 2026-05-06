@@ -43,8 +43,8 @@ func (s *Store) SaveContextNote(record ContextNoteRecord) error {
 			Pinned:     record.Pinned,
 		}, events.AggregateContextNote, scopeID)
 
-	const q = `
-		INSERT INTO context_notes (
+	q := fmt.Sprintf(`
+		INSERT INTO %s (
 			id, task_id, worktree_id, note_type, body, pinned, created_at, updated_at
 		) VALUES (?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP), CURRENT_TIMESTAMP)
 		ON CONFLICT(id) DO UPDATE SET
@@ -54,8 +54,8 @@ func (s *Store) SaveContextNote(record ContextNoteRecord) error {
 			body = excluded.body,
 			pinned = excluded.pinned,
 			updated_at = CURRENT_TIMESTAMP
-	`
-	_, err := s.db.Exec(q,
+	`, s.tbl("context_notes", "proj_context_notes"))
+	_, err := s.exec(q,
 		record.ID,
 		record.TaskID,
 		nullIfEmpty(record.WorktreeID),
@@ -119,6 +119,6 @@ func (s *Store) ListContextNotes(taskID string, worktreeID string) ([]ContextNot
 }
 
 func (s *Store) DeleteContextNotesByWorktreeID(worktreeID string) error {
-	_, err := s.db.Exec(`DELETE FROM context_notes WHERE worktree_id = ?`, worktreeID)
+	_, err := s.exec(fmt.Sprintf(`DELETE FROM %s WHERE worktree_id = ?`, s.tbl("context_notes", "proj_context_notes")), worktreeID)
 	return err
 }

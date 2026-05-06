@@ -35,8 +35,8 @@ func (s *Store) SavePlanStep(record PlanStepRecord) error {
 			ExpandedTaskID: expandedTaskID,
 		}, events.AggregatePlan, record.PlanID)
 
-	const q = `
-		INSERT INTO plan_steps (
+	q := fmt.Sprintf(`
+		INSERT INTO %s (
 			id, plan_id, order_index, title, state, expanded_task_id, notes, created_at, updated_at
 		) VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP), CURRENT_TIMESTAMP)
 		ON CONFLICT(id) DO UPDATE SET
@@ -47,8 +47,8 @@ func (s *Store) SavePlanStep(record PlanStepRecord) error {
 			expanded_task_id = excluded.expanded_task_id,
 			notes = excluded.notes,
 			updated_at = CURRENT_TIMESTAMP
-	`
-	_, err := s.db.Exec(q,
+	`, s.tbl("plan_steps", "proj_plan_steps"))
+	_, err := s.exec(q,
 		record.ID,
 		record.PlanID,
 		record.OrderIndex,
@@ -65,7 +65,7 @@ func (s *Store) DeletePlanSteps(planID string) error {
 	if planID == "" {
 		return nil
 	}
-	_, err := s.db.Exec(`DELETE FROM plan_steps WHERE plan_id = ?`, planID)
+	_, err := s.exec(fmt.Sprintf(`DELETE FROM %s WHERE plan_id = ?`, s.tbl("plan_steps", "proj_plan_steps")), planID)
 	return err
 }
 

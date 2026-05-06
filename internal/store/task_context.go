@@ -35,8 +35,8 @@ func (s *Store) SaveTaskContext(record TaskContextRecord) error {
 		s.tryAppendTaskEvent(record)
 	}
 
-	const q = `
-		INSERT INTO task_contexts (
+	q := fmt.Sprintf(`
+		INSERT INTO %s (
 			id, repo_id, title, goal, next_step, state, priority,
 			parent_task_id, preferred_worktree_id, created_at, updated_at
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP), CURRENT_TIMESTAMP)
@@ -50,8 +50,8 @@ func (s *Store) SaveTaskContext(record TaskContextRecord) error {
 			parent_task_id = excluded.parent_task_id,
 			preferred_worktree_id = excluded.preferred_worktree_id,
 			updated_at = CURRENT_TIMESTAMP
-	`
-	_, err := s.db.Exec(q,
+	`, s.tbl("task_contexts", "proj_tasks"))
+	_, err := s.exec(q,
 		record.ID,
 		record.RepoID,
 		record.Title,

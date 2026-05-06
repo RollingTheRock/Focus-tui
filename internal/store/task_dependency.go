@@ -24,13 +24,13 @@ func (s *Store) SaveTaskDependency(record TaskDependencyRecord) error {
 			DependencyType: record.DependencyType,
 		}, events.AggregateTask, record.FromTaskID)
 
-	const q = `
-		INSERT INTO task_dependencies (from_task_id, to_task_id, dependency_type, created_at)
+	q := fmt.Sprintf(`
+		INSERT INTO %s (from_task_id, to_task_id, dependency_type, created_at)
 		VALUES (?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
 		ON CONFLICT(from_task_id, to_task_id) DO UPDATE SET
 			dependency_type = excluded.dependency_type
-	`
-	_, err := s.db.Exec(q, record.FromTaskID, record.ToTaskID, record.DependencyType, nullableTimeValue(record.CreatedAt))
+	`, s.tbl("task_dependencies", "proj_task_dependencies"))
+	_, err := s.exec(q, record.FromTaskID, record.ToTaskID, record.DependencyType, nullableTimeValue(record.CreatedAt))
 	return err
 }
 
@@ -38,7 +38,7 @@ func (s *Store) DeleteTaskDependency(fromTaskID, toTaskID string) error {
 	if fromTaskID == "" || toTaskID == "" {
 		return fmt.Errorf("task dependency endpoints required")
 	}
-	_, err := s.db.Exec(`DELETE FROM task_dependencies WHERE from_task_id = ? AND to_task_id = ?`, fromTaskID, toTaskID)
+	_, err := s.exec(fmt.Sprintf(`DELETE FROM %s WHERE from_task_id = ? AND to_task_id = ?`, s.tbl("task_dependencies", "proj_task_dependencies")), fromTaskID, toTaskID)
 	return err
 }
 

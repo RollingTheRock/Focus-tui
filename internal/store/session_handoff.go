@@ -35,8 +35,8 @@ func (s *Store) SaveSessionHandoff(record SessionHandoffRecord) error {
 			Entrypoint:         record.Entrypoint,
 		}, events.AggregateSessionHandoff, record.TaskID)
 
-	const q = `
-		INSERT INTO session_handoffs (
+	q := fmt.Sprintf(`
+		INSERT INTO %s (
 			id, task_id, plan_id, session_id,
 			done_summary, remaining_summary, decision_summary,
 			uncertainty_summary, blocker_summary, entrypoint, created_at
@@ -51,8 +51,8 @@ func (s *Store) SaveSessionHandoff(record SessionHandoffRecord) error {
 			uncertainty_summary = excluded.uncertainty_summary,
 			blocker_summary = excluded.blocker_summary,
 			entrypoint = excluded.entrypoint
-	`
-	_, err := s.db.Exec(q,
+	`, s.tbl("session_handoffs", "proj_session_handoffs"))
+	_, err := s.exec(q,
 		record.ID,
 		record.TaskID,
 		record.PlanID,

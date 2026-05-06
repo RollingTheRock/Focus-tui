@@ -43,8 +43,8 @@ func (s *Store) SaveAgentSession(record AgentSessionRecord) error {
 			EnvSnapshot:    record.EnvSnapshot,
 		}, events.AggregateAgentSession, record.ID)
 
-	const q = `
-		INSERT INTO agent_sessions (
+	q := fmt.Sprintf(`
+		INSERT INTO %s (
 			id, provider, worktree_id, repo_id, task_id, plan_id, step_id, branch_snapshot,
 			pid, state, launch_source, summary, env_snapshot,
 			started_at, ended_at, last_activity_at, last_heartbeat, stop_reason, updated_at
@@ -68,8 +68,8 @@ func (s *Store) SaveAgentSession(record AgentSessionRecord) error {
 			last_heartbeat = excluded.last_heartbeat,
 			stop_reason = excluded.stop_reason,
 			updated_at = CURRENT_TIMESTAMP
-	`
-	_, err := s.db.Exec(q,
+	`, s.tbl("agent_sessions", "proj_agent_sessions"))
+	_, err := s.exec(q,
 		record.ID,
 		record.Provider,
 		record.WorktreeID,
@@ -195,19 +195,19 @@ func (s *Store) MarkAgentSessionDisconnected(sessionID string, reason string) er
 		events.AgentSessionDisconnectedPayload{Reason: reason},
 		events.AggregateAgentSession, sessionID)
 
-	_, err := s.db.Exec(`
-		UPDATE agent_sessions
+	_, err := s.exec(fmt.Sprintf(`
+		UPDATE %s
 		SET state = 'disconnected',
 		    stop_reason = ?,
 		    ended_at = COALESCE(ended_at, ?),
 		    updated_at = CURRENT_TIMESTAMP
 		WHERE id = ?
-	`, nullIfEmpty(reason), now, sessionID)
+	`, s.tbl("agent_sessions", "proj_agent_sessions")), nullIfEmpty(reason), now, sessionID)
 	return err
 }
 
 func (s *Store) DeleteAgentSessionsByWorktreeID(worktreeID string) error {
-	_, err := s.db.Exec(`DELETE FROM agent_sessions WHERE worktree_id = ?`, worktreeID)
+	_, err := s.exec(fmt.Sprintf(`DELETE FROM %s WHERE worktree_id = ?`, s.tbl("agent_sessions", "proj_agent_sessions")), worktreeID)
 	return err
 }
 
@@ -224,22 +224,22 @@ func (s *Store) UpdateAgentSessionHeartbeat(sessionID string, at time.Time, stat
 		events.AggregateAgentSession, sessionID)
 
 	if state == "" {
-		_, err := s.db.Exec(`
-			UPDATE agent_sessions
+		_, err := s.exec(fmt.Sprintf(`
+			UPDATE %s
 			SET last_heartbeat = ?,
 			    last_activity_at = ?,
 			    updated_at = CURRENT_TIMESTAMP
 			WHERE id = ?
-		`, at, at, sessionID)
+		`, s.tbl("agent_sessions", "proj_agent_sessions")), at, at, sessionID)
 		return err
 	}
-	_, err := s.db.Exec(`
-		UPDATE agent_sessions
+	_, err := s.exec(fmt.Sprintf(`
+		UPDATE %s
 		SET state = ?,
 		    last_heartbeat = ?,
 		    last_activity_at = ?,
 		    updated_at = CURRENT_TIMESTAMP
 		WHERE id = ?
-	`, state, at, at, sessionID)
+	`, s.tbl("agent_sessions", "proj_agent_sessions")), state, at, at, sessionID)
 	return err
 }

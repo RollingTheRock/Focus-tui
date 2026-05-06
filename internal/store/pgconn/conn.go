@@ -38,7 +38,7 @@ func Start(ctx context.Context, dataDir string) (*EmbeddedPostgres, error) {
 		Password("focus").
 		Database("focus").
 		Port(uint32(port)).
-		DataPath(dataDir).
+		DataPath(filepath.Join(dataDir, "data")).
 		RuntimePath(filepath.Join(dataDir, "runtime")).
 		CachePath(filepath.Join(dataDir, "cache")).
 		StartTimeout(30 * time.Second).

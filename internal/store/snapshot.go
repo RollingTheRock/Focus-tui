@@ -1,7 +1,6 @@
 package store
 
 import (
-	"database/sql"
 	"encoding/json"
 	"fmt"
 
@@ -14,14 +13,14 @@ func (s *Store) SavePageSnapshot(worktreeID string, snapshotJSON []byte) error {
 	if worktreeID == "" {
 		return fmt.Errorf("worktreeID required")
 	}
-	const q = `
-		INSERT INTO page_snapshots (worktree_id, snapshot_json)
+	q := fmt.Sprintf(`
+		INSERT INTO %s (worktree_id, snapshot_json)
 		VALUES (?, ?)
 		ON CONFLICT(worktree_id) DO UPDATE SET
 			snapshot_json = excluded.snapshot_json,
 			updated_at = CURRENT_TIMESTAMP
-	`
-	_, err := s.db.Exec(q, worktreeID, string(snapshotJSON))
+	`, s.tbl("page_snapshots", "proj_page_snapshots"))
+	_, err := s.exec(q, worktreeID, string(snapshotJSON))
 	return err
 }
 
@@ -29,10 +28,10 @@ func (s *Store) LoadPageSnapshot(worktreeID string) ([]byte, error) {
 	if worktreeID == "" {
 		return nil, nil
 	}
-	const q = `SELECT snapshot_json FROM page_snapshots WHERE worktree_id = ?`
+	q := fmt.Sprintf(`SELECT snapshot_json FROM %s WHERE worktree_id = ?`, s.tbl("page_snapshots", "proj_page_snapshots"))
 	var raw string
-	err := s.db.QueryRow(q, worktreeID).Scan(&raw)
-	if err == sql.ErrNoRows {
+	err := s.qRow(q, worktreeID).Scan(&raw)
+	if isNoRows(err) {
 		return nil, nil
 	}
 	if err != nil {
@@ -42,8 +41,8 @@ func (s *Store) LoadPageSnapshot(worktreeID string) ([]byte, error) {
 }
 
 func (s *Store) ListPageSnapshots() ([]PageSnapshotRecord, error) {
-	const q = `SELECT worktree_id, snapshot_json FROM page_snapshots`
-	rows, err := s.db.Query(q)
+	q := fmt.Sprintf(`SELECT worktree_id, snapshot_json FROM %s`, s.tbl("page_snapshots", "proj_page_snapshots"))
+	rows, err := s.qRows(q)
 	if err != nil {
 		return nil, err
 	}
@@ -61,7 +60,7 @@ func (s *Store) ListPageSnapshots() ([]PageSnapshotRecord, error) {
 }
 
 func (s *Store) DeletePageSnapshot(worktreeID string) error {
-	_, err := s.db.Exec(`DELETE FROM page_snapshots WHERE worktree_id = ?`, worktreeID)
+	_, err := s.exec(fmt.Sprintf(`DELETE FROM %s WHERE worktree_id = ?`, s.tbl("page_snapshots", "proj_page_snapshots")), worktreeID)
 	return err
 }
 

@@ -30,8 +30,8 @@ func (s *Store) SaveAgentMessage(record AgentMessageRecord) error {
 	if record.CreatedAt.IsZero() {
 		record.CreatedAt = time.Now()
 	}
-	const q = `
-		INSERT INTO agent_messages (id, from_agent, to_agent, msg_type, payload, read_at, created_at)
+	q := fmt.Sprintf(`
+		INSERT INTO %s (id, from_agent, to_agent, msg_type, payload, read_at, created_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			from_agent = excluded.from_agent,
@@ -39,8 +39,8 @@ func (s *Store) SaveAgentMessage(record AgentMessageRecord) error {
 			msg_type = excluded.msg_type,
 			payload = excluded.payload,
 			read_at = excluded.read_at
-	`
-	_, err := s.db.Exec(
+	`, s.tbl("agent_messages", "proj_agent_messages"))
+	_, err := s.exec(
 		q,
 		record.ID,
 		record.FromAgent,
