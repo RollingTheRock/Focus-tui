@@ -39,22 +39,15 @@ const (
 	TaskCreated       = "TaskCreated"
 	TaskStateChanged  = "TaskStateChanged"
 	TaskGoalUpdated   = "TaskGoalUpdated"
-	TaskNextStepSet   = "TaskNextStepSet"
-
 	WorktreeContextUpdated = "WorktreeContextUpdated"
-	WorktreeActivated      = "WorktreeActivated"
 
 	PlanStepStateChanged = "PlanStepStateChanged"
-	PlanApproved         = "PlanApproved"
-	PlanArchived         = "PlanArchived"
 
 	AgentSessionCreated     = "AgentSessionCreated"
 	AgentSessionHeartbeat   = "AgentSessionHeartbeat"
 	AgentSessionDisconnected = "AgentSessionDisconnected"
-	AgentSessionSummarySet  = "AgentSessionSummarySet"
 
 	ContextNoteAdded   = "ContextNoteAdded"
-	ContextNotePinned  = "ContextNotePinned"
 
 	SessionHandoffCreated = "SessionHandoffCreated"
 
@@ -175,10 +168,15 @@ type KnowledgeFactAddedPayload struct {
 }
 
 // PlanStepStateChangedPayload is emitted when a plan step changes state.
+// It carries the full step record so the projection builder can upsert
+// complete rows even during replay.
 type PlanStepStateChangedPayload struct {
-	PlanID        string  `json:"plan_id"`
-	PreviousState string  `json:"previous_state"`
-	NewState      string  `json:"new_state"`
+	PlanID         string  `json:"plan_id"`
+	PreviousState  string  `json:"previous_state"`
+	NewState       string  `json:"new_state"`
+	OrderIndex     int     `json:"order_index"`
+	Title          string  `json:"title"`
+	Notes          string  `json:"notes,omitempty"`
 	ExpandedTaskID *string `json:"expanded_task_id,omitempty"`
 }
 
@@ -187,6 +185,12 @@ type TaskDependencyAddedPayload struct {
 	FromTaskID      string `json:"from_task_id"`
 	ToTaskID        string `json:"to_task_id"`
 	DependencyType  string `json:"dependency_type"`
+}
+
+// TaskDependencyRemovedPayload is emitted when a dependency is deleted.
+type TaskDependencyRemovedPayload struct {
+	FromTaskID string `json:"from_task_id"`
+	ToTaskID   string `json:"to_task_id"`
 }
 
 // TodoCreatedPayload is emitted when a todo is created.

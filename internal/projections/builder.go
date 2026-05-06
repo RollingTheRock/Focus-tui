@@ -106,6 +106,8 @@ func (b *Builder) applyEvent(ctx context.Context, ev events.Event) error {
 		return b.applyContextNoteAdded(ctx, ev)
 	case events.TaskDependencyAdded:
 		return b.applyTaskDependencyAdded(ctx, ev)
+	case events.TaskDependencyRemoved:
+		return b.applyTaskDependencyRemoved(ctx, ev)
 	case events.TaskOutputAdded:
 		return b.applyTaskOutputAdded(ctx, ev)
 	case events.KnowledgeFactAdded:
@@ -303,15 +305,18 @@ func (b *Builder) applyPlanStepStateChanged(ctx context.Context, ev events.Event
 		return err
 	}
 	_, err := b.pool.Exec(ctx, `
-		INSERT INTO proj_plan_steps (id, plan_id, state, expanded_task_id, event_version, updated_at)
-		VALUES ($1, $2, $3, $4, $5, NOW())
+		INSERT INTO proj_plan_steps (id, plan_id, order_index, title, state, notes, expanded_task_id, event_version, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())
 		ON CONFLICT (id) DO UPDATE SET
 			plan_id = EXCLUDED.plan_id,
+			order_index = EXCLUDED.order_index,
+			title = EXCLUDED.title,
 			state = EXCLUDED.state,
+			notes = EXCLUDED.notes,
 			expanded_task_id = EXCLUDED.expanded_task_id,
 			event_version = EXCLUDED.event_version,
 			updated_at = NOW()
-	`, ev.AggregateID, p.PlanID, p.NewState, p.ExpandedTaskID, ev.EventID)
+	`, ev.AggregateID, p.PlanID, p.OrderIndex, p.Title, p.NewState, p.Notes, p.ExpandedTaskID, ev.EventID)
 	return err
 }
 
@@ -515,5 +520,17 @@ func (b *Builder) applyWorktreeHistoryRecorded(ctx context.Context, ev events.Ev
 			event_version = EXCLUDED.event_version
 	`, ev.AggregateID, p.RepoID, p.Branch, p.Path, p.CreatedAt, p.RemovedAt,
 		p.TaskID, p.PlanID, p.Provider, p.Summary, p.DurationMinutes, ev.EventID)
+	return err
+}
+
+func (b *Builder) applyTaskDependencyRemoved(ctx context.Context, ev events.Event) error {
+	var p events.TaskDependencyRemovedPayload
+	if err := json.Unmarshal(ev.Payload, &p); err != nil {
+		return err
+	}
+	_, err := b.pool.Exec(ctx, `
+		DELETE FROM proj_task_dependencies
+		WHERE from_task_id = $1 AND to_task_id = $2
+	`, p.FromTaskID, p.ToTaskID)
 	return err
 }

@@ -38,6 +38,13 @@ func (s *Store) DeleteTaskDependency(fromTaskID, toTaskID string) error {
 	if fromTaskID == "" || toTaskID == "" {
 		return fmt.Errorf("task dependency endpoints required")
 	}
+
+	s.tryAppendEvent(events.AggregateTask, fromTaskID, events.TaskDependencyRemoved,
+		events.TaskDependencyRemovedPayload{
+			FromTaskID: fromTaskID,
+			ToTaskID:   toTaskID,
+		}, events.AggregateTask, fromTaskID)
+
 	_, err := s.exec(fmt.Sprintf(`DELETE FROM %s WHERE from_task_id = ? AND to_task_id = ?`, s.tbl("task_dependencies", "proj_task_dependencies")), fromTaskID, toTaskID)
 	return err
 }

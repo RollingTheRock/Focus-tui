@@ -28,10 +28,13 @@ func (s *Store) SavePlanStep(record PlanStepRecord) error {
 	if record.ExpandedTaskID != "" {
 		expandedTaskID = &record.ExpandedTaskID
 	}
-	s.tryAppendEvent(events.AggregatePlan, record.PlanID, events.PlanStepStateChanged,
+	s.tryAppendEvent(events.AggregatePlan, record.ID, events.PlanStepStateChanged,
 		events.PlanStepStateChangedPayload{
 			PlanID:         record.PlanID,
 			NewState:       record.State,
+			OrderIndex:     record.OrderIndex,
+			Title:          record.Title,
+			Notes:          record.Notes,
 			ExpandedTaskID: expandedTaskID,
 		}, events.AggregatePlan, record.PlanID)
 
