@@ -35,6 +35,9 @@ type Server struct {
 	// Tool registry.
 	tools map[string]ToolMeta
 
+	// Resource registry.
+	resources map[string]ResourceMeta
+
 	// Unix socket transport (optional, for internal/local connections).
 	unixSocketPath string
 	unixListener   net.Listener
@@ -59,6 +62,7 @@ func NewServer(unixSocketPath, httpAddr string) *Server {
 		unixSocketPath: unixSocketPath,
 		httpAddr:       httpAddr,
 		tools:          make(map[string]ToolMeta),
+		resources:      make(map[string]ResourceMeta),
 	}
 }
 
@@ -89,6 +93,34 @@ func (s *Server) ToolCount() int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return len(s.tools)
+}
+
+// ── Resource registration ──
+
+// RegisterResource registers a resource with the server.
+func (s *Server) RegisterResource(uri, name, description, mimeType string, handler ResourceHandler) error {
+	if uri == "" {
+		return fmt.Errorf("resource URI required")
+	}
+	if handler == nil {
+		return fmt.Errorf("resource handler required")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.resources[uri] = ResourceMeta{
+		Name:        name,
+		Description: description,
+		MimeType:    mimeType,
+		Handler:     handler,
+	}
+	return nil
+}
+
+// ResourceCount returns the number of registered resources.
+func (s *Server) ResourceCount() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return len(s.resources)
 }
 
 // ── Start / Stop ──
@@ -291,7 +323,8 @@ func (s *Server) handleJSONRPC(req JSONRPCRequest) JSONRPCResponse {
 		resp.Result = InitializeResult{
 			ProtocolVersion: ProtocolVersion,
 			Capabilities: ServerCapabilities{
-				Tools: &ToolCapabilities{ListChanged: true},
+				Tools:     &ToolCapabilities{ListChanged: true},
+				Resources: &ResourceCapabilities{ListChanged: true, Subscribe: true},
 			},
 			ServerInfo: Implementation{Name: "focus-tui", Version: "1.0"},
 		}
@@ -307,12 +340,60 @@ func (s *Server) handleJSONRPC(req JSONRPCRequest) JSONRPCResponse {
 		} else {
 			resp.Result = result
 		}
+	case "resources/list":
+		resp.Result = s.listResources()
+	case "resources/read":
+		result, err := s.readResource(req.Params)
+		if err != nil {
+			resp.Error = &JSONRPCError{Code: ErrInternalError, Message: err.Error()}
+		} else {
+			resp.Result = result
+		}
+	case "resources/subscribe":
+		// In-memory only; no-op for now.
+		resp.Result = map[string]any{}
 	case "ping":
 		resp.Result = map[string]any{}
 	default:
 		resp.Error = &JSONRPCError{Code: ErrMethodNotFound, Message: fmt.Sprintf("method %q not found", method)}
 	}
 	return resp
+}
+
+func (s *Server) listResources() ListResourcesResult {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	resources := make([]Resource, 0, len(s.resources))
+	for uri, meta := range s.resources {
+		resources = append(resources, Resource{
+			URI:         uri,
+			Name:        meta.Name,
+			Description: meta.Description,
+			MimeType:    meta.MimeType,
+		})
+	}
+	return ListResourcesResult{Resources: resources}
+}
+
+func (s *Server) readResource(params map[string]any) (ReadResourceResult, error) {
+	uri, _ := params["uri"].(string)
+	if uri == "" {
+		return ReadResourceResult{}, fmt.Errorf("resource URI required")
+	}
+	s.mu.RLock()
+	meta, ok := s.resources[uri]
+	s.mu.RUnlock()
+	if !ok {
+		return ReadResourceResult{}, fmt.Errorf("resource %q not found", uri)
+	}
+	content, err := meta.Handler(uri)
+	if err != nil {
+		return ReadResourceResult{}, err
+	}
+	if content.MimeType == "" && meta.MimeType != "" {
+		content.MimeType = meta.MimeType
+	}
+	return ReadResourceResult{Contents: []ResourceContent{content}}, nil
 }
 
 func (s *Server) listTools() ListToolsResult {
