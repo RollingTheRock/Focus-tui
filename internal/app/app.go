@@ -1307,6 +1307,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.invalidateView()
 		return m, nil
 
+	case agents.ExternalShellLaunchedMsg:
+		if msg.Err != nil {
+			m.common.Notice = fmt.Sprintf("external shell failed: %v", msg.Err)
+		} else {
+			m.common.Notice = fmt.Sprintf("external shell opened at %s (pid %d)", msg.CWD, msg.PID)
+		}
+		m.invalidateView()
+		return m, nil
+
 	case agentsplugin.KillSessionMsg:
 		cmd := m.killAgent(msg)
 		m.syncWorktreeActivities()
@@ -1460,6 +1469,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.syncWorktreeActivities()
 		m.invalidateView()
 		return m, m.routeToPane(msg.PaneID, msg)
+
+	case shell.OpenExternalShellMsg:
+		cmd := m.launchExternalShell(msg.CWD)
+		return m, cmd
 
 	case adapters.StatusEvent:
 		m.syncWorktreeActivities()
@@ -1828,6 +1841,27 @@ func (m *model) handleExternalLaunchResult(msg agents.ExternalLaunchResultMsg) {
 	record.LastActivityAt = &now
 	record.LastHeartbeat = &now
 	m.saveAgentSessionRecord(record)
+}
+
+// launchExternalShell opens the user's preferred terminal emulator with an
+// interactive shell at the given working directory. This is used when the
+// embedded shell pane is too small for TUI test output.
+func (m *model) launchExternalShell(cwd string) tea.Cmd {
+	if cwd == "" {
+		cwd = m.currentWorktreeID()
+	}
+	emulator := strings.TrimSpace(m.common.Cfg.Agent.TerminalEmulator)
+	if emulator != "" {
+		if _, err := exec.LookPath(emulator); err != nil {
+			if detected := agents.DetectTerminalEmulator(); detected != "" {
+				emulator = detected
+			}
+		}
+	} else {
+		emulator = agents.DetectTerminalEmulator()
+	}
+	title := filepath.Base(cwd)
+	return agents.LaunchExternalShell(cwd, title, emulator, 1.2)
 }
 
 func (m *model) killAgent(msg agentsplugin.KillSessionMsg) tea.Cmd {

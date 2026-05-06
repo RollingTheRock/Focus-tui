@@ -259,6 +259,7 @@ type CommonModel struct {
 	Theme  styles.Theme
 	Cfg    config.Config
 	Store  Store
+	Notice string // ephemeral notice message (e.g. external shell result)
 }
 
 // Panel is the interface implemented by every UI sub-model.
