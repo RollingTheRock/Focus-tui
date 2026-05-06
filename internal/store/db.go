@@ -84,24 +84,55 @@ func newPostgresStore() (*Store, error) {
 
 	pool := emb.Pool()
 
+	// Open SQLite as legacy read cache. During the dual-write migration
+	// phase, all reads still go through SQLite while writes are dual-logged
+	// to PostgreSQL Event Store + SQLite.
+	sqlitePath := filepath.Join(dataDir, "focus.db")
+	if err := os.MkdirAll(filepath.Dir(sqlitePath), 0o755); err != nil {
+		emb.Stop()
+		return nil, fmt.Errorf("create sqlite dir: %w", err)
+	}
+	db, err := sql.Open("sqlite", sqlitePath)
+	if err != nil {
+		emb.Stop()
+		return nil, fmt.Errorf("open sqlite: %w", err)
+	}
+	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
+		db.Close()
+		emb.Stop()
+		return nil, fmt.Errorf("set WAL mode: %w", err)
+	}
+	if _, err := db.Exec("PRAGMA foreign_keys=ON"); err != nil {
+		db.Close()
+		emb.Stop()
+		return nil, fmt.Errorf("enable foreign keys: %w", err)
+	}
+
 	bus := events.NewEventBus()
 	es := NewEventStore(pool)
 	es.SetBus(bus)
 
 	s := &Store{
+		db:     db,
 		pgPool: pool,
 		events: es,
 		bus:    bus,
 		mode:   "postgresql",
 	}
 
+	// Migrate SQLite schema (legacy read cache).
+	if err := s.migrate(); err != nil {
+		s.Close()
+		return nil, fmt.Errorf("migrate sqlite: %w", err)
+	}
+
 	// Migrate event store and projection schemas.
 	if err := s.events.MigrateEventSchema(ctx); err != nil {
-		emb.Stop()
+		s.Close()
 		return nil, fmt.Errorf("migrate event schema: %w", err)
 	}
 	if err := MigrateProjectionSchema(ctx, pool); err != nil {
-		emb.Stop()
+		s.Close()
 		return nil, fmt.Errorf("migrate projection schema: %w", err)
 	}
 
