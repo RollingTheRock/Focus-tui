@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"focus/internal/events"
 	"focus/internal/models"
 )
 
@@ -30,6 +31,14 @@ func (s *Store) SaveAgentMessage(record AgentMessageRecord) error {
 	if record.CreatedAt.IsZero() {
 		record.CreatedAt = time.Now()
 	}
+	s.tryAppendEvent(events.AggregateAgentSession, record.ID, events.AgentMessageSent,
+		events.AgentMessageSentPayload{
+			ID:        record.ID,
+			FromAgent: record.FromAgent,
+			ToAgent:   record.ToAgent,
+			MsgType:   record.MsgType,
+			Payload:   record.Payload,
+		}, events.AggregateAgentSession, record.FromAgent)
 	q := fmt.Sprintf(`
 		INSERT INTO %s (id, from_agent, to_agent, msg_type, payload, read_at, created_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?)
