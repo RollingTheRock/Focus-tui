@@ -120,6 +120,8 @@ type AgentSessionCreatedPayload struct {
 	BranchSnapshot string `json:"branch_snapshot,omitempty"`
 	PID            int    `json:"pid,omitempty"`
 	LaunchSource   string `json:"launch_source,omitempty"`
+	Summary        string `json:"summary,omitempty"`
+	EnvSnapshot    string `json:"env_snapshot,omitempty"`
 }
 
 // AgentSessionHeartbeatPayload is emitted on each heartbeat.

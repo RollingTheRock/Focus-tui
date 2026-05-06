@@ -39,6 +39,8 @@ func (s *Store) SaveAgentSession(record AgentSessionRecord) error {
 			BranchSnapshot: record.BranchSnapshot,
 			PID:            record.PID,
 			LaunchSource:   record.LaunchSource,
+			Summary:        record.Summary,
+			EnvSnapshot:    record.EnvSnapshot,
 		}, events.AggregateAgentSession, record.ID)
 
 	const q = `

@@ -726,9 +726,10 @@ func TestMCPTaskStatusDoneTriggersProtocolDownstreamLaunch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("task.update_status tool error: %v", err)
 	}
-	launchedIDs, ok := out["launched_task_ids"].([]string)
-	if !ok || len(launchedIDs) != 1 || launchedIDs[0] != "task-downstream-1" {
-		t.Fatalf("expected downstream task launch response, got %+v", out)
+	// Phase 4: downstream auto-launch removed per ADR-0000 Human Sovereignty.
+	launchedIDs, _ := out["launched_task_ids"].([]string)
+	if len(launchedIDs) != 0 {
+		t.Fatalf("expected no downstream auto-launch, got %+v", out)
 	}
 
 	upstream, err := st.GetTaskContext("task-upstream-1")
@@ -747,15 +748,13 @@ func TestMCPTaskStatusDoneTriggersProtocolDownstreamLaunch(t *testing.T) {
 		t.Fatalf("expected upstream session completed, got %+v", upSessions)
 	}
 
+	// Downstream sessions should NOT be auto-launched.
 	downstreamSessions, err := st.ListAgentSessions("/repo/feature-b")
 	if err != nil {
 		t.Fatalf("list downstream sessions: %v", err)
 	}
-	if len(downstreamSessions) != 1 {
-		t.Fatalf("expected one downstream launched session, got %+v", downstreamSessions)
-	}
-	if downstreamSessions[0].TaskID != "task-downstream-1" {
-		t.Fatalf("expected downstream session bound to task, got %+v", downstreamSessions[0])
+	if len(downstreamSessions) != 0 {
+		t.Fatalf("expected no downstream auto-launched sessions, got %+v", downstreamSessions)
 	}
 }
 
@@ -838,12 +837,13 @@ func TestA2AStatusUpdateBridgesToMCPAndTriggersDownstream(t *testing.T) {
 		t.Fatalf("expected upstream session exited, got %+v", upSessions)
 	}
 
+	// Phase 4: downstream auto-launch removed per ADR-0000 Human Sovereignty.
 	downstreamSessions, err := st.ListAgentSessions("/repo/feature-a2a-b")
 	if err != nil {
 		t.Fatalf("list downstream sessions: %v", err)
 	}
-	if len(downstreamSessions) != 1 || downstreamSessions[0].TaskID != "task-downstream-a2a" {
-		t.Fatalf("expected downstream launch via a2a bridge, got %+v", downstreamSessions)
+	if len(downstreamSessions) != 0 {
+		t.Fatalf("expected no downstream auto-launched sessions, got %+v", downstreamSessions)
 	}
 }
 
@@ -1013,12 +1013,13 @@ func TestProtocolClosedLoopSmoke(t *testing.T) {
 		t.Fatalf("update status tool: %v", err)
 	}
 
+	// Phase 4: downstream auto-launch removed per ADR-0000 Human Sovereignty.
 	downSessions, err := st.ListAgentSessions("/repo/smoke-down")
 	if err != nil {
 		t.Fatalf("list downstream sessions: %v", err)
 	}
-	if len(downSessions) != 1 || downSessions[0].TaskID != "task-smoke-down" {
-		t.Fatalf("expected downstream session launch, got %+v", downSessions)
+	if len(downSessions) != 0 {
+		t.Fatalf("expected no downstream auto-launched sessions, got %+v", downSessions)
 	}
 
 	ctx, err := m.mcpContextGetForTaskTool(map[string]any{"task_id": "task-smoke-down"})

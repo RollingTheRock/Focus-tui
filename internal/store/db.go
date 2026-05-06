@@ -17,11 +17,11 @@ import (
 // Store wraps database connections. During migration it supports both SQLite
 // (legacy primary) and PostgreSQL (new event store + projections).
 type Store struct {
-	db      *sql.DB
-	pgPool  *pgxpool.Pool
-	events  *EventStore
-	bus     *events.EventBus
-	mode    string // "sqlite" or "postgresql"
+	db     *sql.DB
+	pgPool *pgxpool.Pool
+	events *EventStore
+	bus    *events.EventBus
+	mode   string // "sqlite" or "postgresql"
 }
 
 // New opens (or creates) the database and runs migrations.
@@ -125,6 +125,11 @@ func (s *Store) Close() error {
 	return nil
 }
 
+// PGPool returns the PostgreSQL connection pool (nil in sqlite mode).
+func (s *Store) PGPool() *pgxpool.Pool {
+	return s.pgPool
+}
+
 // Mode returns the current storage mode ("sqlite" or "postgresql").
 func (s *Store) Mode() string {
 	return s.mode
@@ -132,6 +137,9 @@ func (s *Store) Mode() string {
 
 // EventStore returns the event store (nil in sqlite mode).
 func (s *Store) EventStore() any {
+	if s.events == nil {
+		return nil
+	}
 	return s.events
 }
 
