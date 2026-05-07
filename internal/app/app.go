@@ -1361,8 +1361,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if pageCmd := m.switchToWorktreePage(msg.WorktreeID, string(paneWorktreeDetail)); pageCmd != nil {
 			cmds = append(cmds, pageCmd)
 		}
+		extraArgs := msg.ExtraArgs
+		if msg.Provider == agents.ProviderClaude && agents.HasResumableClaudeSession(msg.WorktreeID) {
+			extraArgs = append(extraArgs, "--continue")
+		}
 		session := m.newAgentSession(msg.WorktreeID, msg.Provider)
-		session.ExtraArgs = msg.ExtraArgs
+		session.ExtraArgs = extraArgs
 		m.saveAgentSession(session)
 		if m.agentRegistry != nil {
 			m.agentRegistry.Register(session)
@@ -1628,6 +1632,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, pageCmd)
 		}
 		session := m.newAgentSession(msg.WorktreeID, msg.Provider)
+		if msg.Resume {
+			session.ExtraArgs = append(session.ExtraArgs, "--continue")
+		}
 		m.saveAgentSession(session)
 		if m.agentRegistry != nil {
 			m.agentRegistry.Register(session)
