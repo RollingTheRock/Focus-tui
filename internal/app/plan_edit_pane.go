@@ -82,7 +82,7 @@ const (
 func NewPlanEditPane(id models.PaneID, meta models.PaneMeta, common models.CommonModel, seed planEditorSeed) *PlanEditPane {
 	titleInput := textinput.New()
 	titleInput.Prompt = "Plan: "
-	titleInput.Placeholder = "Overview recovery rollout"
+	titleInput.Placeholder = "重构认证模块 v2"
 	titleInput.SetValue(seed.Title)
 	titleInput.PromptStyle = lipgloss.NewStyle().Foreground(appstyles.Accent)
 	titleInput.TextStyle = lipgloss.NewStyle().Foreground(appstyles.Text)
@@ -91,30 +91,30 @@ func NewPlanEditPane(id models.PaneID, meta models.PaneMeta, common models.Commo
 
 	whyNowInput := textinput.New()
 	whyNowInput.Prompt = "Why now: "
-	whyNowInput.Placeholder = "Why is this plan worth doing now?"
+	whyNowInput.Placeholder = "为什么现在值得执行这个计划？"
 	whyNowInput.SetValue(seed.WhyNow)
 	whyNowInput.PromptStyle = lipgloss.NewStyle().Foreground(appstyles.Accent)
 
 	successInput := textinput.New()
 	successInput.Prompt = "Success: "
-	successInput.Placeholder = "What proves the plan succeeded?"
+	successInput.Placeholder = "什么能证明计划成功了？"
 	successInput.SetValue(seed.Success)
 	successInput.PromptStyle = lipgloss.NewStyle().Foreground(appstyles.Accent)
 
 	outOfScopeInput := textinput.New()
 	outOfScopeInput.Prompt = "Out of scope: "
-	outOfScopeInput.Placeholder = "What are we explicitly not doing?"
+	outOfScopeInput.Placeholder = "明确排除不做的事情有哪些？"
 	outOfScopeInput.SetValue(seed.OutOfScope)
 	outOfScopeInput.PromptStyle = lipgloss.NewStyle().Foreground(appstyles.Accent)
 
 	knownRisksInput := textinput.New()
 	knownRisksInput.Prompt = "Risks: "
-	knownRisksInput.Placeholder = "What can still go wrong?"
+	knownRisksInput.Placeholder = "还可能出现什么问题？"
 	knownRisksInput.SetValue(seed.KnownRisks)
 	knownRisksInput.PromptStyle = lipgloss.NewStyle().Foreground(appstyles.Accent)
 
 	bodyInput := textarea.New()
-	bodyInput.Placeholder = "Phase A\nValidation lane\nRisk lane"
+	bodyInput.Placeholder = "阶段 A\n验证通道\n风险通道"
 	bodyInput.Prompt = "│ "
 	bodyInput.ShowLineNumbers = false
 	bodyInput.SetValue(seed.PlanBody)

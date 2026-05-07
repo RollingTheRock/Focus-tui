@@ -1,121 +1,43 @@
 package app
 
 import (
-	"fmt"
 	"sort"
 	"strings"
+
+	"focus/internal/styles"
 
 	"github.com/charmbracelet/lipgloss"
 )
 
-// ============================================================================
-// Layout Engine: Sugiyama-style hierarchical DAG layout adapted for horizontal
-// rendering (levels = columns, left-to-right).
+// ────────────────────────────────────────────────────────────
+// Horizontal DAG renderer (left-to-right)
 //
-// Based on ascii-dag (https://github.com/AshutoshMahala/ascii-dag) but
-// transposed for horizontal flow and rewritten in Go.
-// ============================================================================
-
-// layoutNode is a positioned node in the layout grid.
-type layoutNode struct {
-	id         string
-	label      string
-	state      string
-	x, y       int // top-left corner in character cells
-	w, h       int // width and height in cells
-	cx, cy     int // center coordinates
-	level      int // column index (0 = leftmost)
-	levelPos   int // position within the column (row index)
-	isDummy    bool
-	isFocus    bool
-}
-
-// layoutEdge is a routed edge between two nodes.
-type layoutEdge struct {
-	fromID string
-	toID   string
-	fromX  int // source center x
-	fromY  int // source bottom y
-	toX    int // target center x
-	toY    int // target top y
-	path   edgePath
-}
-
-// edgePath describes how an edge is routed.
-type edgePath interface{}
-
-type edgePathDirect struct{}
-
-type edgePathCorner struct {
-	gutterX int // x coordinate in gutter where the vertical segment runs
-}
-
-type edgePathMultiSegment struct {
-	waypoints      []point
-	startXOffset   int
-}
-
-type point struct{ x, y int }
-
-// dagLayout holds the complete computed layout.
-type dagLayout struct {
-	nodes      []*layoutNode
-	edges      []*layoutEdge
-	nodeByID   map[string]*layoutNode
-	levels     [][]int // level -> node indices
-	width      int
-	height     int
-	levelCount int
-}
-
-// ============================================================================
-// Constants
-// ============================================================================
+//   Levels → columns       Nodes → stacked vertically within columns
+//   Edges  → box-drawing chars in "edge gutter" columns
+//   Focus  → upstream/downstream edges highlighted in accent color
+// ────────────────────────────────────────────────────────────
 
 const (
-	nodePadX       = 2  // horizontal spacing between nodes in same column
-	nodePadY       = 1  // vertical spacing between nodes in same column
-	gutterMinW     = 3  // minimum gutter width between columns
-	gutterSlotH    = 1  // vertical space per edge slot in gutter
-	maxSlots       = 8  // max edge slots per gutter to prevent unbounded growth
-	dummyWidth     = 3  // width of dummy node markers in gutter
-	nodeHeight     = 1  // node chip is single-line
-	crossingPasses = 4  // median crossing reduction passes
+	minColW    = 12
+	minRows    = 6
+	leftMargin = 1
+	rowSpacing = 1 // rows between nodes in same column
 )
 
-// ============================================================================
-// Public Entry Point
-// ============================================================================
+// ── layout ──────────────────────────────────────────────────
 
-// renderHorizontalDAG renders a DAG in horizontal (left-to-right) layout.
-func renderHorizontalDAG(
-	nodes map[string]dagNode,
-	edges []dagEdge,
-	levels map[string]int,
-	layerIDs map[int][]string,
-	maxLevel int,
-	focusID string,
-	maxW, maxH int,
-) string {
-	if len(nodes) == 0 {
-		return ""
-	}
-
-	// Build layout IR.
-	lyt := buildLayout(nodes, edges, levels, layerIDs, maxLevel, focusID)
-
-	// Render to grid.
-	grid := newRenderGrid(lyt.width, lyt.height)
-	paintEdges(grid, lyt)
-	paintNodes(grid, lyt)
-
-	// Convert grid to styled string.
-	return styledString(grid, lyt, maxW, maxH)
+type hLayout struct {
+	colX         []int          // pixel x of each node column
+	colW         []int          // width of each node column
+	edgeX        []int          // pixel x of each edge gutter start (len = numCols-1)
+	edgeW        []int          // width of each edge gutter (len = numCols-1)
+	nodeRow      map[string]int // y position of each node
+	nodeCol      map[string]int // column index of each node
+	gutterSlot   map[string]int // edge key → assigned slot index within source gutter
+	skipChannels map[string]int // edge key → channel Y for skip-level edges
+	rows         int
+	cols         int
 }
-
-// ============================================================================
-// Phase 1: Layout Computation
-// ============================================================================
 
 func buildLayout(
 	nodes map[string]dagNode,
@@ -123,1058 +45,839 @@ func buildLayout(
 	levels map[string]int,
 	layerIDs map[int][]string,
 	maxLevel int,
-	focusID string,
-) *dagLayout {
-	lyt := &dagLayout{
-		nodeByID:   make(map[string]*layoutNode),
-		levelCount: maxLevel + 1,
-		levels:     make([][]int, maxLevel+1),
+	maxW int,
+	maxH int,
+) *hLayout {
+	l := &hLayout{
+		nodeRow:      map[string]int{},
+		nodeCol:      map[string]int{},
+		gutterSlot:   map[string]int{},
+		skipChannels: map[string]int{},
 	}
 
-	// --- Step 1: Create virtual levels with dummy nodes for skip-level edges ---
-	virtualLevels := buildVirtualLevels(nodes, edges, levels, maxLevel)
+	nCols := maxLevel + 1
 
-	// Ensure deterministic initial order within each level.
-	for lv := range virtualLevels {
-		sort.Slice(virtualLevels[lv], func(i, j int) bool {
-			ai, aj := virtualLevels[lv][i].id, virtualLevels[lv][j].id
-			if ai != aj {
-				return ai < aj
-			}
-			return virtualLevels[lv][i].edgeIdx < virtualLevels[lv][j].edgeIdx
-		})
-	}
-
-	// --- Step 2: Crossing reduction (Median heuristic) ---
-	reduceCrossings(virtualLevels, edges, nodes, maxLevel)
-
-	// --- Step 3: Compute node dimensions and build label map ---
-	nodeLabel := make(map[string]string)
-	nodeWidth := make(map[string]int)
-	for id, n := range nodes {
-		lbl := chipLabel(n)
-		nodeLabel[id] = lbl
-		nodeWidth[id] = runeWidth(lbl)
-	}
-
-	// --- Step 4: Assign Y coordinates (rows) within each column ---
-	// Y = vertical position; within a column nodes stack top-to-bottom.
-	nodeY := make(map[string]int)
-	dummyY := make(map[int]map[string]int) // level -> dummyKey -> y
+	// measure column widths from compact labels
+	l.colW = make([]int, nCols)
 	for lv := 0; lv <= maxLevel; lv++ {
-		vlevel := virtualLevels[lv]
-		y := 0
-		for i, vnode := range vlevel {
-			if i > 0 {
-				y += nodePadY
-			}
-			if vnode.isDummy {
-				key := fmt.Sprintf("%d-%d", vnode.edgeIdx, lv)
-				if dummyY[lv] == nil {
-					dummyY[lv] = make(map[string]int)
-				}
-				dummyY[lv][key] = y
-				y += dummyWidth
-			} else {
-				nodeY[vnode.id] = y
-				y += nodeHeight
-			}
-		}
-	}
-
-	// --- Step 5: Assign X coordinates (columns) ---
-	// X = horizontal position; columns flow left-to-right.
-	colX := make([]int, maxLevel+1)
-	colW := make([]int, maxLevel+1)
-	x := 0
-	for lv := 0; lv <= maxLevel; lv++ {
-		colX[lv] = x
-		maxNodeW := 0
-		for _, vnode := range virtualLevels[lv] {
-			if !vnode.isDummy {
-				w := nodeWidth[vnode.id]
-				if w > maxNodeW {
-					maxNodeW = w
-				}
-			}
-		}
-		if maxNodeW == 0 {
-			maxNodeW = dummyWidth
-		}
-		colW[lv] = maxNodeW
-		x += maxNodeW + gutterMinW
-	}
-
-	// Total width before gutter trimming.
-	lyt.width = x
-
-	// --- Step 6: Build layout nodes ---
-	for lv := 0; lv <= maxLevel; lv++ {
-		for pos, vnode := range virtualLevels[lv] {
-			if vnode.isDummy {
-				continue // dummies are routing waypoints, not rendered
-			}
-			id := vnode.id
+		w := minColW
+		for _, id := range layerIDs[lv] {
 			n := nodes[id]
-			w := nodeWidth[id]
-			y := nodeY[id]
-			ln := &layoutNode{
-				id:       id,
-				label:    nodeLabel[id],
-				state:    n.State,
-				x:        colX[lv],
-				y:        y,
-				w:        w,
-				h:        nodeHeight,
-				cx:       colX[lv] + w/2,
-				cy:       y + nodeHeight/2,
-				level:    lv,
-				levelPos: pos,
-				isFocus:  id == focusID,
+			lw := len(chipLabel(n)) + 4 // [ title ] = title + 2 brackets + 2 spaces
+			if lw > w {
+				w = lw
 			}
-			idx := len(lyt.nodes)
-			lyt.nodes = append(lyt.nodes, ln)
-			lyt.nodeByID[id] = ln
-			lyt.levels[lv] = append(lyt.levels[lv], idx)
+		}
+		l.colW[lv] = w
+	}
+
+	// Compute gutter widths: each gutter needs at least 2 chars,
+	// plus one slot per unique source node that has outgoing edges through it.
+	l.edgeW = make([]int, nCols-1)
+	for lv := 0; lv < nCols-1; lv++ {
+		srcSet := map[string]bool{}
+		for _, e := range edges {
+			srcLv := levels[e.From]
+			dstLv := levels[e.To]
+			if srcLv == lv && dstLv == lv+1 {
+				srcSet[e.From] = true
+			}
+		}
+		w := 2
+		if nSrc := len(srcSet); nSrc > 1 {
+			w = nSrc
+		}
+		l.edgeW[lv] = w
+	}
+
+	// Scale down columns proportionally to fit available width
+	total := leftMargin
+	for _, w := range l.colW {
+		total += w
+	}
+	for _, w := range l.edgeW {
+		total += w
+	}
+
+	if total > maxW && maxW > 40 {
+		available := maxW - leftMargin
+		for i := range l.edgeW {
+			available -= l.edgeW[i]
+		}
+		if available < nCols*8 {
+			available = nCols * 8
+		}
+		totalColW := 0
+		for _, w := range l.colW {
+			totalColW += w
+		}
+		if totalColW > 0 {
+			scale := float64(available) / float64(totalColW)
+			for i := range l.colW {
+				l.colW[i] = int(float64(l.colW[i]) * scale)
+				if l.colW[i] < 8 {
+					l.colW[i] = 8
+				}
+			}
 		}
 	}
 
-	// --- Step 7: Slot allocation for edge routing ---
-	// Assign each edge a vertical slot in each gutter it passes through.
-	edgeSlots := allocateSlots(edges, levels, colX, colW, nodeY, dummyY, virtualLevels, maxLevel)
+	// x offsets
+	l.colX = make([]int, nCols)
+	l.edgeX = make([]int, nCols-1)
+	x := leftMargin
+	for lv := 0; lv <= maxLevel; lv++ {
+		l.colX[lv] = x
+		x += l.colW[lv]
+		if lv < maxLevel {
+			l.edgeX[lv] = x
+			x += l.edgeW[lv]
+		}
+	}
+	l.cols = x
 
-	// --- Step 8: Build layout edges with routing paths ---
-	for ei, e := range edges {
-		fromNode := lyt.nodeByID[e.From]
-		toNode := lyt.nodeByID[e.To]
-		if fromNode == nil || toNode == nil {
+	// row assignment with fixed spacing
+	maxNodeRow := 1
+	for lv := 0; lv <= maxLevel; lv++ {
+		ids := layerIDs[lv]
+		if len(ids) == 0 {
 			continue
 		}
-		fromLevel := levels[e.From]
-		toLevel := levels[e.To]
-
-		fromX := fromNode.cx // center of source
-		fromY := fromNode.cy // center-y of source
-		toX := toNode.x - 1 // one cell left of target (arrow position)
-		if toX <= fromX {
-			toX = fromX + 2
-		}
-		toY := toNode.cy // center-y of target
-
-		var path edgePath
-		if toLevel == fromLevel+1 {
-			// Adjacent columns.
-			if fromY == toY {
-				path = edgePathDirect{}
-			} else {
-				slot := edgeSlots[ei]
-				gutterStart := colX[fromLevel] + colW[fromLevel]
-				gutterEnd := colX[toLevel]
-				gutterWidth := gutterEnd - gutterStart
-				if gutterWidth < 2 {
-					gutterWidth = 2
-				}
-				// Distribute slots evenly, ensuring gutterX > fromX (source right edge).
-				gutterX := gutterStart + 1 + slot
-				if gutterX >= gutterEnd {
-					gutterX = gutterEnd - 1
-				}
-				path = edgePathCorner{gutterX: gutterX}
-			}
-		} else {
-			// Skip-level: build waypoints through dummy nodes.
-			waypoints := buildWaypoints(ei, e, fromLevel, toLevel, colX, colW, dummyY, edgeSlots)
-			slot := edgeSlots[ei]
-			path = edgePathMultiSegment{
-				waypoints:    waypoints,
-				startXOffset: slot,
+		for i, id := range ids {
+			l.nodeCol[id] = lv
+			row := 1 + i*(rowSpacing+1)
+			l.nodeRow[id] = row
+			if row > maxNodeRow {
+				maxNodeRow = row
 			}
 		}
+	}
 
-		lyt.edges = append(lyt.edges, &layoutEdge{
-			fromID: e.From,
-			toID:   e.To,
-			fromX:  fromX,
-			fromY:  fromY,
-			toX:    toX,
-			toY:    toY,
-			path:   path,
+	// Assign gutter slots for adjacent-level edges.
+	// Each unique source node in a gutter gets its own vertical slot,
+	// so all outgoing edges from that source share the same gutter X.
+	for lv := 0; lv < nCols-1; lv++ {
+		sources := []string{}
+		seen := map[string]bool{}
+		for _, e := range edges {
+			srcLv := levels[e.From]
+			dstLv := levels[e.To]
+			if srcLv == lv && dstLv == lv+1 && !seen[e.From] {
+				sources = append(sources, e.From)
+				seen[e.From] = true
+			}
+		}
+		// Sort by row for stable, deterministic ordering
+		sort.Slice(sources, func(i, j int) bool {
+			return l.nodeRow[sources[i]] < l.nodeRow[sources[j]]
 		})
-	}
-
-	// --- Step 9: Compute total height ---
-	maxY := 0
-	for _, n := range lyt.nodes {
-		if n.y+n.h > maxY {
-			maxY = n.y + n.h
+		slotMap := map[string]int{}
+		for i, src := range sources {
+			slotMap[src] = i
 		}
-	}
-	for ei, e := range edges {
-		fromNode := lyt.nodeByID[e.From]
-		toNode := lyt.nodeByID[e.To]
-		if fromNode == nil || toNode == nil {
-			continue
-		}
-		// Account for routing space.
-		fromLevel := levels[e.From]
-		toLevel := levels[e.To]
-		if toLevel > fromLevel {
-			lastGutterBottom := toNode.y
-			if len(virtualLevels[toLevel-1]) > 0 {
-				// estimate bottom of previous column
-				lastNodeInPrev := virtualLevels[toLevel-1][len(virtualLevels[toLevel-1])-1]
-				var prevBottom int
-				if lastNodeInPrev.isDummy {
-					key := fmt.Sprintf("%d-%d", lastNodeInPrev.edgeIdx, toLevel-1)
-					prevBottom = dummyY[toLevel-1][key] + dummyWidth
-				} else {
-					prevBottom = nodeY[lastNodeInPrev.id] + nodeHeight
-				}
-				if prevBottom > lastGutterBottom {
-					lastGutterBottom = prevBottom
+		for _, e := range edges {
+			srcLv := levels[e.From]
+			dstLv := levels[e.To]
+			if srcLv == lv && dstLv == lv+1 {
+				if slot, ok := slotMap[e.From]; ok {
+					l.gutterSlot[key(e)] = slot
 				}
 			}
-			slot := edgeSlots[ei]
-			routeBottom := lastGutterBottom + 2 + slot*gutterSlotH
-			if routeBottom > maxY {
-				maxY = routeBottom
-			}
-		}
-	}
-	lyt.height = maxY + 1
-
-	return lyt
-}
-
-// ============================================================================
-// Step 1: Virtual Levels (with dummy nodes for skip-level edges)
-// ============================================================================
-
-type virtualNode struct {
-	id      string
-	isDummy bool
-	edgeIdx int // for dummy: which edge this dummy belongs to
-}
-
-func buildVirtualLevels(
-	nodes map[string]dagNode,
-	edges []dagEdge,
-	levels map[string]int,
-	maxLevel int,
-) [][]virtualNode {
-	virtualLevels := make([][]virtualNode, maxLevel+1)
-
-	// Add real nodes.
-	for id, lv := range levels {
-		virtualLevels[lv] = append(virtualLevels[lv], virtualNode{id: id})
-	}
-
-	// Add dummy nodes for skip-level edges.
-	for ei, e := range edges {
-		fromLevel := levels[e.From]
-		toLevel := levels[e.To]
-		if toLevel > fromLevel+1 {
-			for lv := fromLevel + 1; lv < toLevel; lv++ {
-				virtualLevels[lv] = append(virtualLevels[lv], virtualNode{
-					isDummy: true,
-					edgeIdx: ei,
-				})
-			}
 		}
 	}
 
-	return virtualLevels
-}
-
-// ============================================================================
-// Step 2: Crossing Reduction (Median Heuristic)
-// ============================================================================
-
-func reduceCrossings(
-	virtualLevels [][]virtualNode,
-	edges []dagEdge,
-	nodes map[string]dagNode,
-	maxLevel int,
-) {
-	// Build adjacency for quick lookup.
-	children := make(map[string][]string)
-	parents := make(map[string][]string)
+	// Pre-allocate skip-level channel Ys at the bottom of the grid
+	// so they don't pierce intermediate nodes.
+	skipCount := 0
 	for _, e := range edges {
-		children[e.From] = append(children[e.From], e.To)
-		parents[e.To] = append(parents[e.To], e.From)
-	}
-
-	for pass := 0; pass < crossingPasses; pass++ {
-		// Top-down: order by median of parents.
-		for lv := 1; lv <= maxLevel; lv++ {
-			orderByMedian(virtualLevels[lv], virtualLevels[lv-1], parents, true)
-		}
-		// Bottom-up: order by median of children.
-		for lv := maxLevel - 1; lv >= 0; lv-- {
-			orderByMedian(virtualLevels[lv], virtualLevels[lv+1], children, false)
+		if levels[e.To] > levels[e.From]+1 {
+			skipCount++
 		}
 	}
-}
-
-func orderByMedian(
-	level []virtualNode,
-	adjLevel []virtualNode,
-	adjacency map[string][]string,
-	useParents bool,
-) {
-	if len(level) < 2 {
-		return
+	l.rows = maxNodeRow + 2 + skipCount
+	if l.rows < minRows {
+		l.rows = minRows
+	}
+	if maxH > 0 && l.rows > maxH {
+		l.rows = maxH
 	}
 
-	// Build position map for adjacent level.
-	posMap := make(map[string]int)
-	for i, v := range adjLevel {
-		if !v.isDummy {
-			posMap[v.id] = i
-		}
+	// Build a set of rows occupied by real nodes
+	occupiedRows := map[int]bool{}
+	for _, row := range l.nodeRow {
+		occupiedRows[row] = true
 	}
 
-	type medianRec struct {
-		vnode  virtualNode
-		median float64
-	}
-	recs := make([]medianRec, 0, len(level))
-
-	for i, vnode := range level {
-		if vnode.isDummy {
-			recs = append(recs, medianRec{vnode: vnode, median: float64(i)})
-			continue
-		}
-		var positions []int
-		for _, adj := range adjacency[vnode.id] {
-			if p, ok := posMap[adj]; ok {
-				positions = append(positions, p)
+	channelY := l.rows - 2
+	for _, e := range edges {
+		srcLv := levels[e.From]
+		dstLv := levels[e.To]
+		if dstLv > srcLv+1 {
+			for channelY >= 0 && occupiedRows[channelY] {
+				channelY--
+			}
+			if channelY < 0 {
+				channelY = l.rows - 2
+			}
+			l.skipChannels[key(e)] = channelY
+			channelY--
+			if channelY < 0 {
+				channelY = 0
 			}
 		}
-		if len(positions) == 0 {
-			recs = append(recs, medianRec{vnode: vnode, median: float64(i)})
-			continue
-		}
-		sort.Ints(positions)
-		var median float64
-		if len(positions)%2 == 1 {
-			median = float64(positions[len(positions)/2])
-		} else {
-			mid := len(positions) / 2
-			median = float64(positions[mid-1]+positions[mid]) / 2.0
-		}
-		recs = append(recs, medianRec{vnode: vnode, median: median})
 	}
 
-	sort.Slice(recs, func(i, j int) bool {
-		return recs[i].median < recs[j].median
-	})
-
-	for i := range level {
-		level[i] = recs[i].vnode
-	}
+	return l
 }
 
-// ============================================================================
-// Step 7: Slot Allocation
-// ============================================================================
-
-func allocateSlots(
-	edges []dagEdge,
-	levels map[string]int,
-	colX, colW []int,
-	nodeY map[string]int,
-	dummyY map[int]map[string]int,
-	virtualLevels [][]virtualNode,
-	maxLevel int,
-) []int {
-	edgeSlots := make([]int, len(edges))
-	for i := range edgeSlots {
-		edgeSlots[i] = -1
+// chipLabel returns the node title only (no state prefix).
+func chipLabel(n dagNode) string {
+	title := n.Title
+	if title == "" {
+		title = shortTaskID(n.ID)
 	}
-
-	// For each gutter (between level L and L+1), track occupied slots.
-	// slotOccupied[level] = list of (minY, maxY) for each slot at that gutter.
-	slotOccupied := make(map[int][][][2]int) // level -> slot -> intervals
-
-	for ei, e := range edges {
-		fromLevel := levels[e.From]
-		toLevel := levels[e.To]
-		if toLevel <= fromLevel {
-			continue
-		}
-
-		fromNodeY := nodeY[e.From]
-		toNodeY := nodeY[e.To]
-		if fromNodeY > toNodeY {
-			fromNodeY, toNodeY = toNodeY, fromNodeY
-		}
-
-		gutter := fromLevel
-		if slotOccupied[gutter] == nil {
-			slotOccupied[gutter] = make([][][2]int, 0)
-		}
-
-		// Try to find a non-conflicting slot.
-		chosenSlot := -1
-		for s := 0; s < len(slotOccupied[gutter]) && s < maxSlots; s++ {
-			conflict := false
-			for _, interval := range slotOccupied[gutter][s] {
-				if fromNodeY < interval[1] && toNodeY > interval[0] {
-					conflict = true
-					break
-				}
-			}
-			if !conflict {
-				chosenSlot = s
-				slotOccupied[gutter][s] = append(slotOccupied[gutter][s], [2]int{fromNodeY, toNodeY})
-				break
-			}
-		}
-		if chosenSlot < 0 && len(slotOccupied[gutter]) < maxSlots {
-			chosenSlot = len(slotOccupied[gutter])
-			slotOccupied[gutter] = append(slotOccupied[gutter], [][2]int{{fromNodeY, toNodeY}})
-		}
-		if chosenSlot < 0 {
-			chosenSlot = 0 // fallback: overflow to slot 0
-		}
-		edgeSlots[ei] = chosenSlot
+	maxTitle := 45
+	runes := []rune(title)
+	if len(runes) > maxTitle {
+		title = string(runes[:maxTitle-3]) + "..."
 	}
-
-	return edgeSlots
+	return title
 }
 
-// ============================================================================
-// Step 8: Waypoint Building for Skip-Level Edges
-// ============================================================================
+// ── grid ─────────────────────────────────────────────────────
 
-func buildWaypoints(
-	edgeIdx int,
-	e dagEdge,
-	fromLevel, toLevel int,
-	colX, colW []int,
-	dummyY map[int]map[string]int,
-	edgeSlots []int,
-) []point {
-	var waypoints []point
-	for lv := fromLevel + 1; lv < toLevel; lv++ {
-		key := fmt.Sprintf("%d-%d", edgeIdx, lv)
-		y, ok := dummyY[lv][key]
-		if !ok {
-			continue
-		}
-		// X is centered in the gutter between lv-1 and lv, offset by slot.
-		gutterX := colX[lv-1] + colW[lv-1]
-		slot := edgeSlots[edgeIdx]
-		if slot < 0 {
-			slot = 0
-		}
-		x := gutterX + 1 + slot
-		if x >= colX[lv] {
-			x = colX[lv] - 1
-		}
-		waypoints = append(waypoints, point{x: x, y: y})
-	}
-	return waypoints
+type dagGrid struct {
+	cells  [][]rune // character cell (0 = space)
+	focus  [][]bool // true if this cell is part of a focused edge
+	width  int
+	height int
 }
 
-// ============================================================================
-// Phase 4: Rendering Engine
-// ============================================================================
-
-// renderGrid is a 2D rune grid for painting the DAG.
-type renderGrid struct {
-	cells [][]rune
-	w, h  int
+func newGrid(w, h int) *dagGrid {
+	g := &dagGrid{
+		cells:  make([][]rune, h),
+		focus:  make([][]bool, h),
+		width:  w,
+		height: h,
+	}
+	for i := 0; i < h; i++ {
+		g.cells[i] = make([]rune, w)
+		g.focus[i] = make([]bool, w)
+	}
+	return g
 }
 
-func newRenderGrid(w, h int) *renderGrid {
-	cells := make([][]rune, h)
-	for i := range cells {
-		cells[i] = make([]rune, w)
-		for j := range cells[i] {
-			cells[i][j] = ' '
-		}
-	}
-	return &renderGrid{cells: cells, w: w, h: h}
-}
-
-func (g *renderGrid) set(x, y int, ch rune) {
-	if x < 0 || x >= g.w || y < 0 || y >= g.h {
-		return
-	}
-	existing := g.cells[y][x]
-	if existing == ' ' {
+func (g *dagGrid) put(x, y int, ch rune) {
+	if y >= 0 && y < g.height && x >= 0 && x < g.width {
 		g.cells[y][x] = ch
-		return
-	}
-	if existing == ch {
-		return
-	}
-	g.cells[y][x] = mergeBoxDraw(existing, ch)
-}
-
-func (g *renderGrid) hline(y, x1, x2 int, ch rune) {
-	if x1 > x2 {
-		x1, x2 = x2, x1
-	}
-	for x := x1; x <= x2; x++ {
-		g.set(x, y, ch)
 	}
 }
 
-func (g *renderGrid) vline(x, y1, y2 int, ch rune) {
-	if y1 > y2 {
-		y1, y2 = y2, y1
-	}
-	for y := y1; y <= y2; y++ {
-		g.set(x, y, ch)
+func (g *dagGrid) mergePut(x, y int, ch rune) {
+	if y >= 0 && y < g.height && x >= 0 && x < g.width {
+		existing := g.cells[y][x]
+		if existing == 0 {
+			g.cells[y][x] = ch
+		} else {
+			g.cells[y][x] = mergeBoxDraw(existing, ch)
+		}
 	}
 }
 
-// Box-drawing character merging (direction bitmask approach from ascii-dag).
-const (
-	dirUp    = 1
-	dirDown  = 2
-	dirLeft  = 4
-	dirRight = 8
-)
+func (g *dagGrid) putStr(x, y int, s string) {
+	runeIdx := 0
+	for _, ch := range s {
+		g.put(x+runeIdx, y, ch)
+		runeIdx++
+	}
+}
 
-func charMask(ch rune) int {
-	switch ch {
-	case '│', '┊':
-		return dirUp | dirDown
-	case '─', '┈':
-		return dirLeft | dirRight
-	case '└':
-		return dirUp | dirRight
-	case '┘':
-		return dirUp | dirLeft
-	case '┌':
-		return dirDown | dirRight
-	case '┐':
-		return dirDown | dirLeft
-	case '┴':
-		return dirUp | dirLeft | dirRight
-	case '┬':
-		return dirDown | dirLeft | dirRight
-	case '├':
-		return dirUp | dirDown | dirRight
-	case '┤':
-		return dirUp | dirDown | dirLeft
-	case '┼':
-		return dirUp | dirDown | dirLeft | dirRight
-	case '↓', '⇣':
-		return dirUp
-	case '→':
-		return dirLeft
+func (g *dagGrid) get(x, y int) rune {
+	if y >= 0 && y < g.height && x >= 0 && x < g.width {
+		return g.cells[y][x]
 	}
 	return 0
 }
 
-func maskToChar(mask int) rune {
-	switch mask {
-	case dirUp | dirDown:
-		return '│'
-	case dirLeft | dirRight:
-		return '─'
-	case dirUp | dirRight:
-		return '└'
-	case dirUp | dirLeft:
-		return '┘'
-	case dirDown | dirRight:
-		return '┌'
-	case dirDown | dirLeft:
-		return '┐'
-	case dirUp | dirLeft | dirRight:
-		return '┴'
-	case dirDown | dirLeft | dirRight:
-		return '┬'
-	case dirUp | dirDown | dirRight:
-		return '├'
-	case dirUp | dirDown | dirLeft:
-		return '┤'
-	case dirUp | dirDown | dirLeft | dirRight:
-		return '┼'
+func (g *dagGrid) markFocus(x, y int) {
+	if y >= 0 && y < g.height && x >= 0 && x < g.width {
+		g.focus[y][x] = true
 	}
-	return ' '
 }
 
+// mergeBoxDraw merges two box-drawing characters at the same cell.
 func mergeBoxDraw(a, b rune) rune {
-	if a == ' ' {
+	if a == 0 {
 		return b
 	}
-	if b == ' ' {
+	if b == 0 {
 		return a
 	}
 	if a == b {
 		return a
 	}
-	// Arrow precedence.
-	if a == '↓' || b == '↓' {
-		return '↓'
+
+	type dir uint8
+	const (
+		Up dir = 1 << iota
+		Down
+		Left
+		Right
+	)
+
+	maskOf := func(ch rune) dir {
+		switch ch {
+		case '─':
+			return Left | Right
+		case '│':
+			return Up | Down
+		case '┌':
+			return Right | Down
+		case '┐':
+			return Left | Down
+		case '└':
+			return Right | Up
+		case '┘':
+			return Left | Up
+		case '├':
+			return Up | Down | Right
+		case '┤':
+			return Up | Down | Left
+		case '┬':
+			return Left | Right | Down
+		case '┴':
+			return Left | Right | Up
+		case '┼':
+			return Up | Down | Left | Right
+		case '▶':
+			return Right
+		}
+		return 0
 	}
-	if a == '→' || b == '→' {
-		return '→'
+
+	charOf := func(m dir) rune {
+		switch m {
+		case Left | Right:
+			return '─'
+		case Up | Down:
+			return '│'
+		case Right | Down:
+			return '┌'
+		case Left | Down:
+			return '┐'
+		case Right | Up:
+			return '└'
+		case Left | Up:
+			return '┘'
+		case Up | Down | Right:
+			return '├'
+		case Up | Down | Left:
+			return '┤'
+		case Left | Right | Down:
+			return '┬'
+		case Left | Right | Up:
+			return '┴'
+		case Up | Down | Left | Right:
+			return '┼'
+		}
+		return '?'
 	}
-	m1 := charMask(a)
-	m2 := charMask(b)
-	if m1 == 0 {
+
+	m := maskOf(a) | maskOf(b)
+	if m == 0 {
 		return b
 	}
-	if m2 == 0 {
-		return a
-	}
-	merged := maskToChar(m1 | m2)
-	if merged == ' ' {
-		return a
-	}
-	return merged
+	return charOf(m)
 }
 
-// ============================================================================
-// Edge Painting
-// ============================================================================
-
-func paintEdges(grid *renderGrid, lyt *dagLayout) {
-	for _, edge := range lyt.edges {
-		paintEdge(grid, edge)
+func (g *dagGrid) hline(x1, x2, y int, ch rune) {
+	if x1 > x2 {
+		x1, x2 = x2, x1
+	}
+	for x := x1; x <= x2; x++ {
+		g.mergePut(x, y, ch)
 	}
 }
 
-func paintEdge(grid *renderGrid, edge *layoutEdge) {
-	switch p := edge.path.(type) {
-	case edgePathDirect:
-		paintDirectEdge(grid, edge)
-	case edgePathCorner:
-		paintCornerEdge(grid, edge, p.gutterX)
-	case edgePathMultiSegment:
-		paintMultiSegmentEdge(grid, edge, p.waypoints, p.startXOffset)
+func (g *dagGrid) hlineF(x1, x2, y int, ch rune) {
+	if x1 > x2 {
+		x1, x2 = x2, x1
+	}
+	for x := x1; x <= x2; x++ {
+		g.mergePut(x, y, ch)
+		g.markFocus(x, y)
 	}
 }
 
-func paintDirectEdge(grid *renderGrid, edge *layoutEdge) {
-	// Horizontal line from source right edge to target left edge.
-	x1 := edge.fromX
-	x2 := edge.toX
-	y := edge.fromY
-	if y != edge.toY {
-		midX := (x1 + x2) / 2
-		paintCornerEdge(grid, edge, midX)
-		return
+func (g *dagGrid) vline(x, y1, y2 int, ch rune) {
+	if y1 > y2 {
+		y1, y2 = y2, y1
 	}
-	if y >= grid.h || y < 0 {
-		return
+	for y := y1; y <= y2; y++ {
+		g.mergePut(x, y, ch)
 	}
-	if x2 > x1 {
-		for x := x1; x < x2; x++ {
-			if x >= 0 && x < grid.w {
-				grid.set(x, y, '─')
-			}
-		}
-		if x2 >= 0 && x2 < grid.w {
-			grid.set(x2, y, '→')
-		}
-	} else if x2 < x1 {
-		for x := x1; x > x2; x-- {
-			if x >= 0 && x < grid.w {
-				grid.set(x, y, '─')
-			}
-		}
-		if x2 >= 0 && x2 < grid.w {
-			grid.set(x2, y, '→')
-		}
-	} else {
-		if y+1 < grid.h && x1+1 < grid.w {
-			grid.set(x1, y, '└')
-			grid.hline(y+1, x1, x1+1, '─')
-			grid.set(x1+1, y+1, '┘')
-			if y+2 < edge.toY && y+2 < grid.h {
-				grid.vline(x1+1, y+2, edge.toY-1, '│')
-			}
-			if edge.toY < grid.h {
-				grid.set(x1+1, edge.toY, '┌')
-				grid.hline(edge.toY, x1, x1+1, '─')
-				grid.set(x1, edge.toY, '→')
+}
+
+func (g *dagGrid) vlineF(x, y1, y2 int, ch rune) {
+	if y1 > y2 {
+		y1, y2 = y2, y1
+	}
+	for y := y1; y <= y2; y++ {
+		g.mergePut(x, y, ch)
+		g.markFocus(x, y)
+	}
+}
+
+// ── edge routing ─────────────────────────────────────────────
+
+func paintEdges(g *dagGrid, l *hLayout, edges []dagEdge, focusID string) {
+	focusSet := map[string]bool{}
+	if focusID != "" {
+		for _, e := range edges {
+			if e.From == focusID || e.To == focusID {
+				focusSet[key(e)] = true
 			}
 		}
 	}
-}
 
-func paintCornerEdge(grid *renderGrid, edge *layoutEdge, gutterX int) {
-	fromX := edge.fromX
-	fromY := edge.fromY
-	toX := edge.toX
-	toY := edge.toY
-
-	goesDown := toY > fromY
-
-	// 1. Horizontal from source right edge to gutter.
-	if fromX < gutterX {
-		grid.hline(fromY, fromX, gutterX, '─')
-	}
-
-	// 2. Corner at (gutterX, fromY).
-	if goesDown {
-		grid.set(gutterX, fromY, '┐')
-	} else {
-		grid.set(gutterX, fromY, '┘')
-	}
-
-	// 3. Vertical segment in gutter.
-	if goesDown {
-		if fromY+1 <= toY-1 {
-			grid.vline(gutterX, fromY+1, toY-1, '│')
-		}
-	} else {
-		if toY+1 <= fromY-1 {
-			grid.vline(gutterX, toY+1, fromY-1, '│')
-		}
-	}
-
-	// 4. Corner at (gutterX, toY).
-	if goesDown {
-		grid.set(gutterX, toY, '└')
-	} else {
-		grid.set(gutterX, toY, '┌')
-	}
-
-	// 5. Horizontal from gutter to target left edge.
-	if gutterX < toX {
-		grid.hline(toY, gutterX, toX, '─')
-	}
-
-	// 6. Arrow at target left edge.
-	if toX >= 0 && toX < grid.w && toY >= 0 && toY < grid.h {
-		grid.set(toX, toY, '→')
+	for _, e := range edges {
+		f := focusSet[key(e)]
+		routeEdge(g, l, e, f)
 	}
 }
 
-func paintMultiSegmentEdge(grid *renderGrid, edge *layoutEdge, waypoints []point, startXOffset int) {
-	if len(waypoints) == 0 {
-		// Fallback to corner.
-		gutterX := edge.fromX + 2 + startXOffset
-		paintCornerEdge(grid, edge, gutterX)
+func key(e dagEdge) string { return e.From + "→" + e.To }
+
+func routeEdge(g *dagGrid, l *hLayout, e dagEdge, focus bool) {
+	srcCol := l.nodeCol[e.From]
+	dstCol := l.nodeCol[e.To]
+	if dstCol <= srcCol {
 		return
 	}
 
-	// Build full path: source -> waypoints -> target.
-	fullPath := make([]point, 0, len(waypoints)+2)
-	fullPath = append(fullPath, point{x: edge.fromX, y: edge.fromY})
-	fullPath = append(fullPath, waypoints...)
-	fullPath = append(fullPath, point{x: edge.toX, y: edge.toY})
+	srcRow := l.nodeRow[e.From]
+	dstRow := l.nodeRow[e.To]
 
-	for segIdx := 0; segIdx < len(fullPath)-1; segIdx++ {
-		x1, y1 := fullPath[segIdx].x, fullPath[segIdx].y
-		x2, y2 := fullPath[segIdx+1].x, fullPath[segIdx+1].y
-		isLast := segIdx == len(fullPath)-2
-		isFirst := segIdx == 0
+	// Edge connection points:
+	//  → exits the source column at its right edge
+	//  → enters the target column at its left edge (arrow placed there)
+	srcX := l.colX[srcCol] + l.colW[srcCol] - 1
+	dstX := l.colX[dstCol]
 
-		if y1 == y2 {
-			// Horizontal segment (same Y).
-			minX, maxX := x1, x2
-			if minX > maxX {
-				minX, maxX = maxX, minX
-			}
-			startX := minX
-			if !isFirst {
-				startX = minX
+	// Skip-level edge: route through an outer channel
+	if dstCol > srcCol+1 {
+		routeSkipLevel(g, l, e, srcCol, dstCol, srcRow, dstRow, srcX, dstX, focus)
+		return
+	}
+
+	// Adjacent-level edge: corner routing through assigned gutter slot
+	egX := l.edgeX[srcCol]
+	slot := 0
+	if s, ok := l.gutterSlot[key(e)]; ok {
+		slot = s
+	}
+	gutterX := egX + slot
+
+	// Horizontal from source to gutter
+	if focus {
+		g.hlineF(srcX, gutterX-1, srcRow, '─')
+	} else {
+		g.hline(srcX, gutterX-1, srcRow, '─')
+	}
+
+	if srcRow == dstRow {
+		// Direct: same row, continue through gutter to target
+		if focus {
+			g.hlineF(gutterX, dstX-1, srcRow, '─')
+		} else {
+			g.hline(gutterX, dstX-1, srcRow, '─')
+		}
+		g.put(dstX, dstRow, '▶')
+		if focus {
+			g.markFocus(dstX, dstRow)
+		}
+		return
+	}
+
+	// Corner: vertical in gutter, but do NOT draw through the endpoints
+	if srcRow < dstRow {
+		if srcRow+1 <= dstRow-1 {
+			if focus {
+				g.vlineF(gutterX, srcRow+1, dstRow-1, '│')
 			} else {
-				startX = minX + 1 // skip source point
+				g.vline(gutterX, srcRow+1, dstRow-1, '│')
 			}
-			for x := startX; x <= maxX; x++ {
-				if x >= 0 && x < grid.w && y1 >= 0 && y1 < grid.h {
-					if isLast && x == maxX {
-						grid.set(x, y1, '→')
-					} else {
-						grid.set(x, y1, '─')
-					}
-				}
-			}
-		} else if x1 == x2 {
-			// Vertical segment (same X).
-			minY, maxY := y1, y2
-			if minY > maxY {
-				minY, maxY = maxY, minY
-			}
-			startY := minY
-			if !isFirst {
-				startY = minY
+		}
+		g.mergePut(gutterX, srcRow, '┐')
+		g.mergePut(gutterX, dstRow, '└')
+	} else {
+		if dstRow+1 <= srcRow-1 {
+			if focus {
+				g.vlineF(gutterX, dstRow+1, srcRow-1, '│')
 			} else {
-				startY = minY + 1
+				g.vline(gutterX, dstRow+1, srcRow-1, '│')
 			}
-			for y := startY; y <= maxY; y++ {
-				if x1 >= 0 && x1 < grid.w && y >= 0 && y < grid.h {
-					grid.set(x1, y, '│')
-				}
+		}
+		g.mergePut(gutterX, srcRow, '┘')
+		g.mergePut(gutterX, dstRow, '┌')
+	}
+	if focus {
+		g.markFocus(gutterX, srcRow)
+		g.markFocus(gutterX, dstRow)
+	}
+
+	// Horizontal from gutter to target (arrow at dstX)
+	if focus {
+		g.hlineF(gutterX+1, dstX-1, dstRow, '─')
+	} else {
+		g.hline(gutterX+1, dstX-1, dstRow, '─')
+	}
+	g.put(dstX, dstRow, '▶')
+	if focus {
+		g.markFocus(dstX, dstRow)
+	}
+}
+
+func routeSkipLevel(g *dagGrid, l *hLayout, e dagEdge, srcCol, dstCol, srcRow, dstRow, srcX, dstX int, focus bool) {
+	channelY := l.skipChannels[key(e)]
+	if channelY == 0 {
+		channelY = l.rows - 2
+	}
+
+	egX0 := l.edgeX[srcCol]
+	slot0 := 0
+	if s, ok := l.gutterSlot[key(e)]; ok {
+		slot0 = s
+	}
+	gutter0 := egX0 + slot0
+
+	lastEgX := l.edgeX[dstCol-1]
+	lastEgW := l.edgeW[dstCol-1]
+	lastGutter := lastEgX + lastEgW - 1
+
+	// Source → gutter0 (horizontal)
+	if focus {
+		g.hlineF(srcX, gutter0-1, srcRow, '─')
+	} else {
+		g.hline(srcX, gutter0-1, srcRow, '─')
+	}
+
+	// gutter0: vertical from srcRow to channelY
+	if srcRow < channelY {
+		if srcRow+1 <= channelY-1 {
+			if focus {
+				g.vlineF(gutter0, srcRow+1, channelY-1, '│')
+			} else {
+				g.vline(gutter0, srcRow+1, channelY-1, '│')
+			}
+		}
+		g.mergePut(gutter0, srcRow, '┐')
+		g.mergePut(gutter0, channelY, '├')
+	} else {
+		if channelY+1 <= srcRow-1 {
+			if focus {
+				g.vlineF(gutter0, channelY+1, srcRow-1, '│')
+			} else {
+				g.vline(gutter0, channelY+1, srcRow-1, '│')
+			}
+		}
+		g.mergePut(gutter0, srcRow, '┘')
+		g.mergePut(gutter0, channelY, '├')
+	}
+	if focus {
+		g.markFocus(gutter0, srcRow)
+		g.markFocus(gutter0, channelY)
+	}
+
+	// Long horizontal bus across intermediate gutters
+	if focus {
+		g.hlineF(gutter0+1, lastGutter-1, channelY, '─')
+	} else {
+		g.hline(gutter0+1, lastGutter-1, channelY, '─')
+	}
+
+	// lastGutter: vertical from channelY to dstRow
+	if channelY < dstRow {
+		if channelY+1 <= dstRow-1 {
+			if focus {
+				g.vlineF(lastGutter, channelY+1, dstRow-1, '│')
+			} else {
+				g.vline(lastGutter, channelY+1, dstRow-1, '│')
+			}
+		}
+		g.mergePut(lastGutter, channelY, '┌')
+		g.mergePut(lastGutter, dstRow, '┘')
+	} else {
+		if dstRow+1 <= channelY-1 {
+			if focus {
+				g.vlineF(lastGutter, dstRow+1, channelY-1, '│')
+			} else {
+				g.vline(lastGutter, dstRow+1, channelY-1, '│')
+			}
+		}
+		g.mergePut(lastGutter, channelY, '└')
+		g.mergePut(lastGutter, dstRow, '┐')
+	}
+	if focus {
+		g.markFocus(lastGutter, channelY)
+		g.markFocus(lastGutter, dstRow)
+	}
+
+	// lastGutter → target (horizontal, arrow at dstX)
+	if focus {
+		g.hlineF(lastGutter+1, dstX-1, dstRow, '─')
+	} else {
+		g.hline(lastGutter+1, dstX-1, dstRow, '─')
+	}
+	g.put(dstX, dstRow, '▶')
+	if focus {
+		g.markFocus(dstX, dstRow)
+	}
+}
+
+// ── node painting ────────────────────────────────────────────
+
+type nodeBox struct {
+	id    string
+	x, y  int
+	w     int
+	state string
+}
+
+func paintNodes(g *dagGrid, l *hLayout, nodes map[string]dagNode, focusID string) []nodeBox {
+	boxes := make([]nodeBox, 0, len(nodes))
+	for id, n := range nodes {
+		col := l.nodeCol[id]
+		row := l.nodeRow[id]
+		colX := l.colX[col]
+		colW := l.colW[col]
+
+		maxChipW := colW - 2 // leave 1 cell on each side for arrow / margin
+		if maxChipW < 6 {
+			maxChipW = 6
+		}
+
+		var chip string
+		if id == focusID {
+			// Focus node: ▸ title (no brackets, use ▸ as left indicator)
+			title := strings.TrimSpace(n.Title)
+			if title == "" {
+				title = shortTaskID(n.ID)
+			}
+			runes := []rune(title)
+			if len(runes) > maxChipW-2 {
+				title = string(runes[:maxChipW-5]) + "..."
+			}
+			chip = "▸ " + title
+			// Pad to maxChipW so background is consistent
+			pad := maxChipW - len([]rune(chip))
+			if pad > 0 {
+				chip += strings.Repeat(" ", pad)
 			}
 		} else {
-			// L-shaped: horizontal then vertical.
-			cornerX := x2
-			cornerY := y1
-			if isFirst && startXOffset > 0 {
-				cornerX = x1 + startXOffset
+			// Normal node: [ title    ] with brackets
+			title := chipLabel(n)
+			innerW := maxChipW - 2 // space inside [ ]
+			trunes := []rune(title)
+			if len(trunes) > innerW {
+				title = string(trunes[:innerW-3]) + "..."
 			}
-
-			// Horizontal from x1 to cornerX at y1.
-			minX, maxX := x1, cornerX
-			if minX > maxX {
-				minX, maxX = maxX, minX
+			pad := innerW - len([]rune(title))
+			if pad < 0 {
+				pad = 0
 			}
-			for x := minX; x <= maxX; x++ {
-				if x >= 0 && x < grid.w && y1 >= 0 && y1 < grid.h {
-					if x == x1 {
-						if x1 < cornerX {
-							if y1 < y2 {
-								grid.set(x, y1, '┌')
-							} else {
-								grid.set(x, y1, '└')
-							}
-						} else {
-							if y1 < y2 {
-								grid.set(x, y1, '┐')
-							} else {
-								grid.set(x, y1, '┘')
-							}
-						}
-					} else if x == cornerX {
-						if x1 < cornerX {
-							if y1 < y2 {
-								grid.set(x, y1, '┐')
-							} else {
-								grid.set(x, y1, '┘')
-							}
-						} else {
-							if y1 < y2 {
-								grid.set(x, y1, '┌')
-							} else {
-								grid.set(x, y1, '└')
-							}
-						}
-					} else {
-						grid.set(x, y1, '─')
-					}
-				}
-			}
-
-			// Vertical from cornerY to y2 at cornerX.
-			minY, maxY := cornerY, y2
-			if minY > maxY {
-				minY, maxY = maxY, minY
-			}
-			for y := minY + 1; y <= maxY; y++ {
-				if cornerX >= 0 && cornerX < grid.w && y >= 0 && y < grid.h {
-					grid.set(cornerX, y, '│')
-				}
-			}
+			chip = "[" + title + strings.Repeat(" ", pad) + "]"
 		}
-	}
 
-	// Arrow at target.
-	if edge.toX >= 0 && edge.toX < grid.w && edge.toY >= 0 && edge.toY < grid.h {
-		grid.set(edge.toX, edge.toY, '→')
+		// Draw chip starting at colX+1 (arrow will be at colX if any)
+		g.putStr(colX+1, row, chip)
+
+		boxes = append(boxes, nodeBox{id: id, x: colX + 1, y: row, w: len([]rune(chip)), state: n.State})
+	}
+	return boxes
+}
+
+// ── styled output ────────────────────────────────────────────
+
+// nodeStyle returns a lipgloss style for a node based on its state and focus.
+func nodeStyle(state string, focus bool) lipgloss.Style {
+	if focus {
+		return lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("#ffffff")).
+			Background(lipgloss.Color("#5a5080"))
+	}
+	switch state {
+	case "active":
+		return lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#8fbc8f")).Background(lipgloss.Color("#252525"))
+	case "paused":
+		return lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#f0e68c")).Background(lipgloss.Color("#252525"))
+	case "done":
+		return lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#87ceeb")).Background(lipgloss.Color("#252525"))
+	case "ready":
+		return lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#add8e6")).Background(lipgloss.Color("#252525"))
+	case "blocked":
+		return lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#f08080")).Background(lipgloss.Color("#252525"))
+	default:
+		return lipgloss.NewStyle().Foreground(styles.Text).Background(lipgloss.Color("#252525"))
 	}
 }
 
-// ============================================================================
-// Node Painting
-// ============================================================================
-
-func paintNodes(grid *renderGrid, lyt *dagLayout) {
-	for _, node := range lyt.nodes {
-		paintNode(grid, node)
-	}
-}
-
-func paintNode(grid *renderGrid, node *layoutNode) {
-	label := []rune(node.label)
-	x := node.x
-	y := node.y
-	if y < 0 || y >= grid.h {
-		return
-	}
-
-	// Draw label runes.
-	for i, r := range label {
-		px := x + i
-		if px >= 0 && px < grid.w {
-			grid.cells[y][px] = r
-		}
-	}
-}
-
-// ============================================================================
-// Styled Output
-// ============================================================================
+var (
+	stEdge   = lipgloss.NewStyle().Foreground(lipgloss.Color("#777777"))
+	stFocusE = lipgloss.NewStyle().Foreground(styles.Accent)
+	stPrefix = lipgloss.NewStyle().Bold(true).Foreground(styles.Accent)
+)
 
 type cellKind int
 
 const (
-	ckSpace cellKind = iota
-	ckEdge
-	ckNode
-	ckFocusNode
-	ckFocusEdge
+	kindSpace cellKind = iota
+	kindEdge
+	kindFocusEdge
+	kindNode
+	kindFocusNode
+	kindPrefix
 )
 
-func styledString(grid *renderGrid, lyt *dagLayout, maxW, maxH int) string {
-	// Compute bounding box of actual content.
-	maxX := 0
-	for y := 0; y < grid.h; y++ {
-		for x := grid.w - 1; x >= 0; x-- {
-			if grid.cells[y][x] != ' ' {
-				if x > maxX {
-					maxX = x
-				}
-				break
+func styledString(g *dagGrid, focusID string, boxes []nodeBox, nodes map[string]dagNode, maxW int) string {
+	nodeArea := map[int]map[int]string{}
+	for _, b := range boxes {
+		if nodeArea[b.y] == nil {
+			nodeArea[b.y] = map[int]string{}
+		}
+		for dx := 0; dx < b.w; dx++ {
+			nodeArea[b.y][b.x+dx] = b.id
+		}
+	}
+
+	nodeStyles := map[string]lipgloss.Style{}
+	for id, n := range nodes {
+		nodeStyles[id] = nodeStyle(n.State, id == focusID)
+	}
+
+	var sb strings.Builder
+	for y := 0; y < g.height; y++ {
+		kinds := make([]cellKind, g.width)
+		for x := 0; x < g.width; x++ {
+			ch := g.cells[y][x]
+			kinds[x] = classifyCell(x, y, ch, g, nodeArea, focusID)
+		}
+
+		var lineSB strings.Builder
+		for x := 0; x < g.width; {
+			k := kinds[x]
+
+			end := x + 1
+			for end < g.width && kinds[end] == k && g.cells[y][end] != 0 {
+				end++
 			}
-		}
-	}
-	maxX++
 
-	// Build node bounding boxes for classification.
-	nodeBoxes := make(map[int]map[int]bool) // y -> x -> isFocus
-	for _, node := range lyt.nodes {
-		if node.y < 0 || node.y >= grid.h {
-			continue
-		}
-		if nodeBoxes[node.y] == nil {
-			nodeBoxes[node.y] = make(map[int]bool)
-		}
-		for i := 0; i < node.w && node.x+i < grid.w; i++ {
-			nodeBoxes[node.y][node.x+i] = node.isFocus
-		}
-	}
+			if k == kindSpace {
+				for i := x; i < end; i++ {
+					lineSB.WriteByte(' ')
+				}
+				x = end
+				continue
+			}
 
-	var lines []string
-	for y := 0; y < grid.h && y < maxH; y++ {
-		var parts []string
-		var lastKind cellKind = ckSpace
-		var lastFocus bool
-		var buf strings.Builder
+			run := string(g.cells[y][x:end])
 
-		endX := maxX
-		if endX > maxW {
-			endX = maxW
-		}
-
-		for x := 0; x < endX; x++ {
-			ch := grid.cells[y][x]
-			kind := ckSpace
-			isFocus := false
-			if ch != ' ' {
-				if nodeBoxes[y] != nil && nodeBoxes[y][x] {
-					kind = ckFocusNode
-					isFocus = true
-				} else if nodeBoxes[y] != nil && nodeBoxes[y][x] == false {
-					kind = ckNode
-				} else {
-					// Check if this edge cell is adjacent to focus node.
-					isFocusEdge := false
-					for _, n := range lyt.nodes {
-						if !n.isFocus {
-							continue
-						}
-						if abs(x-n.cx) <= 2 && abs(y-n.cy) <= 1 {
-							isFocusEdge = true
+			switch k {
+			case kindEdge:
+				lineSB.WriteString(stEdge.Render(run))
+			case kindFocusEdge:
+				lineSB.WriteString(stFocusE.Render(run))
+			case kindNode, kindFocusNode:
+				nid := ""
+				for xi := x; xi < end; xi++ {
+					if ids, ok := nodeArea[y]; ok {
+						if id, ok2 := ids[xi]; ok2 {
+							nid = id
 							break
 						}
 					}
-					if isFocusEdge {
-						kind = ckFocusEdge
-					} else {
-						kind = ckEdge
-					}
 				}
-			}
-
-			if kind != lastKind || isFocus != lastFocus {
-				if buf.Len() > 0 {
-					parts = append(parts, styleForKind(lastKind, lastFocus).Render(buf.String()))
-					buf.Reset()
+				if nid != "" {
+					lineSB.WriteString(nodeStyles[nid].Render(run))
+				} else {
+					lineSB.WriteString(run)
 				}
+			case kindPrefix:
+				lineSB.WriteString(stPrefix.Render(run))
+			default:
+				lineSB.WriteString(run)
 			}
-			buf.WriteRune(ch)
-			lastKind = kind
-			lastFocus = isFocus
-		}
-		if buf.Len() > 0 {
-			parts = append(parts, styleForKind(lastKind, lastFocus).Render(buf.String()))
+			x = end
 		}
 
-		line := strings.Join(parts, "")
-		// Trim trailing spaces while preserving styling.
-		line = strings.TrimRight(line, " ")
-		lines = append(lines, line)
-	}
-
-	return strings.Join(lines, "\n")
-}
-
-func styleForKind(kind cellKind, focus bool) lipgloss.Style {
-	switch kind {
-	case ckFocusNode:
-		return lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#ffffff")).Background(lipgloss.Color("#333333"))
-	case ckNode:
-		return lipgloss.NewStyle().Foreground(lipgloss.Color("#cccccc"))
-	case ckFocusEdge:
-		return lipgloss.NewStyle().Foreground(lipgloss.Color("#ffaa44"))
-	case ckEdge:
-		return lipgloss.NewStyle().Foreground(lipgloss.Color("#666666"))
-	default:
-		return lipgloss.NewStyle()
-	}
-}
-
-func abs(a int) int {
-	if a < 0 {
-		return -a
-	}
-	return a
-}
-
-// ============================================================================
-// Helpers
-// ============================================================================
-
-func chipLabel(n dagNode) string {
-	state := n.State
-	if state == "" {
-		state = "pending"
-	}
-	abbr := stateAbbr(state)
-	title := strings.TrimSpace(n.Title)
-	if title == "" {
-		title = n.ID
-	}
-	if len(title) > 20 {
-		title = title[:20]
-	}
-	return fmt.Sprintf("[%s] %s", abbr, title)
-}
-
-func stateAbbr(s string) string {
-	switch s {
-	case "active":
-		return "act"
-	case "paused":
-		return "pau"
-	case "completed":
-		return "done"
-	case "ready":
-		return "rdy"
-	case "blocked":
-		return "blk"
-	case "pending":
-		return "pen"
-	default:
-		if len(s) > 3 {
-			return s[:3]
+		line := lineSB.String()
+		if strings.TrimSpace(line) == "" {
+			continue
 		}
-		return s
+		if maxW > 0 && lipgloss.Width(line) > maxW {
+			line = lipgloss.NewStyle().MaxWidth(maxW).Render(line)
+		}
+		sb.WriteString(line)
+		sb.WriteByte('\n')
 	}
+
+	return strings.TrimRight(sb.String(), "\n")
 }
 
-func runeWidth(s string) int {
-	return len([]rune(s))
+func classifyCell(x, y int, ch rune, g *dagGrid, nodeArea map[int]map[int]string, focusID string) cellKind {
+	if ch == 0 {
+		return kindSpace
+	}
+	if ch == '▸' {
+		return kindPrefix
+	}
+	if ids, ok := nodeArea[y]; ok {
+		if nid, ok2 := ids[x]; ok2 {
+			if nid == focusID {
+				return kindFocusNode
+			}
+			return kindNode
+		}
+	}
+	if isEdgeChar(ch) {
+		if g.focus[y][x] {
+			return kindFocusEdge
+		}
+		return kindEdge
+	}
+	return kindSpace
+}
+
+func isEdgeChar(ch rune) bool {
+	switch ch {
+	case '─', '│', '┐', '┘', '└', '┌', '├', '┤', '┬', '┴', '┼', '▶':
+		return true
+	}
+	return false
+}
+
+// ── public entry point ────────────────────────────────────────
+
+func renderHorizontalDAG(
+	nodes map[string]dagNode,
+	edges []dagEdge,
+	levels map[string]int,
+	layerIDs map[int][]string,
+	maxLevel int,
+	focusID string,
+	maxW int,
+	maxH int,
+) string {
+	if len(nodes) == 0 {
+		return ""
+	}
+
+	l := buildLayout(nodes, edges, levels, layerIDs, maxLevel, maxW, maxH)
+	g := newGrid(l.cols, l.rows)
+
+	paintEdges(g, l, edges, focusID)
+	boxes := paintNodes(g, l, nodes, focusID)
+
+	return styledString(g, focusID, boxes, nodes, maxW)
 }
