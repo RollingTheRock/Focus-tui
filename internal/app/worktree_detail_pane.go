@@ -174,15 +174,19 @@ func (p *worktreeDetailPane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 			p.activeTab = tabFiles
 			return p, nil
 		case "j", "down":
-			if p.activeTab == tabTasks && p.taskCursor < len(p.tasks)-1 {
-				p.taskCursor++
+			if p.activeTab == tabTasks {
+				if p.taskCursor < len(p.tasks)-1 {
+					p.taskCursor++
+				}
+				return p, nil
 			}
-			return p, nil
 		case "k", "up":
-			if p.activeTab == tabTasks && p.taskCursor > 0 {
-				p.taskCursor--
+			if p.activeTab == tabTasks {
+				if p.taskCursor > 0 {
+					p.taskCursor--
+				}
+				return p, nil
 			}
-			return p, nil
 		case "s":
 			return p, p.launchAgentCmd()
 		case "tab":
