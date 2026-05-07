@@ -344,9 +344,6 @@ func (p *page) openEditorPane(msg editorplugin.OpenEditorMsg) tea.Cmd {
 		p.returnFocus[id] = opener
 	}
 
-	target := p.editorHostPaneTarget(opener, msg.Behavior)
-	direction := p.editorSplitDirection(target, msg.Behavior)
-	p.bodyTree = layout.SplitLeaf(p.bodyTree, target, id, direction, true)
 	p.setFocus(id)
 	p.updateSizes(p.bodyBoundsSize())
 	return panel.Init()
@@ -354,55 +351,25 @@ func (p *page) openEditorPane(msg editorplugin.OpenEditorMsg) tea.Cmd {
 
 func (p *page) findEditorPaneByPath(filePath string) models.PaneID {
 	currentWorktreeID := p.currentWorktreeID()
-	for _, id := range layout.LeafOrder(p.bodyTree) {
-		panel := p.pane(id)
-		editorPane, ok := panel.(editorMetaProvider)
-		if !ok {
+	for id, meta := range p.paneMeta {
+		if meta.Type != models.PaneTypeEditor || meta.WorktreeID != currentWorktreeID {
 			continue
 		}
-		meta := p.paneMeta[id]
-		if editorPane.FilePath() == filePath && meta.WorktreeID == currentWorktreeID {
+		panel := p.pane(id)
+		if editorPane, ok := panel.(editorMetaProvider); ok && editorPane.FilePath() == filePath {
 			return id
 		}
 	}
 	return ""
-}
-
-func (p *page) editorHostPaneTarget(opener models.PaneID, behavior editorplugin.OpenBehavior) models.PaneID {
-	if meta, ok := p.paneMeta[opener]; ok && (meta.Type == models.PaneTypeEditor || meta.Type == models.PaneTypeShell) {
-		return opener
-	}
-	if editor := p.lastEditorPane(); editor != "" {
-		return editor
-	}
-	if _, ok := p.paneMeta[paneShell]; ok {
-		return paneShell
-	}
-	if behavior == editorplugin.OpenBehaviorVSplit {
-		return opener
-	}
-	return opener
 }
 
 func (p *page) lastEditorPane() models.PaneID {
-	order := layout.LeafOrder(p.bodyTree)
-	for idx := len(order) - 1; idx >= 0; idx-- {
-		id := order[idx]
-		if meta, ok := p.paneMeta[id]; ok && meta.Type == models.PaneTypeEditor {
+	for id, meta := range p.paneMeta {
+		if meta.Type == models.PaneTypeEditor {
 			return id
 		}
 	}
 	return ""
-}
-
-func (p *page) editorSplitDirection(target models.PaneID, behavior editorplugin.OpenBehavior) layout.SplitDirection {
-	if behavior == editorplugin.OpenBehaviorVSplit {
-		return layout.SplitHorizontal
-	}
-	if meta, ok := p.paneMeta[target]; ok && meta.Type == models.PaneTypeEditor {
-		return layout.SplitVertical
-	}
-	return layout.SplitHorizontal
 }
 
 func (p *page) splitFocused(direction layout.SplitDirection) tea.Cmd {
@@ -519,6 +486,14 @@ func (p *page) activeOverlayPane() models.PaneID {
 	if _, ok := p.paneMeta[paneAgentSelect]; ok {
 		return paneAgentSelect
 	}
+	if _, ok := p.paneMeta[paneGitDiff]; ok {
+		return paneGitDiff
+	}
+	for id, meta := range p.paneMeta {
+		if meta.Type == models.PaneTypeEditor {
+			return id
+		}
+	}
 	if _, ok := p.paneMeta[paneWorktreeHistory]; ok {
 		return paneWorktreeHistory
 	}
@@ -529,7 +504,13 @@ func (p *page) activeOverlayPane() models.PaneID {
 }
 
 func (p *page) isOverlayPane(id models.PaneID) bool {
-	return id == paneGitCommit || id == paneWorktreeCreate || id == paneTaskEdit || id == panePlanEdit || id == paneAgentSelect || id == paneWorktreeHistory || id == paneWorktreeDeleteConfirm
+	if id == paneGitCommit || id == paneWorktreeCreate || id == paneTaskEdit || id == panePlanEdit || id == paneAgentSelect || id == paneWorktreeHistory || id == paneWorktreeDeleteConfirm || id == paneGitDiff {
+		return true
+	}
+	if meta, ok := p.paneMeta[id]; ok && meta.Type == models.PaneTypeEditor {
+		return true
+	}
+	return false
 }
 
 func (p *page) paneAt(x, y int) models.PaneID {
@@ -681,13 +662,49 @@ func (p *page) overlayContentSize() (int, int) {
 	return width, height
 }
 
+func (p *page) largeOverlayContentSize() (int, int) {
+	bounds := p.bodyBoundsSize()
+	width := bounds.W - 6
+	if width > bounds.W {
+		width = bounds.W
+	}
+	if width < 40 {
+		width = 40
+	}
+
+	height := bounds.H - 4
+	if height > bounds.H {
+		height = bounds.H
+	}
+	if height < 8 {
+		height = 8
+	}
+
+	return width, height
+}
+
+func (p *page) isLargeOverlayPane(id models.PaneID) bool {
+	if id == paneGitDiff {
+		return true
+	}
+	if meta, ok := p.paneMeta[id]; ok && meta.Type == models.PaneTypeEditor {
+		return true
+	}
+	return false
+}
+
 func (p *page) renderOverlayPane(base string, id models.PaneID) string {
 	panel := p.pane(id)
 	if panel == nil {
 		return base
 	}
 
-	overlayW, overlayH := p.overlayContentSize()
+	var overlayW, overlayH int
+	if p.isLargeOverlayPane(id) {
+		overlayW, overlayH = p.largeOverlayContentSize()
+	} else {
+		overlayW, overlayH = p.overlayContentSize()
+	}
 	overlayView := layout.RenderPanel(p.renderPaneTitle(id, p.focused, ModeNormal, overlayW), panel.View(), overlayW, overlayH, true)
 	bounds := p.bodyBoundsSize()
 	x := bounds.X + (bounds.W-(overlayW+4))/2
@@ -707,7 +724,12 @@ func (p *page) renderOverlayPaneToCanvas(canvas *render.Canvas, id models.PaneID
 		return
 	}
 
-	overlayW, overlayH := p.overlayContentSize()
+	var overlayW, overlayH int
+	if p.isLargeOverlayPane(id) {
+		overlayW, overlayH = p.largeOverlayContentSize()
+	} else {
+		overlayW, overlayH = p.overlayContentSize()
+	}
 	bounds := p.bodyBoundsSize()
 	x := bounds.X + (bounds.W-(overlayW+4))/2
 	y := bounds.Y + (bounds.H-(overlayH+2))/2
@@ -730,7 +752,6 @@ func (p *page) renderOverlayPaneToCanvas(canvas *render.Canvas, id models.PaneID
 
 func (p *page) openDiffPane(msg gitplugin.OpenDiffMsg) tea.Cmd {
 	opener := p.focused
-	target := p.reviewHostPaneTarget(opener)
 	p.closePane(paneGitCommit)
 	p.closePane(paneGitDiff)
 
@@ -753,33 +774,9 @@ func (p *page) openDiffPane(msg gitplugin.OpenDiffMsg) tea.Cmd {
 		}
 		p.returnFocus[paneGitDiff] = opener
 	}
-	p.bodyTree = layout.SplitLeaf(p.bodyTree, target, paneGitDiff, p.reviewSplitDirection(target), true)
 	p.setFocus(meta.ID)
 	p.updateSizes(p.bodyBoundsSize())
 	return panel.Init()
-}
-
-func (p *page) reviewHostPaneTarget(opener models.PaneID) models.PaneID {
-	if meta, ok := p.paneMeta[opener]; ok && (meta.Type == models.PaneTypeEditor || meta.Type == models.PaneTypeShell) {
-		return opener
-	}
-	if editor := p.lastEditorPane(); editor != "" {
-		return editor
-	}
-	if _, ok := p.paneMeta[paneShell]; ok {
-		return paneShell
-	}
-	if opener != "" {
-		return opener
-	}
-	return paneWorktree
-}
-
-func (p *page) reviewSplitDirection(target models.PaneID) layout.SplitDirection {
-	if meta, ok := p.paneMeta[target]; ok && meta.Type == models.PaneTypeEditor {
-		return layout.SplitVertical
-	}
-	return layout.SplitHorizontal
 }
 
 func (p *page) openCommitPane(msg gitplugin.OpenCommitMsg) tea.Cmd {
@@ -1239,9 +1236,11 @@ func (m *model) switchToWorktreePage(worktreeID, preferredPane string) tea.Cmd {
 		sh.SetCWD(worktreeID)
 	}
 
-	// Notify worktree detail pane of the selection
-	if dp, ok := m.activePage.pane(paneWorktreeDetail).(*worktreeDetailPane); ok {
-		dp.setWorktree(worktreeID)
+	// Notify worktree detail pane of the selection via message routing
+	// so Init commands (git watcher, file tree ticker) are returned to the runtime.
+	var cmd tea.Cmd
+	if _, ok := m.activePage.pane(paneWorktreeDetail).(*worktreeDetailPane); ok {
+		cmd = m.activePage.routeToPane(paneWorktreeDetail, worktreeSelectedMsg{WorktreeID: worktreeID})
 	}
 
 	if preferredPane != "" {
@@ -1251,5 +1250,5 @@ func (m *model) switchToWorktreePage(worktreeID, preferredPane string) tea.Cmd {
 	}
 	m.updateSizes(m.common.Width, m.common.Height)
 	m.invalidateView()
-	return nil
+	return cmd
 }

@@ -1705,13 +1705,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.invalidateView()
 		var cmds []tea.Cmd
 		for _, id := range m.activePage.paneOrder {
-			if m.activePage.paneMeta[id].Type != models.PaneTypeGitStatus {
-				continue
+			if m.activePage.paneMeta[id].Type == models.PaneTypeGitStatus {
+				newPanel, cmd := m.pane(id).Update(msg)
+				m.setPane(id, newPanel)
+				if cmd != nil {
+					cmds = append(cmds, cmd)
+				}
 			}
-			newPanel, cmd := m.pane(id).Update(msg)
-			m.setPane(id, newPanel)
-			if cmd != nil {
-				cmds = append(cmds, cmd)
+			// The worktree detail pane has a nested git status sub-pane.
+			if id == paneWorktreeDetail {
+				newPanel, cmd := m.pane(id).Update(msg)
+				m.setPane(id, newPanel)
+				if cmd != nil {
+					cmds = append(cmds, cmd)
+				}
 			}
 		}
 		m.refreshPaneStatuses()
@@ -2200,16 +2207,8 @@ func (m model) findEditorPaneByPath(filePath string) models.PaneID {
 	return m.activePage.findEditorPaneByPath(filePath)
 }
 
-func (m model) editorHostPaneTarget(opener models.PaneID, behavior editorplugin.OpenBehavior) models.PaneID {
-	return m.activePage.editorHostPaneTarget(opener, behavior)
-}
-
 func (m model) lastEditorPane() models.PaneID {
 	return m.activePage.lastEditorPane()
-}
-
-func (m model) editorSplitDirection(target models.PaneID, behavior editorplugin.OpenBehavior) layout.SplitDirection {
-	return m.activePage.editorSplitDirection(target, behavior)
 }
 
 func (m model) splitFocused(direction layout.SplitDirection) (tea.Model, tea.Cmd) {
@@ -2258,7 +2257,7 @@ func (m model) activeOverlayPane() models.PaneID {
 }
 
 func (m model) isOverlayPane(id models.PaneID) bool {
-	return id == paneGitCommit || id == paneWorktreeCreate || id == paneWorktreeDeleteConfirm
+	return m.activePage.isOverlayPane(id)
 }
 
 func (m *model) paneAt(x, y int) models.PaneID {
@@ -2279,7 +2278,12 @@ func (m *model) updateSizes(w, h int) {
 	m.activePage.pane(paneFooter).SetSize(w, footerHeight)
 	m.activePage.updateSizes(m.activePage.bodyBounds(w, h))
 	if overlayID := m.activePage.activeOverlayPane(); overlayID != "" {
-		overlayW, overlayH := m.overlayContentSize()
+		var overlayW, overlayH int
+		if m.activePage.isLargeOverlayPane(overlayID) {
+			overlayW, overlayH = m.activePage.largeOverlayContentSize()
+		} else {
+			overlayW, overlayH = m.overlayContentSize()
+		}
 		if panel := m.activePage.pane(overlayID); panel != nil {
 			panel.SetSize(overlayW, overlayH)
 		}
@@ -2455,8 +2459,12 @@ func (m model) renderHelpLine(w int) string {
 		left = "[j/k]nav  [enter]select  [n]ew  [d]elete  [o]shell  [tab]cycle focus"
 		compact = "[j/k]nav  [enter]select  [n]ew  [d]el"
 	case paneWorktreeDetail:
-		left = "[1-3]tabs  [j/k]nav  [enter]open  [tab]cycle focus"
-		compact = "[1-3]tabs  [j/k]nav  [enter]open"
+		if dp, ok := m.activePage.pane(paneWorktreeDetail).(*worktreeDetailPane); ok {
+			left, compact = dp.helpText()
+		} else {
+			left = "[1-3]tabs  [j/k]nav  [enter]open  [tab]cycle focus"
+			compact = "[1-3]tabs  [j/k]nav  [enter]open"
+		}
 	case paneShell:
 		switch m.activePage.paneMeta[m.activePage.focused].Status {
 		case models.PaneStatusExited:
@@ -2554,14 +2562,6 @@ func (m *model) openDiffPane(msg gitplugin.OpenDiffMsg) tea.Cmd {
 	cmd := m.activePage.openDiffPane(msg)
 	m.updateSizes(m.common.Width, m.common.Height)
 	return cmd
-}
-
-func (m model) reviewHostPaneTarget(opener models.PaneID) models.PaneID {
-	return m.activePage.reviewHostPaneTarget(opener)
-}
-
-func (m model) reviewSplitDirection(target models.PaneID) layout.SplitDirection {
-	return m.activePage.reviewSplitDirection(target)
 }
 
 func (m *model) openCommitPane(msg gitplugin.OpenCommitMsg) tea.Cmd {
