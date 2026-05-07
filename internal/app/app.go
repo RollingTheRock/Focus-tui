@@ -1502,6 +1502,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.invalidateView()
 		return m, cmd
 
+	case OpenAgentSelectMsg:
+		cmd := m.openAgentSelectPane(msg.WorktreeID)
+		m.syncWorktreeActivities()
+		m.invalidateView()
+		return m, cmd
+
 	case agents.LaunchAgentMsg:
 		cmd := m.launchAgent(msg)
 		m.syncWorktreeActivities()
@@ -1818,6 +1824,15 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.closeShellPanes()
 		return m, tea.Quit
 	case "d":
+		// Non-shell panes (e.g. worktree pane) may use 'd' for their own actions.
+		// Route to focused pane first; only consume for notification dismissal if
+		// the pane does not handle it.
+		if m.activePage.focused != "" && m.activePage.paneMeta[m.activePage.focused].Type != models.PaneTypeShell {
+			cmd := m.routeToPane(m.activePage.focused, msg)
+			if cmd != nil {
+				return m, cmd
+			}
+		}
 		if len(m.notifications) > 0 {
 			m.notifications = m.notifications[1:]
 		}
