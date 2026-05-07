@@ -54,25 +54,49 @@ func (tc *tabContainer) Init() tea.Cmd {
 func (tc *tabContainer) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 	switch msg := msg.(type) {
 	case dagRefreshMsg:
-		return tc.dagPane.Update(msg)
+		newPane, cmd := tc.dagPane.Update(msg)
+		if dp, ok := newPane.(*dagPane); ok {
+			tc.dagPane = dp
+		}
+		return tc, cmd
 	case adrRefreshMsg, adrLoadConstraintsMsg:
-		return tc.adrPane.Update(msg)
+		newPane, cmd := tc.adrPane.Update(msg)
+		if ap, ok := newPane.(*adrPane); ok {
+			tc.adrPane = ap
+		}
+		return tc, cmd
 	case tea.KeyMsg:
 		key := msg.String()
-		if key == "]" {
-			tc.activeTab = (tc.activeTab + 1) % len(tc.tabs)
+		if key == "T" {
+			tc.activeTab = 0
 			return tc, nil
 		}
-		if key == "[" {
-			tc.activeTab = (tc.activeTab - 1 + len(tc.tabs)) % len(tc.tabs)
+		if key == "A" {
+			tc.activeTab = 1
 			return tc, nil
 		}
 		newPane, cmd := tc.activePane().Update(msg)
-		tc.setActivePane(newPane)
+		if tc.activeTab == 0 {
+			if dp, ok := newPane.(*dagPane); ok {
+				tc.dagPane = dp
+			}
+		} else {
+			if ap, ok := newPane.(*adrPane); ok {
+				tc.adrPane = ap
+			}
+		}
 		return tc, cmd
 	default:
 		newPane, cmd := tc.activePane().Update(msg)
-		tc.setActivePane(newPane)
+		if tc.activeTab == 0 {
+			if dp, ok := newPane.(*dagPane); ok {
+				tc.dagPane = dp
+			}
+		} else {
+			if ap, ok := newPane.(*adrPane); ok {
+				tc.adrPane = ap
+			}
+		}
 		return tc, cmd
 	}
 }

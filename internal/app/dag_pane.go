@@ -476,12 +476,12 @@ func (p *dagPane) View() string {
 	if p.creating {
 		lines = append(lines,
 			dagHeaderStyle.Render(" Task DAG ")+
-				dagHintStyle.Render("  [Tab]switch  [Enter/Ctrl+S]save  [Esc]cancel"),
+				dagHintStyle.Render("  [T]asks [A]DRs  [Enter/Ctrl+S]save  [Esc]cancel"),
 		)
 	} else {
 		lines = append(lines,
 			dagHeaderStyle.Render(" Task DAG ")+
-				dagHintStyle.Render("  [j/k]↑↓  [h/l]←→  [enter]select  [c]wt  [r]research  [a]arch  [/]tab  [n]new-task  [R]refresh"),
+				dagHintStyle.Render("  [j/k]↑↓  [h/l]←→  [enter]select  [c]wt  [r]research  [a]arch  [T]asks [A]DRs  [n]new-task  [R]refresh"),
 		)
 	}
 	lines = append(lines, "")
