@@ -1502,6 +1502,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.invalidateView()
 		return m, cmd
 
+	case OpenAgentSelectMsg:
+		cmd := m.openAgentSelectPane(msg.WorktreeID)
+		m.syncWorktreeActivities()
+		m.invalidateView()
+		return m, cmd
+
 	case agents.LaunchAgentMsg:
 		cmd := m.launchAgent(msg)
 		m.syncWorktreeActivities()
