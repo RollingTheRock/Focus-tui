@@ -17,6 +17,7 @@ type AgentSelectedMsg struct {
 	PaneID     models.PaneID
 	WorktreeID string
 	Provider   agents.Provider
+	Resume     bool // true = resume previous session with --continue
 }
 
 // CloseAgentSelectMsg closes the agent selection overlay.
@@ -25,14 +26,16 @@ type CloseAgentSelectMsg struct {
 }
 
 type agentSelectPane struct {
-	id       models.PaneID
-	meta     models.PaneMeta
-	common   models.CommonModel
-	worktree string
-	cursor   int
-	options  []agentOption
-	width    int
-	height   int
+	id              models.PaneID
+	meta            models.PaneMeta
+	common          models.CommonModel
+	worktree        string
+	cursor          int
+	options         []agentOption
+	width           int
+	height          int
+	showResume    bool // true = showing resume/new sub-options
+	resumeOptions []agentOption
 }
 
 type agentOption struct {
@@ -80,11 +83,19 @@ func (p *agentSelectPane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "esc":
+			if p.showResume {
+				p.showResume = false
+				return p, nil
+			}
 			return p, func() tea.Msg {
 				return CloseAgentSelectMsg{ID: p.id}
 			}
 		case "j", "down":
-			if p.cursor < len(p.options)-1 {
+			max := len(p.options) - 1
+			if p.showResume {
+				max = len(p.resumeOptions) - 1
+			}
+			if p.cursor < max {
 				p.cursor++
 			}
 		case "k", "up":
@@ -92,8 +103,28 @@ func (p *agentSelectPane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 				p.cursor--
 			}
 		case "enter":
-			if p.cursor >= 0 && p.cursor < len(p.options) {
+			if p.showResume {
+				if p.cursor >= 0 && p.cursor < len(p.resumeOptions) {
+					return p, func() tea.Msg {
+						return AgentSelectedMsg{
+							PaneID:     p.id,
+							WorktreeID: p.worktree,
+							Provider:   agents.ProviderClaude,
+							Resume:     p.cursor == 0,
+						}
+					}
+				}
+			} else if p.cursor >= 0 && p.cursor < len(p.options) {
 				opt := p.options[p.cursor]
+				if opt.provider == agents.ProviderClaude && agents.HasResumableClaudeSession(p.worktree) {
+					p.showResume = true
+					p.cursor = 0
+					p.resumeOptions = []agentOption{
+						{provider: agents.ProviderClaude, name: "Resume session", desc: "continue previous conversation"},
+						{provider: agents.ProviderClaude, name: "Start fresh", desc: "begin a new session"},
+					}
+					return p, nil
+				}
 				return p, func() tea.Msg {
 					return AgentSelectedMsg{
 						PaneID:     p.id,
@@ -114,36 +145,61 @@ func (p *agentSelectPane) View() string {
 	}
 
 	var b strings.Builder
-	b.WriteString(agentSelectHeaderStyle.Render("Select Terminal Agent"))
-	b.WriteByte('\n')
-	b.WriteString(agentSelectHintStyle.Render("Choose which agent to launch in the external terminal."))
-	b.WriteByte('\n')
-	b.WriteByte('\n')
 
-	for i, opt := range p.options {
-		cursor := "  "
-		if i == p.cursor {
-			cursor = "▸ "
-		}
-
-		installed := agents.IsInstalled(opt.provider)
-		status := lipgloss.NewStyle().Foreground(appstyles.Success).Render("● installed")
-		if !installed {
-			status = lipgloss.NewStyle().Foreground(appstyles.Subtle).Render("○ not found")
-		}
-
-		nameStyle := lipgloss.NewStyle().Foreground(appstyles.Text).Bold(true)
-		if i == p.cursor {
-			nameStyle = nameStyle.Background(appstyles.Highlight)
-		}
-
-		line := fmt.Sprintf("%s%s  %s  %s", cursor, nameStyle.Render(opt.name), agentSelectHintStyle.Render("("+opt.desc+")"), status)
-		b.WriteString(appstyles.StyleCache.MaxWidth(width).Render(line))
+	if p.showResume {
+		b.WriteString(agentSelectHeaderStyle.Render("Claude Code — Resume?"))
 		b.WriteByte('\n')
-	}
+		b.WriteString(agentSelectHintStyle.Render("A previous session exists in this worktree."))
+		b.WriteByte('\n')
+		b.WriteByte('\n')
 
-	b.WriteByte('\n')
-	b.WriteString(agentSelectHintStyle.Render("↑↓ move · Enter select · Esc cancel"))
+		for i, opt := range p.resumeOptions {
+			cursor := "  "
+			if i == p.cursor {
+				cursor = "▸ "
+			}
+			nameStyle := lipgloss.NewStyle().Foreground(appstyles.Text).Bold(true)
+			if i == p.cursor {
+				nameStyle = nameStyle.Background(appstyles.Highlight)
+			}
+			line := fmt.Sprintf("%s%s  %s", cursor, nameStyle.Render(opt.name), agentSelectHintStyle.Render("("+opt.desc+")"))
+			b.WriteString(appstyles.StyleCache.MaxWidth(width).Render(line))
+			b.WriteByte('\n')
+		}
+		b.WriteByte('\n')
+		b.WriteString(agentSelectHintStyle.Render("↑↓ move · Enter select · Esc back"))
+	} else {
+		b.WriteString(agentSelectHeaderStyle.Render("Select Terminal Agent"))
+		b.WriteByte('\n')
+		b.WriteString(agentSelectHintStyle.Render("Choose which agent to launch in the external terminal."))
+		b.WriteByte('\n')
+		b.WriteByte('\n')
+
+		for i, opt := range p.options {
+			cursor := "  "
+			if i == p.cursor {
+				cursor = "▸ "
+			}
+
+			installed := agents.IsInstalled(opt.provider)
+			status := lipgloss.NewStyle().Foreground(appstyles.Success).Render("● installed")
+			if !installed {
+				status = lipgloss.NewStyle().Foreground(appstyles.Subtle).Render("○ not found")
+			}
+
+			nameStyle := lipgloss.NewStyle().Foreground(appstyles.Text).Bold(true)
+			if i == p.cursor {
+				nameStyle = nameStyle.Background(appstyles.Highlight)
+			}
+
+			line := fmt.Sprintf("%s%s  %s  %s", cursor, nameStyle.Render(opt.name), agentSelectHintStyle.Render("("+opt.desc+")"), status)
+			b.WriteString(appstyles.StyleCache.MaxWidth(width).Render(line))
+			b.WriteByte('\n')
+		}
+
+		b.WriteByte('\n')
+		b.WriteString(agentSelectHintStyle.Render("↑↓ move · Enter select · Esc cancel"))
+	}
 
 	lines := strings.Split(b.String(), "\n")
 	if p.height > 0 && len(lines) > p.height {
