@@ -72,9 +72,6 @@ type Store interface {
 	DeleteAgentSessionsByWorktreeID(worktreeID string) error
 	DeleteContextNotesByWorktreeID(worktreeID string) error
 	DeleteTaskWorktreeLinksByWorktreeID(worktreeID string) error
-	ListADRs() ([]ADRRecord, error)
-	GetADR(id string) (*ADRRecord, error)
-	ListADRConstraints(adrID string) ([]ADRConstraintRecord, error)
 	// EventStore returns the event store (nil when not using PostgreSQL).
 	EventStore() any
 	// EventBus returns the in-memory event bus (nil when not using PostgreSQL).
@@ -281,8 +278,10 @@ type Panel interface {
 type ADRRecord struct {
 	ID           string
 	Title        string
+	FilePath     string // absolute path to the source markdown file
 	Status       string
 	Version      int
+	Date         string // parsed from markdown metadata (e.g. "2026-04-19")
 	Context      string
 	Decision     string
 	Consequences string

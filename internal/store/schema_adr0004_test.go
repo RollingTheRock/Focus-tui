@@ -13,8 +13,6 @@ func TestADR0004SchemaTablesExist(t *testing.T) {
 	defer s.Close()
 
 	tables := []string{
-		"adrs",
-		"adr_constraints",
 		"task_dependencies",
 		"task_outputs",
 		"agent_messages",

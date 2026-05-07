@@ -267,38 +267,6 @@ CREATE TABLE IF NOT EXISTS proj_page_snapshots (
     updated_at    TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS proj_adrs (
-    id            TEXT PRIMARY KEY,
-    title         TEXT NOT NULL,
-    status        TEXT NOT NULL,
-    version       INTEGER NOT NULL DEFAULT 1,
-    context       TEXT NOT NULL,
-    decision      TEXT NOT NULL,
-    consequences  TEXT,
-    superseded_by TEXT,
-    created_by    TEXT NOT NULL,
-    event_version BIGINT NOT NULL DEFAULT 0,
-    created_at    TIMESTAMPTZ DEFAULT NOW(),
-    accepted_at   TIMESTAMPTZ,
-    accepted_by   TEXT,
-    updated_at    TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_proj_adrs_status
-    ON proj_adrs(status, updated_at DESC);
-
-CREATE TABLE IF NOT EXISTS proj_adr_constraints (
-    id          TEXT PRIMARY KEY,
-    adr_id      TEXT NOT NULL,
-    category    TEXT NOT NULL,
-    rule        TEXT NOT NULL,
-    rationale   TEXT,
-    event_version BIGINT NOT NULL DEFAULT 0,
-    created_at  TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_proj_adr_constraints_adr
-    ON proj_adr_constraints(adr_id);
 
 CREATE TABLE IF NOT EXISTS proj_task_briefs (
     task_id           TEXT PRIMARY KEY,
