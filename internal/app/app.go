@@ -159,6 +159,7 @@ func New(cfg config.Config, store models.Store) tea.Model {
 		disablePiggyback:   os.Getenv("FOCUS_DISABLE_PIGGYBACK") == "1",
 	}
 	m.registerMCPTools()
+	m.registerMCPResources()
 	if err := m.mcpServer.Start(); err != nil {
 		fmt.Fprintf(os.Stderr, "focus: mcp server start failed: %v\n", err)
 	}
@@ -203,22 +204,161 @@ func (m *model) registerMCPTools() {
 	if m == nil || m.mcpServer == nil {
 		return
 	}
+	// Schemas with Chinese-first title instructions
+	taskCreateSchema := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"title": map[string]any{
+				"type":        "string",
+				"description": "任务标题，必须使用中文，简洁明了，采用动宾结构（如「修复登录接口缓存问题」）",
+			},
+			"goal": map[string]any{
+				"type":        "string",
+				"description": "任务目标描述（中文优先）",
+			},
+			"next_step": map[string]any{
+				"type":        "string",
+				"description": "下一步行动（中文优先）",
+			},
+			"state": map[string]any{
+				"type":        "string",
+				"description": "初始状态：active, paused, ready, blocked, done",
+			},
+			"priority": map[string]any{
+				"type":        "string",
+				"description": "优先级：low, medium, high, critical",
+			},
+			"repo_id": map[string]any{
+				"type":        "string",
+				"description": "仓库路径（可选，默认当前仓库）",
+			},
+			"preferred_worktree_id": map[string]any{
+				"type":        "string",
+				"description": "偏好的工作树 ID",
+			},
+		},
+		"required": []string{"title"},
+	}
+	planCreateSchema := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"title": map[string]any{
+				"type":        "string",
+				"description": "计划标题，必须使用中文，概括整个计划的核心目标（如「重构认证模块 v2」）",
+			},
+			"task_id": map[string]any{
+				"type":        "string",
+				"description": "关联的任务 ID",
+			},
+			"why_now": map[string]any{
+				"type":        "string",
+				"description": "为什么要现在做这个计划（中文优先）",
+			},
+			"success": map[string]any{
+				"type":        "string",
+				"description": "成功标准（中文优先）",
+			},
+			"out_of_scope": map[string]any{
+				"type":        "string",
+				"description": "明确排除的范围（中文优先）",
+			},
+			"known_risks": map[string]any{
+				"type":        "string",
+				"description": "已知风险（中文优先）",
+			},
+			"plan_body": map[string]any{
+				"type":        "string",
+				"description": "计划正文，使用中文描述各步骤",
+			},
+		},
+		"required": []string{"title"},
+	}
+	planAddStepSchema := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"plan_id": map[string]any{
+				"type":        "string",
+				"description": "计划 ID",
+			},
+			"title": map[string]any{
+				"type":        "string",
+				"description": "步骤标题，必须使用中文，简洁具体（如「编写单元测试覆盖登录流程」）",
+			},
+			"order_index": map[string]any{
+				"type":        "number",
+				"description": "步骤顺序索引（可选，默认追加到最后）",
+			},
+			"notes": map[string]any{
+				"type":        "string",
+				"description": "步骤备注（中文优先）",
+			},
+		},
+		"required": []string{"plan_id", "title"},
+	}
+
 	_ = m.mcpServer.RegisterTool("session.heartbeat", "Report agent session heartbeat", nil, m.withPiggyback(m.mcpSessionHeartbeatTool))
 	_ = m.mcpServer.RegisterTool("session.request_intervention", "Request human intervention", nil, m.withPiggyback(m.mcpSessionRequestInterventionTool))
 	_ = m.mcpServer.RegisterTool("task.get", "Get task details by ID", nil, m.withPiggyback(m.mcpTaskGetTool))
-	_ = m.mcpServer.RegisterTool("task.create", "Create a new task", nil, m.withPiggyback(m.mcpTaskCreateTool))
+	_ = m.mcpServer.RegisterTool("task.create", "创建一个新任务。title 必须使用中文，简洁动宾结构", taskCreateSchema, m.withPiggyback(m.mcpTaskCreateTool))
 	_ = m.mcpServer.RegisterTool("task.list", "List tasks", nil, m.withPiggyback(m.mcpTaskListTool))
 	_ = m.mcpServer.RegisterTool("task.add_dependency", "Add dependency between tasks", nil, m.withPiggyback(m.mcpTaskAddDependencyTool))
 	_ = m.mcpServer.RegisterTool("task.create_output", "Create task output/artifact", nil, m.withPiggyback(m.mcpTaskCreateOutputTool))
 	_ = m.mcpServer.RegisterTool("task.update_status", "Update task status", nil, m.withPiggyback(m.mcpTaskUpdateStatusTool))
 	_ = m.mcpServer.RegisterTool("kg.add_fact", "Add a knowledge graph fact", nil, m.withPiggyback(m.mcpKnowledgeAddFactTool))
 	_ = m.mcpServer.RegisterTool("context.get_for_task", "Get full context for a task", nil, m.withPiggyback(m.mcpContextGetForTaskTool))
-	_ = m.mcpServer.RegisterTool("plan.create", "Create a new task plan", nil, m.withPiggyback(m.mcpPlanCreateTool))
+	_ = m.mcpServer.RegisterTool("plan.create", "创建一个新的任务计划。title 必须使用中文，概括核心目标", planCreateSchema, m.withPiggyback(m.mcpPlanCreateTool))
 	_ = m.mcpServer.RegisterTool("plan.get", "Get plan details with steps", nil, m.withPiggyback(m.mcpPlanGetTool))
 	_ = m.mcpServer.RegisterTool("plan.list", "List task plans", nil, m.withPiggyback(m.mcpPlanListTool))
-	_ = m.mcpServer.RegisterTool("plan.add_step", "Add a step to a plan", nil, m.withPiggyback(m.mcpPlanAddStepTool))
-	_ = m.mcpServer.RegisterTool("plan.expand_to_tasks", "Expand plan steps into tasks and dependencies", nil, m.withPiggyback(m.mcpPlanExpandToTasksTool))
-	_ = m.mcpServer.RegisterTool("dag.get_status", "Get full DAG status with topology", nil, m.withPiggyback(m.mcpDagGetStatusTool))
+	_ = m.mcpServer.RegisterTool("plan.add_step", "为计划添加一个步骤。title 必须使用中文，简洁具体", planAddStepSchema, m.withPiggyback(m.mcpPlanAddStepTool))
+	_ = m.mcpServer.RegisterTool("plan.expand_to_tasks", "将计划步骤展开为任务和依赖关系", nil, m.withPiggyback(m.mcpPlanExpandToTasksTool))
+	_ = m.mcpServer.RegisterTool("dag.get_status", "获取完整 DAG 状态和拓扑结构", nil, m.withPiggyback(m.mcpDagGetStatusTool))
+}
+
+func (m *model) registerMCPResources() {
+	if m == nil || m.mcpServer == nil || m.common == nil || m.common.Store == nil {
+		return
+	}
+	_ = m.mcpServer.RegisterResource("context://tasks", "Tasks", "All tasks in the current repository", "application/json", m.mcpTasksResource)
+	_ = m.mcpServer.RegisterResource("context://plans", "Plans", "All task plans in the current repository", "application/json", m.mcpPlansResource)
+	_ = m.mcpServer.RegisterResource("context://worktrees", "Worktrees", "All known worktrees", "application/json", m.mcpWorktreesResource)
+}
+
+func (m *model) mcpTasksResource(uri string) (mcp.ResourceContent, error) {
+	repoID := m.gitRepoPath()
+	tasks, err := m.common.Store.ListTaskContexts(repoID)
+	if err != nil {
+		return mcp.ResourceContent{}, err
+	}
+	b, err := json.MarshalIndent(tasks, "", "  ")
+	if err != nil {
+		return mcp.ResourceContent{}, err
+	}
+	return mcp.ResourceContent{URI: uri, MimeType: "application/json", Text: string(b)}, nil
+}
+
+func (m *model) mcpPlansResource(uri string) (mcp.ResourceContent, error) {
+	plans, err := m.common.Store.ListTaskPlans("")
+	if err != nil {
+		return mcp.ResourceContent{}, err
+	}
+	b, err := json.MarshalIndent(plans, "", "  ")
+	if err != nil {
+		return mcp.ResourceContent{}, err
+	}
+	return mcp.ResourceContent{URI: uri, MimeType: "application/json", Text: string(b)}, nil
+}
+
+func (m *model) mcpWorktreesResource(uri string) (mcp.ResourceContent, error) {
+	repoID := m.gitRepoPath()
+	worktrees, err := m.common.Store.ListWorktreeContexts(repoID)
+	if err != nil {
+		return mcp.ResourceContent{}, err
+	}
+	b, err := json.MarshalIndent(worktrees, "", "  ")
+	if err != nil {
+		return mcp.ResourceContent{}, err
+	}
+	return mcp.ResourceContent{URI: uri, MimeType: "application/json", Text: string(b)}, nil
 }
 
 func (m *model) mcpSessionHeartbeatTool(params map[string]any) (map[string]any, error) {
@@ -239,7 +379,11 @@ func (m *model) mcpSessionHeartbeatTool(params map[string]any) (map[string]any, 
 	if m.common == nil || m.common.Store == nil {
 		return nil, fmt.Errorf("store unavailable")
 	}
-	if err := m.common.Store.UpdateAgentSessionHeartbeat(sessionID, now, state); err != nil {
+	if err := m.cmdBus.Send(context.Background(), &commands.HeartbeatSession{
+		SessionID: sessionID,
+		At:        now,
+		State:     state,
+	}); err != nil {
 		return nil, err
 	}
 	return map[string]any{
@@ -304,7 +448,7 @@ func (m *model) mcpTaskCreateOutputTool(params map[string]any) (map[string]any, 
 	}
 	outputID := "out-" + uuid.NewString()
 	actor := resolveToolActor(params)
-	if err := m.common.Store.SaveTaskOutput(models.TaskOutputRecord{
+	if err := m.cmdBus.Send(context.Background(), &commands.CreateTaskOutput{
 		ID:      outputID,
 		TaskID:  taskID,
 		Content: output,
@@ -340,8 +484,10 @@ func (m *model) mcpTaskUpdateStatusTool(params map[string]any) (map[string]any, 
 		return nil, fmt.Errorf("task %q not found", taskID)
 	}
 	prevState := record.State
-	record.State = nextState
-	if err := m.common.Store.SaveTaskContext(*record); err != nil {
+	if err := m.cmdBus.Send(context.Background(), &commands.UpdateTaskState{
+		TaskID:   taskID,
+		NewState: nextState,
+	}); err != nil {
 		return nil, err
 	}
 	createdOutputID := ""
@@ -395,7 +541,7 @@ func (m *model) mcpKnowledgeAddFactTool(params map[string]any) (map[string]any, 
 		planID = m.resolvePlanIDForTask(toolStringParam(params, "task_id"))
 	}
 	factID := "fact-" + uuid.NewString()
-	if err := m.common.Store.SaveKnowledgeFact(models.KnowledgeFactRecord{
+	if err := m.cmdBus.Send(context.Background(), &commands.AddKnowledgeFact{
 		ID:         factID,
 		PlanID:     planID,
 		Subject:    subject,
@@ -426,17 +572,11 @@ func (m *model) mcpSessionRequestInterventionTool(params map[string]any) (map[st
 		return nil, fmt.Errorf("store unavailable")
 	}
 	interventionID := "int-" + uuid.NewString()
-	payloadJSON := toJSONString(map[string]any{
-		"session_id": sessionID,
-		"reason":     reason,
-		"actor":      resolveToolActor(params),
-	})
-	if err := m.common.Store.SaveAgentMessage(models.AgentMessageRecord{
+	if err := m.cmdBus.Send(context.Background(), &commands.RequestIntervention{
 		ID:        interventionID,
-		FromAgent: sessionID,
-		ToAgent:   "human",
-		MsgType:   "intervention_request",
-		Payload:   payloadJSON,
+		SessionID: sessionID,
+		Reason:    reason,
+		Actor:     resolveToolActor(params),
 	}); err != nil {
 		return nil, err
 	}
@@ -562,10 +702,10 @@ func (m *model) mcpTaskCreateTool(params map[string]any) (map[string]any, error)
 	if title == "" {
 		return nil, fmt.Errorf("title required")
 	}
-	if m.common == nil || m.common.Store == nil {
-		return nil, fmt.Errorf("store unavailable")
+	if m.cmdBus == nil {
+		return nil, fmt.Errorf("command bus unavailable")
 	}
-	record := models.TaskContextRecord{
+	cmd := &commands.CreateTask{
 		ID:                  uuid.NewString(),
 		RepoID:              repoID,
 		Title:               title,
@@ -575,13 +715,7 @@ func (m *model) mcpTaskCreateTool(params map[string]any) (map[string]any, error)
 		Priority:            toolStringParam(params, "priority"),
 		PreferredWorktreeID: strings.TrimSpace(toolStringParam(params, "preferred_worktree_id")),
 	}
-	if record.State == "" {
-		record.State = "active"
-	}
-	if record.Priority == "" {
-		record.Priority = "medium"
-	}
-	if err := m.common.Store.SaveTaskContext(record); err != nil {
+	if err := m.cmdBus.Send(context.Background(), cmd); err != nil {
 		return nil, err
 	}
 	// Refresh DAG if visible
@@ -592,9 +726,9 @@ func (m *model) mcpTaskCreateTool(params map[string]any) (map[string]any, error)
 	m.syncWorktreeActivities()
 	return map[string]any{
 		"success": true,
-		"task_id": record.ID,
-		"title":   record.Title,
-		"state":   record.State,
+		"task_id": cmd.ID,
+		"title":   cmd.Title,
+		"state":   cmd.State,
 	}, nil
 }
 
@@ -611,12 +745,11 @@ func (m *model) mcpTaskAddDependencyTool(params map[string]any) (map[string]any,
 	if depType == "" {
 		depType = "hard"
 	}
-	record := models.TaskDependencyRecord{
+	if err := m.cmdBus.Send(context.Background(), &commands.AddTaskDependency{
 		FromTaskID:     fromTaskID,
 		ToTaskID:       toTaskID,
 		DependencyType: depType,
-	}
-	if err := m.common.Store.SaveTaskDependency(record); err != nil {
+	}); err != nil {
 		return nil, err
 	}
 	if tc, ok := m.activePage.pane(paneDAG).(*tabContainer); ok {
@@ -666,10 +799,10 @@ func (m *model) mcpPlanCreateTool(params map[string]any) (map[string]any, error)
 	if title == "" {
 		return nil, fmt.Errorf("title required")
 	}
-	if m.common == nil || m.common.Store == nil {
-		return nil, fmt.Errorf("store unavailable")
+	if m.cmdBus == nil {
+		return nil, fmt.Errorf("command bus unavailable")
 	}
-	record := models.TaskPlanRecord{
+	cmd := &commands.CreatePlan{
 		ID:         uuid.NewString(),
 		TaskID:     strings.TrimSpace(toolStringParam(params, "task_id")),
 		Title:      title,
@@ -678,16 +811,15 @@ func (m *model) mcpPlanCreateTool(params map[string]any) (map[string]any, error)
 		OutOfScope: strings.TrimSpace(toolStringParam(params, "out_of_scope")),
 		KnownRisks: strings.TrimSpace(toolStringParam(params, "known_risks")),
 		PlanBody:   strings.TrimSpace(toolStringParam(params, "plan_body")),
-		Status:     "draft",
 	}
-	if err := m.common.Store.SaveTaskPlan(record); err != nil {
+	if err := m.cmdBus.Send(context.Background(), cmd); err != nil {
 		return nil, err
 	}
 	return map[string]any{
 		"success": true,
-		"plan_id": record.ID,
-		"title":   record.Title,
-		"status":  record.Status,
+		"plan_id": cmd.ID,
+		"title":   cmd.Title,
+		"status":  "draft",
 	}, nil
 }
 
@@ -791,20 +923,19 @@ func (m *model) mcpPlanAddStepTool(params map[string]any) (map[string]any, error
 		steps, _ := m.common.Store.ListPlanSteps(planID)
 		orderIndex = len(steps)
 	}
-	record := models.PlanStepRecord{
-		ID:         uuid.NewString(),
+	stepID := uuid.NewString()
+	if err := m.cmdBus.Send(context.Background(), &commands.AddPlanStep{
+		ID:         stepID,
 		PlanID:     planID,
-		OrderIndex: orderIndex,
 		Title:      title,
-		State:      "pending",
 		Notes:      strings.TrimSpace(toolStringParam(params, "notes")),
-	}
-	if err := m.common.Store.SavePlanStep(record); err != nil {
+		OrderIndex: orderIndex,
+	}); err != nil {
 		return nil, err
 	}
 	return map[string]any{
 		"success":     true,
-		"step_id":     record.ID,
+		"step_id":     stepID,
 		"plan_id":     planID,
 		"order_index": orderIndex,
 	}, nil
@@ -858,20 +989,19 @@ func (m *model) mcpPlanExpandToTasksTool(params map[string]any) (map[string]any,
 		if i == 0 {
 			state = "active"
 		}
-		task := models.TaskContextRecord{
+		if err := m.cmdBus.Send(context.Background(), &commands.CreateTask{
 			ID:     taskID,
 			RepoID: repoID,
 			Title:  step.Title,
 			Goal:   step.Notes,
 			State:  state,
-		}
-		if err := m.common.Store.SaveTaskContext(task); err != nil {
+		}); err != nil {
 			return nil, fmt.Errorf("save task for step %q: %w", step.Title, err)
 		}
 
 		// Update step with expanded task ID
 		step.ExpandedTaskID = taskID
-		if err := m.common.Store.SavePlanStep(step); err != nil {
+		if err := m.cmdBus.Send(context.Background(), &commands.UpdatePlanStep{Record: step}); err != nil {
 			return nil, fmt.Errorf("update step %q: %w", step.Title, err)
 		}
 	}
@@ -883,12 +1013,11 @@ func (m *model) mcpPlanExpandToTasksTool(params map[string]any) (map[string]any,
 	for i := 0; i < len(steps)-1; i++ {
 		fromID := taskIDMap[steps[i].OrderIndex]
 		toID := taskIDMap[steps[i+1].OrderIndex]
-		dep := models.TaskDependencyRecord{
+		if err := m.cmdBus.Send(context.Background(), &commands.AddTaskDependency{
 			FromTaskID:     fromID,
 			ToTaskID:       toID,
 			DependencyType: "hard",
-		}
-		if err := m.common.Store.SaveTaskDependency(dep); err != nil {
+		}); err != nil {
 			return nil, fmt.Errorf("save dependency: %w", err)
 		}
 		dependencies = append(dependencies, map[string]any{
@@ -899,7 +1028,7 @@ func (m *model) mcpPlanExpandToTasksTool(params map[string]any) (map[string]any,
 
 	// Update plan status to active
 	plan.Status = "active"
-	if err := m.common.Store.SaveTaskPlan(*plan); err != nil {
+	if err := m.cmdBus.Send(context.Background(), &commands.UpdatePlan{Record: *plan}); err != nil {
 		return nil, err
 	}
 
@@ -1391,6 +1520,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.invalidateView()
 		return m, nil
 
+	case agents.ExternalShellLaunchedMsg:
+		if msg.Err != nil {
+			m.common.Notice = fmt.Sprintf("external shell failed: %v", msg.Err)
+		} else {
+			m.common.Notice = fmt.Sprintf("external shell opened at %s (pid %d)", msg.CWD, msg.PID)
+		}
+		m.invalidateView()
+		return m, nil
+
 	case agentsplugin.KillSessionMsg:
 		cmd := m.killAgent(msg)
 		m.syncWorktreeActivities()
@@ -1544,6 +1682,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.syncWorktreeActivities()
 		m.invalidateView()
 		return m, m.routeToPane(msg.PaneID, msg)
+
+	case shell.OpenExternalShellMsg:
+		cmd := m.launchExternalShell(msg.CWD)
+		return m, cmd
 
 	case adapters.StatusEvent:
 		m.syncWorktreeActivities()
@@ -1922,6 +2064,27 @@ func (m *model) handleExternalLaunchResult(msg agents.ExternalLaunchResultMsg) {
 	record.LastActivityAt = &now
 	record.LastHeartbeat = &now
 	m.saveAgentSessionRecord(record)
+}
+
+// launchExternalShell opens the user's preferred terminal emulator with an
+// interactive shell at the given working directory. This is used when the
+// embedded shell pane is too small for TUI test output.
+func (m *model) launchExternalShell(cwd string) tea.Cmd {
+	if cwd == "" {
+		cwd = m.currentWorktreeID()
+	}
+	emulator := strings.TrimSpace(m.common.Cfg.Agent.TerminalEmulator)
+	if emulator != "" {
+		if _, err := exec.LookPath(emulator); err != nil {
+			if detected := agents.DetectTerminalEmulator(); detected != "" {
+				emulator = detected
+			}
+		}
+	} else {
+		emulator = agents.DetectTerminalEmulator()
+	}
+	title := filepath.Base(cwd)
+	return agents.LaunchExternalShell(cwd, title, emulator, 1.2)
 }
 
 func (m *model) killAgent(msg agentsplugin.KillSessionMsg) tea.Cmd {
@@ -2504,18 +2667,20 @@ func (m *model) saveTaskEditor(msg TaskEditorSavedMsg) tea.Cmd {
 		taskID = *worktreeContext.PrimaryTaskID
 	}
 	now := time.Now()
-	_ = m.common.Store.SaveTaskContext(models.TaskContextRecord{
-		ID:                  taskID,
-		RepoID:              repoID,
-		Title:               msg.Title,
-		Goal:                msg.Goal,
-		NextStep:            msg.NextStep,
-		State:               msg.State,
-		Priority:            msg.Priority,
-		ParentTaskID:        stringPtrOrNil(msg.ParentTaskID),
-		PreferredWorktreeID: msg.WorktreeID,
+	_ = m.cmdBus.Send(context.Background(), &commands.UpdateTask{
+		Record: models.TaskContextRecord{
+			ID:                  taskID,
+			RepoID:              repoID,
+			Title:               msg.Title,
+			Goal:                msg.Goal,
+			NextStep:            msg.NextStep,
+			State:               msg.State,
+			Priority:            msg.Priority,
+			ParentTaskID:        stringPtrOrNil(msg.ParentTaskID),
+			PreferredWorktreeID: msg.WorktreeID,
+		},
 	})
-	_ = m.common.Store.SaveTaskBrief(models.TaskBriefRecord{
+	_ = m.cmdBus.Send(context.Background(), &commands.UpdateTaskBrief{
 		TaskID:          taskID,
 		WhyNow:          msg.WhyNow,
 		SuccessCriteria: msg.Success,
@@ -2525,7 +2690,7 @@ func (m *model) saveTaskEditor(msg TaskEditorSavedMsg) tea.Cmd {
 	if worktreeContext != nil && worktreeContext.CurrentPlanID != nil && *worktreeContext.CurrentPlanID != "" {
 		if plan, _ := m.common.Store.GetTaskPlan(*worktreeContext.CurrentPlanID); plan != nil && plan.TaskID == "" {
 			plan.TaskID = taskID
-			_ = m.common.Store.SaveTaskPlan(*plan)
+			_ = m.cmdBus.Send(context.Background(), &commands.UpdatePlan{Record: *plan})
 		}
 	}
 	branchSnapshot := ""
@@ -2553,7 +2718,7 @@ func (m *model) saveTaskEditor(msg TaskEditorSavedMsg) tea.Cmd {
 			taskMode = "mixed"
 		}
 	}
-	_ = m.common.Store.SaveWorktreeContext(models.WorktreeContextRecord{
+	wtRecord := models.WorktreeContextRecord{
 		WorktreeID:     msg.WorktreeID,
 		RepoID:         repoID,
 		PrimaryTaskID:  primaryTaskID,
@@ -2564,8 +2729,9 @@ func (m *model) saveTaskEditor(msg TaskEditorSavedMsg) tea.Cmd {
 		LastActiveAt:   now,
 		LastOpenedAt:   &now,
 		LastAgentAt:    lastAgentAtForWorktree(m.listAgentSessionRecords(msg.WorktreeID)),
-	})
-	_ = m.common.Store.SaveTaskWorktreeLink(models.TaskWorktreeLinkRecord{
+	}
+	_ = m.cmdBus.Send(context.Background(), &commands.UpdateWorktreeContext{Record: wtRecord})
+	_ = m.cmdBus.Send(context.Background(), &commands.LinkTaskToWorktree{
 		ID:           taskID + "::" + msg.WorktreeID + "::" + relationType,
 		TaskID:       taskID,
 		WorktreeID:   msg.WorktreeID,
@@ -2590,7 +2756,7 @@ func (m *model) savePlanEditor(msg PlanEditorSavedMsg) tea.Cmd {
 	if currentStep == "" {
 		currentStep = inferCurrentPlanStep(msg.PlanBody)
 	}
-	_ = m.common.Store.SaveTaskPlan(models.TaskPlanRecord{
+	planRecord := models.TaskPlanRecord{
 		ID:          planID,
 		TaskID:      msg.TaskID,
 		Title:       msg.Title,
@@ -2601,16 +2767,19 @@ func (m *model) savePlanEditor(msg PlanEditorSavedMsg) tea.Cmd {
 		Status:      status,
 		CurrentStep: currentStep,
 		PlanBody:    msg.PlanBody,
-	})
-	_ = m.common.Store.DeletePlanSteps(planID)
+	}
+	_ = m.cmdBus.Send(context.Background(), &commands.UpdatePlan{Record: planRecord})
+	_ = m.cmdBus.Send(context.Background(), &commands.DeletePlanSteps{PlanID: planID})
 	for i, step := range parsePlanSteps(msg.PlanBody) {
-		_ = m.common.Store.SavePlanStep(models.PlanStepRecord{
-			ID:         fmt.Sprintf("%s::step::%03d", planID, i),
-			PlanID:     planID,
-			OrderIndex: i,
-			Title:      step.Title,
-			State:      stepStateForIndex(i, step.Kind),
-			Notes:      step.Kind,
+		_ = m.cmdBus.Send(context.Background(), &commands.UpdatePlanStep{
+			Record: models.PlanStepRecord{
+				ID:         fmt.Sprintf("%s::step::%03d", planID, i),
+				PlanID:     planID,
+				OrderIndex: i,
+				Title:      step.Title,
+				State:      stepStateForIndex(i, step.Kind),
+				Notes:      step.Kind,
+			},
 		})
 	}
 	if msg.WorktreeID != "" {
@@ -2736,7 +2905,7 @@ func (m *model) attachPlanToWorktree(worktreeID, fallbackTitle, planID string) {
 			record.TaskName = fallbackTitle
 		}
 	}
-	_ = m.common.Store.SaveWorktreeContext(record)
+	_ = m.cmdBus.Send(context.Background(), &commands.UpdateWorktreeContext{Record: record})
 }
 
 func (m *model) expandPlanToTasks(planID, worktreeID string) {
@@ -2784,7 +2953,7 @@ func (m *model) expandPlanToTasks(planID, worktreeID string) {
 		if step.Notes == "worktree-candidate" {
 			relationType = "secondary"
 		}
-		_ = m.common.Store.SaveTaskContext(models.TaskContextRecord{
+		_ = m.cmdBus.Send(context.Background(), &commands.CreateTask{
 			ID:                  taskID,
 			RepoID:              repoID,
 			Title:               step.Title,
@@ -2794,10 +2963,21 @@ func (m *model) expandPlanToTasks(planID, worktreeID string) {
 			Priority:            "medium",
 			PreferredWorktreeID: worktreeID,
 		})
-		_ = m.common.Store.SaveTaskBrief(models.TaskBriefRecord{TaskID: taskID, WhyNow: plan.WhyNow, SuccessCriteria: plan.Success, OutOfScope: plan.OutOfScope, KnownRisks: plan.KnownRisks})
+		_ = m.cmdBus.Send(context.Background(), &commands.UpdateTaskBrief{
+			TaskID:          taskID,
+			WhyNow:          plan.WhyNow,
+			SuccessCriteria: plan.Success,
+			OutOfScope:      plan.OutOfScope,
+			KnownRisks:      plan.KnownRisks,
+		})
 		step.ExpandedTaskID = taskID
-		_ = m.common.Store.SavePlanStep(step)
-		_ = m.common.Store.SaveTaskWorktreeLink(models.TaskWorktreeLinkRecord{ID: taskID + "::" + worktreeID + "::" + relationType, TaskID: taskID, WorktreeID: worktreeID, RelationType: relationType})
+		_ = m.cmdBus.Send(context.Background(), &commands.UpdatePlanStep{Record: step})
+		_ = m.cmdBus.Send(context.Background(), &commands.LinkTaskToWorktree{
+			ID:           taskID + "::" + worktreeID + "::" + relationType,
+			TaskID:       taskID,
+			WorktreeID:   worktreeID,
+			RelationType: relationType,
+		})
 		if plan.TaskID == "" && relationType == "primary" {
 			plan.TaskID = taskID
 		}
@@ -2808,14 +2988,14 @@ func (m *model) expandPlanToTasks(planID, worktreeID string) {
 		if fromTaskID == "" || toTaskID == "" || fromTaskID == toTaskID {
 			continue
 		}
-		_ = m.common.Store.SaveTaskDependency(models.TaskDependencyRecord{
+		_ = m.cmdBus.Send(context.Background(), &commands.AddTaskDependency{
 			FromTaskID:     fromTaskID,
 			ToTaskID:       toTaskID,
 			DependencyType: "hard",
 		})
 	}
 	if plan.TaskID != "" {
-		_ = m.common.Store.SaveTaskPlan(*plan)
+		_ = m.cmdBus.Send(context.Background(), &commands.UpdatePlan{Record: *plan})
 	}
 	if wc != nil {
 		wc.PrimaryTaskID = primaryTaskID
@@ -2825,7 +3005,7 @@ func (m *model) expandPlanToTasks(planID, worktreeID string) {
 		if wc.TaskMode == "" {
 			wc.TaskMode = "mixed"
 		}
-		_ = m.common.Store.SaveWorktreeContext(*wc)
+		_ = m.cmdBus.Send(context.Background(), &commands.UpdateWorktreeContext{Record: *wc})
 	}
 }
 
@@ -2838,10 +3018,15 @@ func (m *model) cycleTaskState(msg gitplugin.CycleTaskStateMsg) tea.Cmd {
 		return nil
 	}
 	prevState := task.State
-	task.State = nextTaskState(task.State)
-	_ = m.common.Store.SaveTaskContext(*task)
-	if prevState != "done" && task.State == "done" {
-		return m.launchDownstreamTasks(task.ID)
+	nextState := nextTaskState(task.State)
+	if err := m.cmdBus.Send(context.Background(), &commands.UpdateTaskState{
+		TaskID:   msg.TaskID,
+		NewState: nextState,
+	}); err != nil {
+		return nil
+	}
+	if prevState != "done" && nextState == "done" {
+		return m.launchDownstreamTasks(msg.TaskID)
 	}
 	return nil
 }
@@ -2916,6 +3101,22 @@ func (s appOrchestratorStore) GetTaskContext(taskID string) (*orchestrator.TaskC
 		Title: record.Title,
 		State: record.State,
 	}, nil
+}
+
+func (s appOrchestratorStore) ListPlanSteps(planID string) ([]orchestrator.PlanStep, error) {
+	records, err := s.model.common.Store.ListPlanSteps(planID)
+	if err != nil {
+		return nil, err
+	}
+	steps := make([]orchestrator.PlanStep, len(records))
+	for i, r := range records {
+		steps[i] = orchestrator.PlanStep{
+			ID:    r.ID,
+			Title: r.Title,
+			State: r.State,
+		}
+	}
+	return steps, nil
 }
 
 type appOrchestratorLauncher struct {
@@ -3126,7 +3327,7 @@ func (m *model) removeWorktree(msg gitplugin.RequestRemoveWorktreeMsg) tea.Cmd {
 			planID = wc.CurrentPlanID
 		}
 
-		_ = m.common.Store.SaveWorktreeHistory(models.WorktreeHistoryRecord{
+		_ = m.cmdBus.Send(context.Background(), &commands.RecordWorktreeHistory{
 			ID:              historyID,
 			RepoID:          repoID,
 			Branch:          branch,
@@ -3141,11 +3342,7 @@ func (m *model) removeWorktree(msg gitplugin.RequestRemoveWorktreeMsg) tea.Cmd {
 		})
 
 		// Clean up orphaned SQLite records.
-		_ = m.common.Store.DeletePageSnapshot(worktreePath)
-		_ = m.common.Store.DeleteWorktreeContext(worktreePath)
-		_ = m.common.Store.DeleteAgentSessionsByWorktreeID(worktreePath)
-		_ = m.common.Store.DeleteContextNotesByWorktreeID(worktreePath)
-		_ = m.common.Store.DeleteTaskWorktreeLinksByWorktreeID(worktreePath)
+		_ = m.cmdBus.Send(context.Background(), &commands.DeleteWorktree{WorktreePath: worktreePath})
 	}
 
 	return func() tea.Msg {
@@ -4008,7 +4205,7 @@ func (m *model) touchWorktreeContext(worktreeID string) {
 			record.LastAgentAt = existing.LastAgentAt
 		}
 	}
-	_ = m.common.Store.SaveWorktreeContext(record)
+	_ = m.cmdBus.Send(context.Background(), &commands.UpdateWorktreeContext{Record: record})
 }
 
 func (m *model) persistedAgentSessions() map[string]agents.Session {
@@ -4071,7 +4268,11 @@ func (m *model) reconcileDiscoveredAgentSessions(existing map[string]agents.Sess
 		existing[record.ID] = record
 		seen[record.ID] = struct{}{}
 		m.saveAgentSession(&record)
-		_ = m.common.Store.UpdateAgentSessionHeartbeat(record.ID, now, string(agents.SessionRunning))
+		_ = m.cmdBus.Send(context.Background(), &commands.HeartbeatSession{
+			SessionID: record.ID,
+			At:        now,
+			State:     string(agents.SessionRunning),
+		})
 	}
 
 	for id, session := range existing {
@@ -4321,11 +4522,9 @@ func (m *model) backflowAgentSession(record models.AgentSessionRecord) {
 		}
 		steps[i].State = "done"
 		currentTitle = steps[i].Title
-		_ = m.common.Store.SavePlanStep(steps[i])
 		if i+1 < len(steps) {
 			steps[i+1].State = "in_progress"
 			nextTitle = steps[i+1].Title
-			_ = m.common.Store.SavePlanStep(steps[i+1])
 		}
 		break
 	}
@@ -4335,8 +4534,8 @@ func (m *model) backflowAgentSession(record models.AgentSessionRecord) {
 		if plan.CurrentStep == "" {
 			plan.Status = "completed"
 		}
-		_ = m.common.Store.SaveTaskPlan(*plan)
 	}
+	var updatedTask *models.TaskContextRecord
 	if record.TaskID != "" {
 		task, _ := m.common.Store.GetTaskContext(record.TaskID)
 		if task != nil {
@@ -4344,10 +4543,19 @@ func (m *model) backflowAgentSession(record models.AgentSessionRecord) {
 			if nextTitle == "" {
 				task.State = "done"
 			}
-			_ = m.common.Store.SaveTaskContext(*task)
+			updatedTask = task
 		}
+	}
+	for i := range steps {
+		_ = m.cmdBus.Send(context.Background(), &commands.UpdatePlanStep{Record: steps[i]})
+	}
+	if plan != nil {
+		_ = m.cmdBus.Send(context.Background(), &commands.UpdatePlan{Record: *plan})
+	}
+	if updatedTask != nil {
+		_ = m.cmdBus.Send(context.Background(), &commands.UpdateTask{Record: *updatedTask})
 		planID := record.PlanID
-		_ = m.common.Store.SaveSessionHandoff(models.SessionHandoffRecord{
+		_ = m.cmdBus.Send(context.Background(), &commands.CreateSessionHandoff{
 			ID:               record.ID + "::handoff",
 			TaskID:           record.TaskID,
 			PlanID:           &planID,
@@ -4364,7 +4572,7 @@ func (m *model) saveAgentSessionRecord(record models.AgentSessionRecord) {
 	if m.common == nil || m.common.Store == nil {
 		return
 	}
-	_ = m.common.Store.SaveAgentSession(record)
+	_ = m.cmdBus.Send(context.Background(), &commands.CreateAgentSession{Record: record})
 }
 
 func (m *model) listAgentSessionRecords(worktreeID string) []models.AgentSessionRecord {

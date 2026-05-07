@@ -242,7 +242,12 @@ func (p *dagPane) moveCursor(dLevel, dIndex int) {
 	if p.cursorNode == "" {
 		return
 	}
-	curLevel := p.levels[p.cursorNode]
+	// Defensive: if cursorNode is stale (not in current levels/layers), reset it
+	curLevel, ok := p.levels[p.cursorNode]
+	if !ok {
+		p.resetCursor()
+		return
+	}
 	curIdx := -1
 	for i, id := range p.layerIDs[curLevel] {
 		if id == p.cursorNode {
@@ -251,6 +256,7 @@ func (p *dagPane) moveCursor(dLevel, dIndex int) {
 		}
 	}
 	if curIdx < 0 {
+		p.resetCursor()
 		return
 	}
 
@@ -278,6 +284,20 @@ func (p *dagPane) moveCursor(dLevel, dIndex int) {
 			return
 		}
 		p.cursorNode = ids[target]
+	}
+}
+
+func (p *dagPane) resetCursor() {
+	for _, t := range p.tasks {
+		if t.State == "ready" || t.State == "" {
+			p.cursorNode = t.ID
+			return
+		}
+	}
+	if len(p.tasks) > 0 {
+		p.cursorNode = p.tasks[0].ID
+	} else {
+		p.cursorNode = ""
 	}
 }
 
@@ -449,24 +469,34 @@ func (p *dagPane) View() string {
 		h = 10
 	}
 
+	// header: 2 rows (title + hints), body: rest
+	headerRows := 2
+
 	var lines []string
 	if p.creating {
-		lines = append(lines, dagHeaderStyle.Render("  Task DAG  ")+dagHintStyle.Render("[Tab]switch  [Enter/Ctrl+S]save  [Esc]cancel"))
+		lines = append(lines,
+			dagHeaderStyle.Render(" Task DAG ")+
+				dagHintStyle.Render("  [Tab]switch  [Enter/Ctrl+S]save  [Esc]cancel"),
+		)
 	} else {
-		lines = append(lines, dagHeaderStyle.Render("  Task DAG  ")+dagHintStyle.Render("[j/k/h/l]move  [enter]select  [c]create-wt  [r]research  [a]arch  [n]new-task  [R]refresh"))
+		lines = append(lines,
+			dagHeaderStyle.Render(" Task DAG ")+
+				dagHintStyle.Render("  [j/k]↑↓  [h/l]←→  [enter]select  [c]wt  [r]research  [a]arch  [n]new-task  [R]refresh"),
+		)
 	}
+	lines = append(lines, "")
 
 	if !p.hasDAG() && !p.creating {
 		lines = append(lines, dagMutedStyle.Render("  No tasks yet. Press [r] to refresh."))
 		return p.clampAndJoin(lines, h, w)
 	}
 
-	bodyH := h - 1
+	bodyH := h - headerRows
 	if p.creating {
-		bodyH = h - 3 // reserve 2 lines for inputs + 1 for hint/error
+		bodyH = h - headerRows - 4 // reserve space for inputs + hint
 	}
-	if bodyH < 3 {
-		bodyH = 3
+	if bodyH < minRows {
+		bodyH = minRows
 	}
 
 	dagStr := renderHorizontalDAG(p.nodes, p.edges, p.levels, p.layerIDs, p.maxLevel, p.cursorNode, w, bodyH)

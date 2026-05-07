@@ -351,3 +351,112 @@ func TestServerRegisterToolDuplicateOverwrites(t *testing.T) {
 		t.Fatalf("expected overwritten handler result, got %s", textItem["text"])
 	}
 }
+
+// TestServerRegisterResourceAndRead verifies resource registration, list, and read.
+func TestServerRegisterResourceAndRead(t *testing.T) {
+	s := NewServer("", "127.0.0.1:0")
+	_ = s.RegisterResource("context://tasks", "Tasks", "All tasks", "application/json", func(uri string) (ResourceContent, error) {
+		return ResourceContent{URI: uri, MimeType: "application/json", Text: `[{"id":"1"}]`}, nil
+	})
+	_ = s.RegisterResource("context://plans", "Plans", "All plans", "application/json", func(uri string) (ResourceContent, error) {
+		return ResourceContent{URI: uri, MimeType: "application/json", Text: `[{"id":"p1"}]`}, nil
+	})
+
+	if s.ResourceCount() != 2 {
+		t.Fatalf("expected 2 resources, got %d", s.ResourceCount())
+	}
+
+	url, err := s.StartHTTP()
+	if err != nil {
+		t.Fatalf("start http: %v", err)
+	}
+	defer s.Stop()
+
+	// Verify initialize includes resource capabilities.
+	reqBody := map[string]any{
+		"jsonrpc": "2.0",
+		"id":      1,
+		"method":  "initialize",
+	}
+	result := postJSONRPC(t, url, reqBody)
+	caps, _ := result["capabilities"].(map[string]any)
+	resCaps, _ := caps["resources"].(map[string]any)
+	if resCaps == nil {
+		t.Fatal("expected resource capabilities in initialize result")
+	}
+	if sub, _ := resCaps["subscribe"].(bool); !sub {
+		t.Fatal("expected subscribe capability")
+	}
+
+	// Verify resources/list.
+	reqBody = map[string]any{
+		"jsonrpc": "2.0",
+		"id":      2,
+		"method":  "resources/list",
+	}
+	result = postJSONRPC(t, url, reqBody)
+	resources, _ := result["resources"].([]any)
+	if len(resources) != 2 {
+		t.Fatalf("expected 2 resources, got %d", len(resources))
+	}
+	first, _ := resources[0].(map[string]any)
+	if first["uri"] == "" {
+		t.Fatal("expected resource uri")
+	}
+
+	// Verify resources/read.
+	reqBody = map[string]any{
+		"jsonrpc": "2.0",
+		"id":      3,
+		"method":  "resources/read",
+		"params": map[string]any{
+			"uri": "context://tasks",
+		},
+	}
+	result = postJSONRPC(t, url, reqBody)
+	contents, _ := result["contents"].([]any)
+	if len(contents) != 1 {
+		t.Fatalf("expected 1 content item, got %d", len(contents))
+	}
+	content, _ := contents[0].(map[string]any)
+	if content["text"] != `[{"id":"1"}]` {
+		t.Fatalf("unexpected content text: %v", content["text"])
+	}
+
+	// Verify resources/subscribe is a no-op.
+	reqBody = map[string]any{
+		"jsonrpc": "2.0",
+		"id":      4,
+		"method":  "resources/subscribe",
+		"params": map[string]any{
+			"uri": "context://tasks",
+		},
+	}
+	result = postJSONRPC(t, url, reqBody)
+	if result == nil {
+		t.Fatal("expected empty result for subscribe")
+	}
+}
+
+// TestServerReadResourceNotFound verifies 404-like behavior for unknown resources.
+func TestServerReadResourceNotFound(t *testing.T) {
+	s := NewServer("", "127.0.0.1:0")
+	url, err := s.StartHTTP()
+	if err != nil {
+		t.Fatalf("start http: %v", err)
+	}
+	defer s.Stop()
+
+	reqBody := map[string]any{
+		"jsonrpc": "2.0",
+		"id":      1,
+		"method":  "resources/read",
+		"params": map[string]any{
+			"uri": "context://unknown",
+		},
+	}
+	resp := postRaw(t, url, reqBody)
+	if resp.Error == nil {
+		t.Fatal("expected error for unknown resource")
+	}
+}

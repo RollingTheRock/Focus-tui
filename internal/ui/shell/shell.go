@@ -25,6 +25,13 @@ type ExitedMsg struct {
 	Err    error
 }
 
+// OpenExternalShellMsg is sent when the user requests an external terminal
+// (e.g. Alt+z) because the embedded pane is too small for TUI test output.
+type OpenExternalShellMsg struct {
+	PaneID models.PaneID
+	CWD    string
+}
+
 // Model implements models.Panel for an embedded terminal shell.
 type Model struct {
 	id     models.PaneID
@@ -202,6 +209,13 @@ func (m *Model) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 			m.scrollOffset = 0
 			m.viewDirty = true
 			return m, m.startShell()
+		}
+		// Alt+z opens an external terminal for the current worktree so TUI tests
+		// can run with a full-size terminal instead of the small embedded pane.
+		if msg.Type == tea.KeyRunes && msg.Alt && len(msg.Runes) == 1 && msg.Runes[0] == 'z' {
+			return m, func() tea.Msg {
+				return OpenExternalShellMsg{PaneID: m.id, CWD: m.cwd}
+			}
 		}
 		m.forwardKey(msg)
 		return m, nil
