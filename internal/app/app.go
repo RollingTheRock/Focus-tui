@@ -53,6 +53,7 @@ const (
 	paneAgentSelect     models.PaneID = "agent-select-overlay"
 	paneWorktreeHistory        models.PaneID = "worktree-history-overlay"
 	paneWorktreeDeleteConfirm  models.PaneID = "worktree-delete-confirm-overlay"
+	paneADRDetail              models.PaneID = "adr-detail-overlay"
 	paneFooter                 models.PaneID = "footer"
 
 	paneTypeGitCommit       models.PaneType = "git-commit"
@@ -62,6 +63,7 @@ const (
 	paneTypeAgentSelect     models.PaneType = "agent-select"
 	paneTypeWorktreeHistory       models.PaneType = "worktree-history"
 	paneTypeWorktreeDeleteConfirm models.PaneType = "worktree-delete-confirm"
+	paneTypeADRDetail             models.PaneType = "adr-detail"
 	paneTypeOverviewSummary       models.PaneType = "overview-summary"
 	paneTypeOverviewDAG     models.PaneType = "overview-dag"
 	paneTypeOverviewDetail  models.PaneType = "overview-detail"
@@ -1488,6 +1490,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.invalidateView()
 		return m, nil
 
+	case closeADRDetailMsg:
+		m.closePane(paneADRDetail)
+		return m, nil
+
 	case TaskEditorSavedMsg:
 		cmd := m.saveTaskEditor(msg)
 		m.closePane(msg.ID)
@@ -1546,6 +1552,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.syncWorktreeActivities()
 		m.invalidateView()
 		return m, cmd
+
+		case openADRDetailMsg:
+			cmd := m.activePage.openADRDetailOverlay(msg.FilePath)
+			return m, cmd
 
 	case editorplugin.CloseEditorMsg:
 		m.closePane(msg.ID)

@@ -119,7 +119,7 @@ func newOverviewPage(common *models.CommonModel, pluginRegistry *plugins.Registr
 
 	// DAG pane (tab container: Tasks + ADRs)
 	dag := newDagPane(paneDAG, dagMeta, common, repoRoot, adapterManager.Git())
-	adr := newAdrPane(paneDAG+"-adr", dagMeta, common)
+	adr := newAdrPane(paneDAG+"-adr", dagMeta, common, repoRoot)
 	tc := newTabContainer(paneDAG, dagMeta, common, dag, adr)
 	p.registerPane(paneDAG, tc, dagMeta)
 
@@ -525,11 +525,14 @@ func (p *page) activeOverlayPane() models.PaneID {
 	if _, ok := p.paneMeta[paneWorktreeDeleteConfirm]; ok {
 		return paneWorktreeDeleteConfirm
 	}
+		if _, ok := p.paneMeta[paneADRDetail]; ok {
+			return paneADRDetail
+		}
 	return ""
 }
 
 func (p *page) isOverlayPane(id models.PaneID) bool {
-	return id == paneGitCommit || id == paneWorktreeCreate || id == paneTaskEdit || id == panePlanEdit || id == paneAgentSelect || id == paneWorktreeHistory || id == paneWorktreeDeleteConfirm
+	return id == paneGitCommit || id == paneWorktreeCreate || id == paneTaskEdit || id == panePlanEdit || id == paneAgentSelect || id == paneWorktreeHistory || id == paneWorktreeDeleteConfirm || id == paneADRDetail
 }
 
 func (p *page) paneAt(x, y int) models.PaneID {
@@ -662,6 +665,25 @@ func (p *page) renderPaneTitle(id models.PaneID, focused models.PaneID, mode App
 
 func (p *page) overlayContentSize() (int, int) {
 	bounds := p.bodyBoundsSize()
+
+	if _, ok := p.paneMeta[paneADRDetail]; ok {
+		width := bounds.W - 8
+		if width > 100 {
+			width = 100
+		}
+		if width < 40 {
+			width = 40
+		}
+		height := bounds.H - 4
+		if height > 32 {
+			height = 32
+		}
+		if height < 10 {
+			height = 10
+		}
+		return width, height
+	}
+
 	width := bounds.W - 12
 	if width > 96 {
 		width = 96
@@ -688,6 +710,7 @@ func (p *page) renderOverlayPane(base string, id models.PaneID) string {
 	}
 
 	overlayW, overlayH := p.overlayContentSize()
+		panel.SetSize(overlayW, overlayH)
 	overlayView := layout.RenderPanel(p.renderPaneTitle(id, p.focused, ModeNormal, overlayW), panel.View(), overlayW, overlayH, true)
 	bounds := p.bodyBoundsSize()
 	x := bounds.X + (bounds.W-(overlayW+4))/2
@@ -924,6 +947,34 @@ func (p *page) openWorktreeDeleteConfirmPane(msg gitplugin.OpenWorktreeDeleteCon
 		Closable: true,
 	}
 	panel := newDeleteConfirmPane(meta.ID, msg.Worktree, msg.Force)
+	p.registerPane(meta.ID, panel, meta)
+	if p.returnFocus == nil {
+		p.returnFocus = make(map[models.PaneID]models.PaneID)
+	}
+	p.returnFocus[meta.ID] = baseFocus
+	p.setFocus(meta.ID)
+	p.updateSizes(p.bodyBoundsSize())
+	return panel.Init()
+}
+
+func (p *page) openADRDetailOverlay(filePath string) tea.Cmd {
+	p.closePane(paneADRDetail)
+
+	baseFocus := p.focused
+	if baseFocus == "" {
+		baseFocus = paneDAG
+	}
+
+	meta := models.PaneMeta{
+		ID:       paneADRDetail,
+		Name:     "ADR Detail",
+		Type:     paneTypeADRDetail,
+		CWD:      p.gitRepoPath(),
+		RepoID:   p.currentRepoID(),
+		Status:   models.PaneStatusReady,
+		Closable: true,
+	}
+	panel := newADRDetailOverlay(meta.ID, meta, *p.common, filePath)
 	p.registerPane(meta.ID, panel, meta)
 	if p.returnFocus == nil {
 		p.returnFocus = make(map[models.PaneID]models.PaneID)
