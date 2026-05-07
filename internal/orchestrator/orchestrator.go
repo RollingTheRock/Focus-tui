@@ -100,7 +100,7 @@ func (o *Orchestrator) eventLoop(ctx context.Context) {
 	if o.bus == nil {
 		return
 	}
-	ch := o.bus.Subscribe("orchestrator")
+	ch := o.bus.Subscribe("orchestrator", nil)
 	defer o.bus.Unsubscribe("orchestrator")
 
 	for {

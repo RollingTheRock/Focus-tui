@@ -7,7 +7,9 @@ import (
 	"focus/internal/adapters"
 	"focus/internal/agents"
 	"focus/internal/avatar"
+	"focus/internal/commands"
 	"focus/internal/config"
+	dbstore "focus/internal/store"
 	gitmodel "focus/internal/git"
 	"focus/internal/mcp"
 	"focus/internal/models"
@@ -116,6 +118,9 @@ type model struct {
 	notifications []orchestrator.Notification
 
 	disablePiggyback bool
+
+	// cmdBus is the command-layer bus for structured domain writes.
+	cmdBus *commands.Bus
 }
 
 type editorMetaProvider interface {
@@ -177,6 +182,11 @@ func New(cfg config.Config, store models.Store) tea.Model {
 
 	m.activePage = newOverviewPage(cm, m.pluginRegistry, m.adapterManager, cfg, store, cwd, repoRoot)
 	m.pages[""] = m.activePage
+
+	// Phase 3: initialise command bus when backed by the concrete store.
+	if st, ok := store.(*dbstore.Store); ok {
+		m.cmdBus = commands.NewBus(st)
+	}
 
 	m.loadPageSnapshots()
 	m.syncWorktreeActivities()
@@ -1234,6 +1244,36 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.syncWorktreeActivities()
 		m.invalidateView()
 		return m, batchCmds(cmds)
+
+	case dagTaskCreatedMsg:
+		if m.common == nil || m.common.Store == nil || m.cmdBus == nil {
+			return m, nil
+		}
+		repoID := msg.RepoID
+		if repoID == "" {
+			repoID = m.gitRepoPath()
+		}
+		if repoID == "" {
+			return m, nil
+		}
+		taskID := uuid.NewString()
+		now := time.Now()
+		_ = m.cmdBus.Send(context.Background(), &commands.UpdateTask{
+			Record: models.TaskContextRecord{
+				ID:        taskID,
+				RepoID:    repoID,
+				Title:     msg.Title,
+				Goal:      msg.Goal,
+				State:     "paused",
+				Priority:  "medium",
+				CreatedAt: now,
+				UpdatedAt: now,
+			},
+		})
+		m.invalidateView()
+		return m, func() tea.Msg {
+			return dagRefreshMsg{repoID: repoID}
+		}
 
 	case gitplugin.OpenDiffMsg:
 		cmd := m.openDiffPane(msg)

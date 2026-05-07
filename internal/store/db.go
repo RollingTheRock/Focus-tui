@@ -144,6 +144,14 @@ func (s *Store) Mode() string {
 	return s.mode
 }
 
+// SetMaxOpenConns sets the maximum number of open connections to the database.
+// Useful in tests with in-memory SQLite to force single-connection mode.
+func (s *Store) SetMaxOpenConns(n int) {
+	if s.db != nil {
+		s.db.SetMaxOpenConns(n)
+	}
+}
+
 // EventStore returns the event store (nil in sqlite mode).
 func (s *Store) EventStore() any {
 	if s.events == nil {

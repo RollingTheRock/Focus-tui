@@ -1,6 +1,7 @@
 package app
 
 import (
+	"errors"
 	"sort"
 	"strings"
 
@@ -9,6 +10,7 @@ import (
 	"focus/internal/models"
 	"focus/internal/styles"
 
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -32,15 +34,38 @@ type dagPane struct {
 
 	width  int
 	height int
+
+	// quick-create state
+	creating    bool
+	titleInput  textinput.Model
+	goalInput   textinput.Model
+	createFocus int // 0=title, 1=goal
+	createErr   error
 }
 
 func newDagPane(id models.PaneID, meta models.PaneMeta, common *models.CommonModel, repoID string, adapter adapters.GitAdapter) *dagPane {
+	titleInput := textinput.New()
+	titleInput.Prompt = "New task title: "
+	titleInput.Placeholder = "e.g. Bug: crash on empty input"
+	titleInput.PromptStyle = lipgloss.NewStyle().Foreground(styles.Accent)
+	titleInput.TextStyle = lipgloss.NewStyle().Foreground(styles.Text)
+	titleInput.PlaceholderStyle = lipgloss.NewStyle().Foreground(styles.Subtle)
+
+	goalInput := textinput.New()
+	goalInput.Prompt = "Goal (optional): "
+	goalInput.Placeholder = "What should this task achieve?"
+	goalInput.PromptStyle = lipgloss.NewStyle().Foreground(styles.Accent)
+	goalInput.TextStyle = lipgloss.NewStyle().Foreground(styles.Text)
+	goalInput.PlaceholderStyle = lipgloss.NewStyle().Foreground(styles.Subtle)
+
 	return &dagPane{
-		id:      id,
-		meta:    meta,
-		common:  *common,
-		repoID:  repoID,
-		adapter: adapter,
+		id:         id,
+		meta:       meta,
+		common:     *common,
+		repoID:     repoID,
+		adapter:    adapter,
+		titleInput: titleInput,
+		goalInput:  goalInput,
 	}
 }
 
@@ -58,6 +83,12 @@ type dagRefreshMsg struct {
 	repoID string
 }
 
+type dagTaskCreatedMsg struct {
+	Title  string
+	Goal   string
+	RepoID string
+}
+
 func (p *dagPane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 	switch msg := msg.(type) {
 	case dagRefreshMsg:
@@ -65,6 +96,26 @@ func (p *dagPane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 		return p, nil
 
 	case tea.KeyMsg:
+		if p.creating {
+			switch msg.String() {
+			case "esc":
+				p.exitCreateMode()
+				return p, nil
+			case "tab":
+				p.toggleCreateFocus()
+				return p, nil
+			case "enter", "ctrl+s":
+				return p, p.submitCreate()
+			}
+			var cmd tea.Cmd
+			if p.createFocus == 0 {
+				p.titleInput, cmd = p.titleInput.Update(msg)
+			} else {
+				p.goalInput, cmd = p.goalInput.Update(msg)
+			}
+			return p, cmd
+		}
+
 		switch msg.String() {
 		case "R":
 			return p, p.refreshCmd()
@@ -84,6 +135,9 @@ func (p *dagPane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 			return p, p.launchArchitectureAgentCmd()
 		case "r":
 			return p, p.launchResearchAgentCmd()
+		case "n":
+			p.enterCreateMode()
+			return p, textinput.Blink
 		}
 	}
 	return p, nil
@@ -326,9 +380,63 @@ type dagLaunchAgentMsg struct {
 	ExtraArgs   []string
 }
 
+func (p *dagPane) enterCreateMode() {
+	p.creating = true
+	p.createFocus = 0
+	p.createErr = nil
+	p.titleInput.SetValue("")
+	p.titleInput.Focus()
+	p.goalInput.SetValue("")
+	p.goalInput.Blur()
+}
+
+func (p *dagPane) exitCreateMode() {
+	p.creating = false
+	p.createErr = nil
+	p.titleInput.SetValue("")
+	p.titleInput.Blur()
+	p.goalInput.SetValue("")
+	p.goalInput.Blur()
+}
+
+func (p *dagPane) toggleCreateFocus() {
+	if p.createFocus == 0 {
+		p.createFocus = 1
+		p.titleInput.Blur()
+		p.goalInput.Focus()
+	} else {
+		p.createFocus = 0
+		p.goalInput.Blur()
+		p.titleInput.Focus()
+	}
+}
+
+func (p *dagPane) submitCreate() tea.Cmd {
+	title := strings.TrimSpace(p.titleInput.Value())
+	if title == "" {
+		p.createErr = errors.New("task title cannot be empty")
+		return nil
+	}
+	goal := strings.TrimSpace(p.goalInput.Value())
+	p.exitCreateMode()
+	return func() tea.Msg {
+		return dagTaskCreatedMsg{
+			Title:  title,
+			Goal:   goal,
+			RepoID: p.repoID,
+		}
+	}
+}
+
 func (p *dagPane) SetSize(width, height int) {
 	p.width = width
 	p.height = height
+	inputWidth := width - 8
+	if inputWidth < 24 {
+		inputWidth = 24
+	}
+	p.titleInput.Width = inputWidth
+	p.goalInput.Width = inputWidth
 }
 
 func (p *dagPane) View() string {
@@ -342,20 +450,38 @@ func (p *dagPane) View() string {
 	}
 
 	var lines []string
-	lines = append(lines, dagHeaderStyle.Render("  Task DAG  ")+dagHintStyle.Render("[j/k/h/l]move  [enter]select  [c]create-wt  [r]research  [a]arch  [R]refresh"))
+	if p.creating {
+		lines = append(lines, dagHeaderStyle.Render("  Task DAG  ")+dagHintStyle.Render("[Tab]switch  [Enter/Ctrl+S]save  [Esc]cancel"))
+	} else {
+		lines = append(lines, dagHeaderStyle.Render("  Task DAG  ")+dagHintStyle.Render("[j/k/h/l]move  [enter]select  [c]create-wt  [r]research  [a]arch  [n]new-task  [R]refresh"))
+	}
 
-	if !p.hasDAG() {
+	if !p.hasDAG() && !p.creating {
 		lines = append(lines, dagMutedStyle.Render("  No tasks yet. Press [r] to refresh."))
 		return p.clampAndJoin(lines, h, w)
 	}
 
 	bodyH := h - 1
+	if p.creating {
+		bodyH = h - 3 // reserve 2 lines for inputs + 1 for hint/error
+	}
 	if bodyH < 3 {
 		bodyH = 3
 	}
 
 	dagStr := renderHorizontalDAG(p.nodes, p.edges, p.levels, p.layerIDs, p.maxLevel, p.cursorNode, w, bodyH)
 	lines = append(lines, dagStr)
+
+	if p.creating {
+		lines = append(lines, "")
+		lines = append(lines, p.titleInput.View())
+		lines = append(lines, p.goalInput.View())
+		if p.createErr != nil {
+			lines = append(lines, dagErrorStyle.Render("Error: "+p.createErr.Error()))
+		} else {
+			lines = append(lines, dagHintStyle.Render("Enter title and optional goal, then press Enter to save"))
+		}
+	}
 
 	return p.clampAndJoin(lines, h, w)
 }
@@ -376,4 +502,5 @@ var (
 	dagNodeStyle    = lipgloss.NewStyle().Foreground(styles.Text)
 	dagFocusedStyle = lipgloss.NewStyle().Bold(true).Foreground(styles.Highlight).Background(lipgloss.Color("#333333"))
 	dagMutedStyle   = lipgloss.NewStyle().Foreground(styles.Subtle)
+	dagErrorStyle   = lipgloss.NewStyle().Foreground(styles.Warning)
 )

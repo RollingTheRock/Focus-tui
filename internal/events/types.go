@@ -56,6 +56,11 @@ const (
 	TaskDependencyAdded    = "TaskDependencyAdded"
 	TaskDependencyRemoved  = "TaskDependencyRemoved"
 
+	TaskWorktreeLinked = "TaskWorktreeLinked"
+	TaskWorktreeLinksCleared = "TaskWorktreeLinksCleared"
+
+	AgentMessageSent = "AgentMessageSent"
+
 	TodoCreated        = "TodoCreated"
 	TaskPlanCreated    = "TaskPlanCreated"
 	TaskOutputAdded    = "TaskOutputAdded"
@@ -191,6 +196,27 @@ type TaskDependencyAddedPayload struct {
 type TaskDependencyRemovedPayload struct {
 	FromTaskID string `json:"from_task_id"`
 	ToTaskID   string `json:"to_task_id"`
+}
+
+// TaskWorktreeLinkedPayload is emitted when a task is linked to a worktree.
+type TaskWorktreeLinkedPayload struct {
+	TaskID       string `json:"task_id"`
+	WorktreeID   string `json:"worktree_id"`
+	RelationType string `json:"relation_type"`
+}
+
+// TaskWorktreeLinksClearedPayload is emitted when all links for a worktree are removed.
+type TaskWorktreeLinksClearedPayload struct {
+	WorktreeID string `json:"worktree_id"`
+}
+
+// AgentMessageSentPayload is emitted when an agent message is saved.
+type AgentMessageSentPayload struct {
+	ID        string `json:"id"`
+	FromAgent string `json:"from_agent"`
+	ToAgent   string `json:"to_agent"`
+	MsgType   string `json:"msg_type"`
+	Payload   string `json:"payload"`
 }
 
 // TodoCreatedPayload is emitted when a todo is created.
