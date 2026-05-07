@@ -2416,9 +2416,9 @@ func (m model) renderHelpLine(w int) string {
 		return renderCompactHelpLine(helpStyle, "[enter]confirm  [esc]cancel", w)
 	}
 	if m.mode == ModeShell {
-		text := "[esc]normal  [ctrl+t]shell  [shell input active]"
+		text := "[esc]normal  [ctrl+t]shell  [alt+z]ext  [shell input active]"
 		if w < simplifiedHelpMaxWidth {
-			text = "[esc]normal  [ctrl+t]shell"
+			text = "[esc]normal  [ctrl+t]shell  [alt+z]ext"
 		}
 		return renderCompactHelpLine(helpStyle, text, w)
 	}
@@ -2444,8 +2444,8 @@ func (m model) renderHelpLine(w int) string {
 			left = "[tab]cycle focus  [shell starting]"
 			compact = "[shell starting]"
 		default:
-			left = "[tab]cycle focus  [enter]shell  [ctrl+g]overview"
-			compact = "[enter]shell  [ctrl+g]overview"
+			left = "[tab]cycle focus  [enter]shell  [alt+z]external  [ctrl+g]overview"
+			compact = "[enter]shell  [alt+z]ext  [ctrl+g]overview"
 		}
 	default:
 		switch focusedType {
