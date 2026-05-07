@@ -190,26 +190,32 @@ func (p *worktreeDetailPane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 		}
 	}
 
-	// Route to active sub-pane.
-	switch p.activeTab {
-	case tabGit:
-		if p.gitPane != nil {
-			newPane, cmd := p.gitPane.Update(msg)
-			if gp, ok := newPane.(*gitplugin.StatusPane); ok {
-				p.gitPane = gp
-			}
-			return p, cmd
+	// Route to sub-panes. Data messages always reach both sub-panes
+	// regardless of active tab so git and file tree stay up to date.
+	// Key events only go to the active tab to avoid double-handling.
+	_, isKey := msg.(tea.KeyMsg)
+
+	var cmds []tea.Cmd
+
+	if p.gitPane != nil && (!isKey || p.activeTab == tabGit) {
+		newPane, cmd := p.gitPane.Update(msg)
+		if gp, ok := newPane.(*gitplugin.StatusPane); ok {
+			p.gitPane = gp
 		}
-	case tabFiles:
-		if p.filesPane != nil {
-			newPane, cmd := p.filesPane.Update(msg)
-			if fp, ok := newPane.(*filebrowser.TreePane); ok {
-				p.filesPane = fp
-			}
-			return p, cmd
+		if cmd != nil {
+			cmds = append(cmds, cmd)
 		}
 	}
-	return p, nil
+	if p.filesPane != nil && (!isKey || p.activeTab == tabFiles) {
+		newPane, cmd := p.filesPane.Update(msg)
+		if fp, ok := newPane.(*filebrowser.TreePane); ok {
+			p.filesPane = fp
+		}
+		if cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	}
+	return p, tea.Batch(cmds...)
 }
 
 type worktreeSelectedMsg struct {

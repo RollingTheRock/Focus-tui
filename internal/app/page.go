@@ -1239,9 +1239,11 @@ func (m *model) switchToWorktreePage(worktreeID, preferredPane string) tea.Cmd {
 		sh.SetCWD(worktreeID)
 	}
 
-	// Notify worktree detail pane of the selection
-	if dp, ok := m.activePage.pane(paneWorktreeDetail).(*worktreeDetailPane); ok {
-		dp.setWorktree(worktreeID)
+	// Notify worktree detail pane of the selection via message routing
+	// so Init commands (git watcher, file tree ticker) are returned to the runtime.
+	var cmd tea.Cmd
+	if _, ok := m.activePage.pane(paneWorktreeDetail).(*worktreeDetailPane); ok {
+		cmd = m.activePage.routeToPane(paneWorktreeDetail, worktreeSelectedMsg{WorktreeID: worktreeID})
 	}
 
 	if preferredPane != "" {
@@ -1251,5 +1253,5 @@ func (m *model) switchToWorktreePage(worktreeID, preferredPane string) tea.Cmd {
 	}
 	m.updateSizes(m.common.Width, m.common.Height)
 	m.invalidateView()
-	return nil
+	return cmd
 }
