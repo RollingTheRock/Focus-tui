@@ -184,7 +184,7 @@ func (p *worktreeDetailPane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 			}
 			return p, nil
 		case "s":
-			return p, p.launchAgentCmd()
+			return p, p.openAgentSelectCmd()
 		case "tab":
 			return p, nil // let app route to next pane
 		}
@@ -216,15 +216,16 @@ type worktreeSelectedMsg struct {
 	WorktreeID string
 }
 
-func (p *worktreeDetailPane) launchAgentCmd() tea.Cmd {
+type OpenAgentSelectMsg struct {
+	WorktreeID string
+}
+
+func (p *worktreeDetailPane) openAgentSelectCmd() tea.Cmd {
 	if p.worktreeID == "" {
 		return nil
 	}
 	return func() tea.Msg {
-		return agents.LaunchAgentMsg{
-			WorktreeID: p.worktreeID,
-			Provider:   agents.DefaultProvider(),
-		}
+		return OpenAgentSelectMsg{WorktreeID: p.worktreeID}
 	}
 }
 
@@ -335,6 +336,9 @@ func (p *worktreeDetailPane) renderTasks(w, h int) string {
 }
 
 func (p *worktreeDetailPane) renderAgentCards(w int) string {
+	if p.worktreeID == "" {
+		return lipgloss.NewStyle().MaxWidth(w).Foreground(styles.Subtle).Render("  Agents: —  (select a worktree first)")
+	}
 	if len(p.sessions) == 0 {
 		return lipgloss.NewStyle().MaxWidth(w).Foreground(styles.Subtle).Render("  Agents: none  [s] start")
 	}
