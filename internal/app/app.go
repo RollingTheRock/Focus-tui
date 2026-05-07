@@ -1692,13 +1692,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.invalidateView()
 		var cmds []tea.Cmd
 		for _, id := range m.activePage.paneOrder {
-			if m.activePage.paneMeta[id].Type != models.PaneTypeGitStatus {
-				continue
+			if m.activePage.paneMeta[id].Type == models.PaneTypeGitStatus {
+				newPanel, cmd := m.pane(id).Update(msg)
+				m.setPane(id, newPanel)
+				if cmd != nil {
+					cmds = append(cmds, cmd)
+				}
 			}
-			newPanel, cmd := m.pane(id).Update(msg)
-			m.setPane(id, newPanel)
-			if cmd != nil {
-				cmds = append(cmds, cmd)
+			// The worktree detail pane has a nested git status sub-pane.
+			if id == paneWorktreeDetail {
+				newPanel, cmd := m.pane(id).Update(msg)
+				m.setPane(id, newPanel)
+				if cmd != nil {
+					cmds = append(cmds, cmd)
+				}
 			}
 		}
 		m.refreshPaneStatuses()
