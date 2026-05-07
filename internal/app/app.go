@@ -2185,16 +2185,8 @@ func (m model) findEditorPaneByPath(filePath string) models.PaneID {
 	return m.activePage.findEditorPaneByPath(filePath)
 }
 
-func (m model) editorHostPaneTarget(opener models.PaneID, behavior editorplugin.OpenBehavior) models.PaneID {
-	return m.activePage.editorHostPaneTarget(opener, behavior)
-}
-
 func (m model) lastEditorPane() models.PaneID {
 	return m.activePage.lastEditorPane()
-}
-
-func (m model) editorSplitDirection(target models.PaneID, behavior editorplugin.OpenBehavior) layout.SplitDirection {
-	return m.activePage.editorSplitDirection(target, behavior)
 }
 
 func (m model) splitFocused(direction layout.SplitDirection) (tea.Model, tea.Cmd) {
@@ -2243,7 +2235,7 @@ func (m model) activeOverlayPane() models.PaneID {
 }
 
 func (m model) isOverlayPane(id models.PaneID) bool {
-	return id == paneGitCommit || id == paneWorktreeCreate || id == paneWorktreeDeleteConfirm
+	return m.activePage.isOverlayPane(id)
 }
 
 func (m *model) paneAt(x, y int) models.PaneID {
@@ -2264,7 +2256,12 @@ func (m *model) updateSizes(w, h int) {
 	m.activePage.pane(paneFooter).SetSize(w, footerHeight)
 	m.activePage.updateSizes(m.activePage.bodyBounds(w, h))
 	if overlayID := m.activePage.activeOverlayPane(); overlayID != "" {
-		overlayW, overlayH := m.overlayContentSize()
+		var overlayW, overlayH int
+		if m.activePage.isLargeOverlayPane(overlayID) {
+			overlayW, overlayH = m.activePage.largeOverlayContentSize()
+		} else {
+			overlayW, overlayH = m.overlayContentSize()
+		}
 		if panel := m.activePage.pane(overlayID); panel != nil {
 			panel.SetSize(overlayW, overlayH)
 		}
@@ -2539,14 +2536,6 @@ func (m *model) openDiffPane(msg gitplugin.OpenDiffMsg) tea.Cmd {
 	cmd := m.activePage.openDiffPane(msg)
 	m.updateSizes(m.common.Width, m.common.Height)
 	return cmd
-}
-
-func (m model) reviewHostPaneTarget(opener models.PaneID) models.PaneID {
-	return m.activePage.reviewHostPaneTarget(opener)
-}
-
-func (m model) reviewSplitDirection(target models.PaneID) layout.SplitDirection {
-	return m.activePage.reviewSplitDirection(target)
 }
 
 func (m *model) openCommitPane(msg gitplugin.OpenCommitMsg) tea.Cmd {

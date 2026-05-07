@@ -353,13 +353,12 @@ func TestWorktreePageSnapshotRestoresLayoutAndFocus(t *testing.T) {
 	}
 }
 
-func TestRenderHelpLineForDiffPaneIncludesReviewCloseShortcut(t *testing.T) {
+func TestRenderHelpLineForDiffOverlayIncludesReviewCloseShortcut(t *testing.T) {
 	cfg := config.DefaultConfig()
 	st, _ := store.New(":memory:")
 	m := New(cfg, st).(model)
 	m.activePage.panes[paneGitDiff] = &fakePanel{}
 	m.activePage.paneMeta[paneGitDiff] = models.PaneMeta{ID: paneGitDiff, Name: "Diff", Type: models.PaneTypeDiffView, Closable: true}
-	m.activePage.bodyTree = layout.SplitLeaf(m.activePage.bodyTree, paneShell, paneGitDiff, layout.SplitHorizontal, true)
 	m.activePage.focused = paneGitDiff
 
 	help := m.renderHelpLine(120)
@@ -1834,48 +1833,6 @@ func TestEditorIsolationAcrossWorktreePages(t *testing.T) {
 	}
 }
 
-func TestEditorHostPaneTargetPrefersLastEditorFromFileTree(t *testing.T) {
-	cfg := config.DefaultConfig()
-	st, _ := store.New(":memory:")
-	m := New(cfg, st).(model)
-
-	path := filepath.Join(t.TempDir(), "main.go")
-	m.openEditorPane(editorplugin.OpenEditorMsg{FilePath: path, Behavior: editorplugin.OpenBehaviorDefault})
-	firstEditor := m.activePage.focused
-	m.setFocus(paneWorktreeDetail)
-
-	target := m.editorHostPaneTarget(m.activePage.focused, editorplugin.OpenBehaviorDefault)
-	if target != firstEditor {
-		t.Fatalf("expected default tree open to target existing editor %s, got %s", firstEditor, target)
-	}
-
-	vsplitTarget := m.editorHostPaneTarget(m.activePage.focused, editorplugin.OpenBehaviorVSplit)
-	if vsplitTarget != firstEditor {
-		t.Fatalf("expected vsplit tree open to target existing editor %s, got %s", firstEditor, vsplitTarget)
-	}
-}
-
-func TestEditorSplitDirectionDistinguishesDefaultAndVSplit(t *testing.T) {
-	m := model{
-		activePage: &page{
-			paneMeta: map[models.PaneID]models.PaneMeta{
-				"editor-1": {ID: "editor-1", Type: models.PaneTypeEditor},
-				paneShell:  {ID: paneShell, Type: models.PaneTypeShell},
-			},
-		},
-	}
-
-	if got := m.editorSplitDirection("editor-1", editorplugin.OpenBehaviorDefault); got != layout.SplitVertical {
-		t.Fatalf("expected default open against editor to split vertically, got %s", got)
-	}
-	if got := m.editorSplitDirection("editor-1", editorplugin.OpenBehaviorVSplit); got != layout.SplitHorizontal {
-		t.Fatalf("expected vsplit open against editor to split horizontally, got %s", got)
-	}
-	if got := m.editorSplitDirection(paneShell, editorplugin.OpenBehaviorDefault); got != layout.SplitHorizontal {
-		t.Fatalf("expected default open against shell to split horizontally, got %s", got)
-	}
-}
-
 func TestClosePaneRestoresFocusToEditorOpener(t *testing.T) {
 	cfg := config.DefaultConfig()
 	st, _ := store.New(":memory:")
@@ -2028,32 +1985,24 @@ func TestWorktreeRemovedClosesScopedPanes(t *testing.T) {
 	}
 }
 
-func TestHandleMouseRoutesWheelToDiffPaneWithoutStealingFocus(t *testing.T) {
+func TestHandleMouseBlocksWhenDiffOverlayActive(t *testing.T) {
 	cfg := config.DefaultConfig()
 	st, _ := store.New(":memory:")
 	m := New(cfg, st).(model)
 	m.activePage.panes[paneGitDiff] = &fakePanel{}
 	m.activePage.paneMeta[paneGitDiff] = models.PaneMeta{ID: paneGitDiff, Name: "Diff", Type: models.PaneTypeDiffView, Closable: true}
-	m.activePage.bodyTree = layout.SplitLeaf(m.activePage.bodyTree, paneShell, paneGitDiff, layout.SplitHorizontal, true)
 	m.activePage.focused = paneWorktreeDetail
 	m.common.Width = 120
 	m.common.Height = 40
 	m.updateSizes(120, 40)
-	frame := m.activePage.frames[paneGitDiff]
 	dims := layout.ComputeBanner(m.common.Width, m.common.Height)
 
-	updated, _ := m.handleMouse(tea.MouseMsg{X: frame.X + 1, Y: dims.HeaderH + frame.Y + 1, Button: tea.MouseButtonWheelDown})
+	updated, _ := m.handleMouse(tea.MouseMsg{X: dims.HeaderH + 5, Y: dims.HeaderH + 5, Button: tea.MouseButtonWheelDown})
 	m = updated.(model)
 
 	diffPanel := m.pane(paneGitDiff).(*fakePanel)
-	if len(diffPanel.updates) == 0 {
-		t.Fatalf("expected diff pane to receive mouse wheel message")
-	}
-	if _, ok := diffPanel.updates[0].(tea.MouseMsg); !ok {
-		t.Fatalf("expected forwarded message to be tea.MouseMsg, got %T", diffPanel.updates[0])
-	}
-	if m.activePage.focused != paneWorktreeDetail {
-		t.Fatalf("expected wheel scroll not to steal focus, got %s", m.activePage.focused)
+	if len(diffPanel.updates) != 0 {
+		t.Fatalf("expected diff overlay to block mouse events, got %d updates", len(diffPanel.updates))
 	}
 }
 
