@@ -143,7 +143,7 @@ func (p *adrPane) View() string {
 	}
 
 	var lines []string
-	lines = append(lines, adrHeaderStyle.Render("  ADRs  ")+adrHintStyle.Render("[j/k]move  [enter]constraints  [R]refresh"))
+	lines = append(lines, adrHeaderStyle.Render("  ADRs  ")+adrHintStyle.Render("[j/k]move  [enter]constraints  [/]tab  [R]refresh"))
 
 	if len(p.adrs) == 0 {
 		lines = append(lines, adrMutedStyle.Render("  No ADRs found."))
