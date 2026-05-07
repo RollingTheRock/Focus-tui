@@ -37,8 +37,7 @@ func newTabContainer(id models.PaneID, meta models.PaneMeta, common *models.Comm
 }
 
 func (tc *tabContainer) HandleTab() bool {
-	tc.activeTab = (tc.activeTab + 1) % len(tc.tabs)
-	return true
+	return false // tab now cycles pane focus globally; use [/] for tab switching
 }
 
 func (tc *tabContainer) activePane() models.Panel {
@@ -60,8 +59,12 @@ func (tc *tabContainer) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 		return tc.adrPane.Update(msg)
 	case tea.KeyMsg:
 		key := msg.String()
-		if key == "tab" || key == "shift+tab" {
-			tc.HandleTab()
+		if key == "]" {
+			tc.activeTab = (tc.activeTab + 1) % len(tc.tabs)
+			return tc, nil
+		}
+		if key == "[" {
+			tc.activeTab = (tc.activeTab - 1 + len(tc.tabs)) % len(tc.tabs)
 			return tc, nil
 		}
 		newPane, cmd := tc.activePane().Update(msg)

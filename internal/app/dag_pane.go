@@ -371,7 +371,7 @@ func (p *dagPane) View() string {
 	var lines []string
 	lines = append(lines,
 		dagHeaderStyle.Render(" Task DAG ")+
-			dagHintStyle.Render("  [j/k]↑↓  [h/l]←→  [enter]select  [c]wt  [r]research  [a]arch  [R]refresh"),
+			dagHintStyle.Render("  [j/k]↑↓  [h/l]←→  [enter]select  [c]wt  [r]research  [a]arch  [/]tab  [R]refresh"),
 	)
 	lines = append(lines, "")
 
