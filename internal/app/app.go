@@ -9,11 +9,11 @@ import (
 	"focus/internal/avatar"
 	"focus/internal/commands"
 	"focus/internal/config"
+	dbstore "focus/internal/store"
 	gitmodel "focus/internal/git"
 	"focus/internal/mcp"
 	"focus/internal/models"
 	"focus/internal/orchestrator"
-	dbstore "focus/internal/store"
 	"focus/internal/plugins"
 	agentsplugin "focus/internal/plugins/agents"
 	editorplugin "focus/internal/plugins/editor"
@@ -1373,6 +1373,36 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.syncWorktreeActivities()
 		m.invalidateView()
 		return m, batchCmds(cmds)
+
+	case dagTaskCreatedMsg:
+		if m.common == nil || m.common.Store == nil || m.cmdBus == nil {
+			return m, nil
+		}
+		repoID := msg.RepoID
+		if repoID == "" {
+			repoID = m.gitRepoPath()
+		}
+		if repoID == "" {
+			return m, nil
+		}
+		taskID := uuid.NewString()
+		now := time.Now()
+		_ = m.cmdBus.Send(context.Background(), &commands.UpdateTask{
+			Record: models.TaskContextRecord{
+				ID:        taskID,
+				RepoID:    repoID,
+				Title:     msg.Title,
+				Goal:      msg.Goal,
+				State:     "paused",
+				Priority:  "medium",
+				CreatedAt: now,
+				UpdatedAt: now,
+			},
+		})
+		m.invalidateView()
+		return m, func() tea.Msg {
+			return dagRefreshMsg{repoID: repoID}
+		}
 
 	case gitplugin.OpenDiffMsg:
 		cmd := m.openDiffPane(msg)

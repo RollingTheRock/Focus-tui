@@ -2083,3 +2083,140 @@ func TestCmdBusAlwaysAvailable(t *testing.T) {
 		t.Fatal("cmdBus should be available when store is *store.Store")
 	}
 }
+
+func TestDagPaneQuickCreateTask(t *testing.T) {
+	st, err := store.New(":memory:")
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	common := &models.CommonModel{Store: st}
+
+	// Seed two tasks with a dependency to verify DAG builds correctly.
+	now := time.Now()
+	task1 := models.TaskContextRecord{
+		ID: "task-1", RepoID: "repo", Title: "First task",
+		State: "active", Priority: "medium", CreatedAt: now, UpdatedAt: now,
+	}
+	task2 := models.TaskContextRecord{
+		ID: "task-2", RepoID: "repo", Title: "Second task",
+		State: "paused", Priority: "medium", CreatedAt: now, UpdatedAt: now,
+	}
+	if err := st.SaveTaskContext(task1); err != nil {
+		t.Fatalf("save task1: %v", err)
+	}
+	if err := st.SaveTaskContext(task2); err != nil {
+		t.Fatalf("save task2: %v", err)
+	}
+	if err := st.SaveTaskDependency(models.TaskDependencyRecord{
+		FromTaskID: "task-1", ToTaskID: "task-2", DependencyType: "hard",
+	}); err != nil {
+		t.Fatalf("save dependency: %v", err)
+	}
+
+	pane := newDagPane(paneDAG, models.PaneMeta{}, common, "repo", nil)
+	pane.SetSize(120, 20)
+
+	// Trigger initial DAG build.
+	panel, _ := pane.Update(dagRefreshMsg{repoID: "repo"})
+	pane = panel.(*dagPane)
+
+	// Verify initial state: not creating, DAG contains tasks.
+	if pane.creating {
+		t.Fatal("expected creating=false initially")
+	}
+	view := pane.View()
+	if !strings.Contains(view, "Task DAG") {
+		t.Fatalf("expected 'Task DAG' in view, got:\n%s", view)
+	}
+	if !strings.Contains(view, "[n]new-task") {
+		t.Fatalf("expected '[n]new-task' hint in normal mode, got:\n%s", view)
+	}
+	if !strings.Contains(view, "First task") {
+		t.Fatalf("expected task title in DAG view, got:\n%s", view)
+	}
+
+	// Press 'n' to enter creating mode.
+	panel, cmd := pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+	pane = panel.(*dagPane)
+	if !pane.creating {
+		t.Fatal("expected creating=true after pressing 'n'")
+	}
+	if cmd == nil {
+		t.Fatal("expected blink cmd after entering create mode")
+	}
+
+	// Verify creating mode view shows inputs and correct hint.
+	view = pane.View()
+	if !strings.Contains(view, "New task title:") {
+		t.Fatalf("expected title input prompt in view, got:\n%s", view)
+	}
+	if !strings.Contains(view, "Goal (optional):") {
+		t.Fatalf("expected goal input prompt in view, got:\n%s", view)
+	}
+	if !strings.Contains(view, "[Tab]switch") {
+		t.Fatalf("expected creating-mode hint in view, got:\n%s", view)
+	}
+	// Normal-mode hint should NOT appear.
+	if strings.Contains(view, "[n]new-task") {
+		t.Fatal("expected normal-mode hint to be replaced in creating mode")
+	}
+
+	// Type a title into the focused title input.
+	panel, _ = pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'B'}})
+	pane = panel.(*dagPane)
+	panel, _ = pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'u'}})
+	pane = panel.(*dagPane)
+	panel, _ = pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}})
+	pane = panel.(*dagPane)
+
+	// Press Tab to move focus to goal input.
+	panel, _ = pane.Update(tea.KeyMsg{Type: tea.KeyTab})
+	pane = panel.(*dagPane)
+	if pane.createFocus != 1 {
+		t.Fatalf("expected createFocus=1 after tab, got %d", pane.createFocus)
+	}
+
+	// Type a goal.
+	panel, _ = pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'f'}})
+	pane = panel.(*dagPane)
+	panel, _ = pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'i'}})
+	pane = panel.(*dagPane)
+	panel, _ = pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
+	pane = panel.(*dagPane)
+
+	// Press Enter to submit.
+	panel, cmd = pane.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	pane = panel.(*dagPane)
+	if pane.creating {
+		t.Fatal("expected creating=false after submit")
+	}
+	if cmd == nil {
+		t.Fatal("expected cmd to emit dagTaskCreatedMsg")
+	}
+
+	msg := cmd()
+	created, ok := msg.(dagTaskCreatedMsg)
+	if !ok {
+		t.Fatalf("expected dagTaskCreatedMsg, got %T", msg)
+	}
+	if created.Title != "Bug" {
+		t.Fatalf("expected title 'Bug', got %q", created.Title)
+	}
+	if created.Goal != "fix" {
+		t.Fatalf("expected goal 'fix', got %q", created.Goal)
+	}
+	if created.RepoID != "repo" {
+		t.Fatalf("expected repoID 'repo', got %q", created.RepoID)
+	}
+
+	// Verify pressing Esc cancels creation.
+	pane.enterCreateMode()
+	if !pane.creating {
+		t.Fatal("expected creating=true")
+	}
+	panel, _ = pane.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	pane = panel.(*dagPane)
+	if pane.creating {
+		t.Fatal("expected creating=false after esc")
+	}
+}
