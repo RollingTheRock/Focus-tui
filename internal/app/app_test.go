@@ -2153,7 +2153,7 @@ func TestDagPaneQuickCreateTask(t *testing.T) {
 	if !strings.Contains(view, "Goal (optional):") {
 		t.Fatalf("expected goal input prompt in view, got:\n%s", view)
 	}
-	if !strings.Contains(view, "[Tab]switch") {
+	if !strings.Contains(view, "[T]asks [A]DRs") {
 		t.Fatalf("expected creating-mode hint in view, got:\n%s", view)
 	}
 	// Normal-mode hint should NOT appear.
