@@ -2437,8 +2437,12 @@ func (m model) renderHelpLine(w int) string {
 		left = "[j/k]nav  [enter]select  [n]ew  [d]elete  [o]shell  [tab]cycle focus"
 		compact = "[j/k]nav  [enter]select  [n]ew  [d]el"
 	case paneWorktreeDetail:
-		left = "[1-3]tabs  [j/k]nav  [enter]open  [tab]cycle focus"
-		compact = "[1-3]tabs  [j/k]nav  [enter]open"
+		if dp, ok := m.activePage.pane(paneWorktreeDetail).(*worktreeDetailPane); ok {
+			left, compact = dp.helpText()
+		} else {
+			left = "[1-3]tabs  [j/k]nav  [enter]open  [tab]cycle focus"
+			compact = "[1-3]tabs  [j/k]nav  [enter]open"
+		}
 	case paneShell:
 		switch m.activePage.paneMeta[m.activePage.focused].Status {
 		case models.PaneStatusExited:

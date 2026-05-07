@@ -265,6 +265,21 @@ func agentCardsHeight() int {
 	return 3
 }
 
+func (p *worktreeDetailPane) helpText() (wide, compact string) {
+	switch p.activeTab {
+	case tabGit:
+		wide = "[j/k]nav  [space]stage  [a]all  [d]diff  [enter]diff all  [c]commit  [f]etch  [p]ull  [P]ush  [ctrl+d]discard  [1-3]tabs  [tab]cycle focus"
+		compact = "[j/k]nav  [space]stage  [d]diff  [c]commit  [f]etch"
+	case tabFiles:
+		wide = "[j/k]nav  [o/v]open  [enter]open/dir  [space]fold  [←/→]fold  [1-3]tabs  [tab]cycle focus"
+		compact = "[j/k]nav  [o]open  [enter]dir  [space]fold"
+	default:
+		wide = "[j/k]nav  [enter]open  [s]tart agent  [1-3]tabs  [tab]cycle focus"
+		compact = "[j/k]nav  [s]agent"
+	}
+	return
+}
+
 func (p *worktreeDetailPane) View() string {
 	w := p.width
 	h := p.height
