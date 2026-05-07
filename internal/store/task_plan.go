@@ -31,8 +31,8 @@ func (s *Store) SaveTaskPlan(record TaskPlanRecord) error {
 			KnownRisks: record.KnownRisks,
 		}, events.AggregatePlan, record.ID)
 
-	const q = `
-		INSERT INTO task_plans (
+	q := fmt.Sprintf(`
+		INSERT INTO %s (
 			id, task_id, title, why_now, success, out_of_scope, known_risks, status, current_step, plan_body,
 			created_at, updated_at, archived_at, done_at
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP), CURRENT_TIMESTAMP, ?, ?)
@@ -49,8 +49,8 @@ func (s *Store) SaveTaskPlan(record TaskPlanRecord) error {
 			archived_at = excluded.archived_at,
 			done_at = excluded.done_at,
 			updated_at = CURRENT_TIMESTAMP
-	`
-	_, err := s.db.Exec(q,
+	`, s.tbl("task_plans", "proj_task_plans"))
+	_, err := s.exec(q,
 		record.ID,
 		nullIfEmpty(record.TaskID),
 		record.Title,

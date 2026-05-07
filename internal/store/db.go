@@ -14,14 +14,16 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-// Store wraps database connections. During migration it supports both SQLite
-// (legacy primary) and PostgreSQL (new event store + projections).
+// Store wraps database connections. In sqlite mode it holds a single SQLite DB.
+// In postgresql mode it holds an embedded PostgreSQL instance, its connection
+// pool, the Event Store, and the in-memory Event Bus.
 type Store struct {
-	db     *sql.DB
-	pgPool *pgxpool.Pool
-	events *EventStore
-	bus    *events.EventBus
-	mode   string // "sqlite" or "postgresql"
+	db         *sql.DB
+	pgPool     *pgxpool.Pool
+	pgEmbedded *pgconn.EmbeddedPostgres // only set in postgresql mode
+	events     *EventStore
+	bus        *events.EventBus
+	mode       string // "sqlite" or "postgresql"
 }
 
 // New opens (or creates) the database and runs migrations.
@@ -84,46 +86,16 @@ func newPostgresStore() (*Store, error) {
 
 	pool := emb.Pool()
 
-	// Open SQLite as legacy read cache. During the dual-write migration
-	// phase, all reads still go through SQLite while writes are dual-logged
-	// to PostgreSQL Event Store + SQLite.
-	sqlitePath := filepath.Join(dataDir, "focus.db")
-	if err := os.MkdirAll(filepath.Dir(sqlitePath), 0o755); err != nil {
-		emb.Stop()
-		return nil, fmt.Errorf("create sqlite dir: %w", err)
-	}
-	db, err := sql.Open("sqlite", sqlitePath)
-	if err != nil {
-		emb.Stop()
-		return nil, fmt.Errorf("open sqlite: %w", err)
-	}
-	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
-		db.Close()
-		emb.Stop()
-		return nil, fmt.Errorf("set WAL mode: %w", err)
-	}
-	if _, err := db.Exec("PRAGMA foreign_keys=ON"); err != nil {
-		db.Close()
-		emb.Stop()
-		return nil, fmt.Errorf("enable foreign keys: %w", err)
-	}
-
 	bus := events.NewEventBus()
 	es := NewEventStore(pool)
 	es.SetBus(bus)
 
 	s := &Store{
-		db:     db,
-		pgPool: pool,
-		events: es,
-		bus:    bus,
-		mode:   "postgresql",
-	}
-
-	// Migrate SQLite schema (legacy read cache).
-	if err := s.migrate(); err != nil {
-		s.Close()
-		return nil, fmt.Errorf("migrate sqlite: %w", err)
+		pgEmbedded: emb,
+		pgPool:     pool,
+		events:     es,
+		bus:        bus,
+		mode:       "postgresql",
 	}
 
 	// Migrate event store and projection schemas.
@@ -139,11 +111,17 @@ func newPostgresStore() (*Store, error) {
 	return s, nil
 }
 
-// Close closes all database connections.
+// Close closes all database connections and stops the embedded PostgreSQL
+// instance when running in postgresql mode.
 func (s *Store) Close() error {
 	var errs []error
 	if s.db != nil {
 		if err := s.db.Close(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if s.pgEmbedded != nil {
+		if err := s.pgEmbedded.Stop(); err != nil {
 			errs = append(errs, err)
 		}
 	}
@@ -164,6 +142,14 @@ func (s *Store) PGPool() *pgxpool.Pool {
 // Mode returns the current storage mode ("sqlite" or "postgresql").
 func (s *Store) Mode() string {
 	return s.mode
+}
+
+// SetMaxOpenConns sets the maximum number of open connections to the database.
+// Useful in tests with in-memory SQLite to force single-connection mode.
+func (s *Store) SetMaxOpenConns(n int) {
+	if s.db != nil {
+		s.db.SetMaxOpenConns(n)
+	}
 }
 
 // EventStore returns the event store (nil in sqlite mode).

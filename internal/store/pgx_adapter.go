@@ -90,6 +90,21 @@ type pgxResult struct {
 func (r pgxResult) LastInsertId() (int64, error) { return 0, fmt.Errorf("not supported") }
 func (r pgxResult) RowsAffected() (int64, error) { return r.tag.RowsAffected(), nil }
 
+// insertReturningID executes an INSERT and returns the generated serial ID.
+// In postgresql mode the query MUST contain a RETURNING id clause.
+func (s *Store) insertReturningID(query string, args ...any) (int64, error) {
+	if s.mode == "postgresql" {
+		var id int64
+		err := s.pgPool.QueryRow(context.Background(), toPgQuery(query), args...).Scan(&id)
+		return id, err
+	}
+	res, err := s.db.Exec(query, args...)
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
 // isNoRows reports whether err is a "no rows" error from either sqlite or pgx.
 func isNoRows(err error) bool {
 	if err == nil {

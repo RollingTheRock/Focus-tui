@@ -20,8 +20,8 @@ func (s *Store) SaveTaskBrief(record TaskBriefRecord) error {
 			KnownRisks:      record.KnownRisks,
 		}, events.AggregateTask, record.TaskID)
 
-	const q = `
-		INSERT INTO task_briefs (
+	q := fmt.Sprintf(`
+		INSERT INTO %s (
 			task_id, why_now, success_criteria, out_of_scope, known_risks, created_at, updated_at
 		) VALUES (?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP), CURRENT_TIMESTAMP)
 		ON CONFLICT(task_id) DO UPDATE SET
@@ -30,8 +30,8 @@ func (s *Store) SaveTaskBrief(record TaskBriefRecord) error {
 			out_of_scope = excluded.out_of_scope,
 			known_risks = excluded.known_risks,
 			updated_at = CURRENT_TIMESTAMP
-	`
-	_, err := s.db.Exec(q,
+	`, s.tbl("task_briefs", "proj_task_briefs"))
+	_, err := s.exec(q,
 		record.TaskID,
 		nullIfEmpty(record.WhyNow),
 		nullIfEmpty(record.SuccessCriteria),

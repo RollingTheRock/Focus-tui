@@ -58,12 +58,19 @@ type ClientCapabilities struct {
 
 // ServerCapabilities describes what the server supports.
 type ServerCapabilities struct {
-	Tools *ToolCapabilities `json:"tools,omitempty"`
+	Tools     *ToolCapabilities     `json:"tools,omitempty"`
+	Resources *ResourceCapabilities `json:"resources,omitempty"`
 }
 
 // ToolCapabilities describes tool-related capabilities.
 type ToolCapabilities struct {
 	ListChanged bool `json:"listChanged,omitempty"`
+}
+
+// ResourceCapabilities describes resource-related capabilities.
+type ResourceCapabilities struct {
+	ListChanged bool `json:"listChanged,omitempty"`
+	Subscribe   bool `json:"subscribe,omitempty"`
 }
 
 // Implementation identifies a client or server.
@@ -123,4 +130,42 @@ func (ImageContent) contentType() string { return "image" }
 // NewTextContent creates a TextContent wrapper.
 func NewTextContent(text string) Content {
 	return TextContent{Type: "text", Text: text}
+}
+
+// ── Resources ──
+
+// Resource describes a readable resource exposed by the server.
+type Resource struct {
+	URI         string `json:"uri"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	MimeType    string `json:"mimeType,omitempty"`
+}
+
+// ResourceContent is the content of a resource.
+type ResourceContent struct {
+	URI      string `json:"uri"`
+	MimeType string `json:"mimeType,omitempty"`
+	Text     string `json:"text,omitempty"`
+}
+
+// ResourceHandler reads a resource by URI.
+type ResourceHandler func(uri string) (ResourceContent, error)
+
+// ResourceMeta holds metadata and handler.
+type ResourceMeta struct {
+	Name        string
+	Description string
+	MimeType    string
+	Handler     ResourceHandler
+}
+
+// ListResourcesResult is the response to resources/list.
+type ListResourcesResult struct {
+	Resources []Resource `json:"resources"`
+}
+
+// ReadResourceResult is the response to resources/read.
+type ReadResourceResult struct {
+	Contents []ResourceContent `json:"contents"`
 }

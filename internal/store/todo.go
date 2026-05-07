@@ -12,14 +12,11 @@ import (
 
 // CreateTodo inserts a new todo item.
 func (s *Store) CreateTodo(text, list string) (*models.Todo, error) {
-	res, err := s.db.Exec(
-		`INSERT INTO todos (text, list, status) VALUES (?, ?, 'todo')`,
-		text, list,
-	)
+	q := fmt.Sprintf(`INSERT INTO %s (text, list, status) VALUES (?, ?, 'todo') RETURNING id`, s.tbl("todos", "proj_todos"))
+	id, err := s.insertReturningID(q, text, list)
 	if err != nil {
 		return nil, err
 	}
-	id, _ := res.LastInsertId()
 
 	// Phase 1: best-effort event append.
 	if s.events != nil {
@@ -86,36 +83,33 @@ func (s *Store) ListTodos(list string) ([]models.Todo, error) {
 
 // ToggleTodo switches a todo between todo and done.
 func (s *Store) ToggleTodo(id int) error {
-	_, err := s.db.Exec(
-		`UPDATE todos SET
-		    status = CASE WHEN status = 'done' THEN 'todo' ELSE 'done' END,
-		    updated_at = CURRENT_TIMESTAMP
-		 WHERE id = ?`, id,
-	)
+	q := fmt.Sprintf(`UPDATE %s SET
+	    status = CASE WHEN status = 'done' THEN 'todo' ELSE 'done' END,
+	    updated_at = CURRENT_TIMESTAMP
+	 WHERE id = ?`, s.tbl("todos", "proj_todos"))
+	_, err := s.exec(q, id)
 	return err
 }
 
 // UpdateTodoText updates the text of a todo.
 func (s *Store) UpdateTodoText(id int, text string) error {
-	_, err := s.db.Exec(
-		`UPDATE todos SET text = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-		text, id,
-	)
+	q := fmt.Sprintf(`UPDATE %s SET text = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, s.tbl("todos", "proj_todos"))
+	_, err := s.exec(q, text, id)
 	return err
 }
 
 // DeleteTodo removes a todo by ID.
 func (s *Store) DeleteTodo(id int) error {
-	_, err := s.db.Exec(`DELETE FROM todos WHERE id = ?`, id)
+	q := fmt.Sprintf(`DELETE FROM %s WHERE id = ?`, s.tbl("todos", "proj_todos"))
+	_, err := s.exec(q, id)
 	return err
 }
 
 // MoveToToday moves a someday todo to the today list.
 func (s *Store) MoveToToday(id int) error {
-	_, err := s.db.Exec(
-		`UPDATE todos SET list = 'today', updated_at = CURRENT_TIMESTAMP
-		 WHERE id = ? AND list = 'someday'`, id,
-	)
+	q := fmt.Sprintf(`UPDATE %s SET list = 'today', updated_at = CURRENT_TIMESTAMP
+	 WHERE id = ? AND list = 'someday'`, s.tbl("todos", "proj_todos"))
+	_, err := s.exec(q, id)
 	return err
 }
 
@@ -123,11 +117,10 @@ func (s *Store) MoveToToday(id int) error {
 // Call this once at app startup or at midnight.
 func (s *Store) MarkOverdue() error {
 	today := time.Now().Format("2006-01-02")
-	_, err := s.db.Exec(
-		`UPDATE todos SET status = 'overdue', updated_at = CURRENT_TIMESTAMP
-		 WHERE list = 'today' AND status = 'todo'
-		 AND DATE(created_at) < ?`, today,
-	)
+	q := fmt.Sprintf(`UPDATE %s SET status = 'overdue', updated_at = CURRENT_TIMESTAMP
+	 WHERE list = 'today' AND status = 'todo'
+	 AND DATE(created_at) < ?`, s.tbl("todos", "proj_todos"))
+	_, err := s.exec(q, today)
 	return err
 }
 

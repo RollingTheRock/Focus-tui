@@ -47,8 +47,8 @@ func (s *Store) SaveKnowledgeFact(record KnowledgeFactRecord) error {
 			Confidence: record.Confidence,
 		}, events.AggregateKnowledgeFact, scopeID)
 
-	const q = `
-		INSERT INTO knowledge_facts (id, plan_id, subject, predicate, object, source, confidence, created_at)
+	q := fmt.Sprintf(`
+		INSERT INTO %s (id, plan_id, subject, predicate, object, source, confidence, created_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			plan_id = excluded.plan_id,
@@ -57,8 +57,8 @@ func (s *Store) SaveKnowledgeFact(record KnowledgeFactRecord) error {
 			object = excluded.object,
 			source = excluded.source,
 			confidence = excluded.confidence
-	`
-	_, err := s.db.Exec(
+	`, s.tbl("knowledge_facts", "proj_knowledge_facts"))
+	_, err := s.exec(
 		q,
 		record.ID,
 		nullIfEmpty(record.PlanID),

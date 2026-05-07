@@ -31,16 +31,16 @@ func (s *Store) SaveTaskOutput(record TaskOutputRecord) error {
 			Actor:   record.Actor,
 		}, events.AggregateTask, record.TaskID)
 
-	const q = `
-		INSERT INTO task_outputs (id, task_id, content, actor, created_at, updated_at)
+	q := fmt.Sprintf(`
+		INSERT INTO %s (id, task_id, content, actor, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
 		ON CONFLICT(id) DO UPDATE SET
 			task_id = excluded.task_id,
 			content = excluded.content,
 			actor = excluded.actor,
 			updated_at = CURRENT_TIMESTAMP
-	`
-	_, err := s.db.Exec(
+	`, s.tbl("task_outputs", "proj_task_outputs"))
+	_, err := s.exec(
 		q,
 		record.ID,
 		record.TaskID,
