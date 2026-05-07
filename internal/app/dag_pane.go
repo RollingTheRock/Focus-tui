@@ -481,7 +481,7 @@ func (p *dagPane) View() string {
 	} else {
 		lines = append(lines,
 			dagHeaderStyle.Render(" Task DAG ")+
-				dagHintStyle.Render("  [j/k]↑↓  [h/l]←→  [enter]select  [c]wt  [r]research  [a]arch  [n]new-task  [R]refresh"),
+				dagHintStyle.Render("  [j/k]↑↓  [h/l]←→  [enter]select  [c]wt  [r]research  [a]arch  [/]tab  [n]new-task  [R]refresh"),
 		)
 	}
 	lines = append(lines, "")
