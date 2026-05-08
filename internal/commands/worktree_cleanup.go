@@ -22,10 +22,20 @@ func (c *DeleteWorktree) Validate() error {
 
 // Execute deletes all associated records via the store.
 func (c *DeleteWorktree) Execute(ctx context.Context, s *store.Store) error {
-	_ = s.DeletePageSnapshot(c.WorktreePath)
-	_ = s.DeleteWorktreeContext(c.WorktreePath)
-	_ = s.DeleteAgentSessionsByWorktreeID(c.WorktreePath)
-	_ = s.DeleteContextNotesByWorktreeID(c.WorktreePath)
-	_ = s.DeleteTaskWorktreeLinksByWorktreeID(c.WorktreePath)
+	if err := s.DeletePageSnapshot(c.WorktreePath); err != nil {
+		return fmt.Errorf("delete page snapshot: %w", err)
+	}
+	if err := s.DeleteWorktreeContext(c.WorktreePath); err != nil {
+		return fmt.Errorf("delete worktree context: %w", err)
+	}
+	if err := s.DeleteAgentSessionsByWorktreeID(c.WorktreePath); err != nil {
+		return fmt.Errorf("delete agent sessions: %w", err)
+	}
+	if err := s.DeleteContextNotesByWorktreeID(c.WorktreePath); err != nil {
+		return fmt.Errorf("delete context notes: %w", err)
+	}
+	if err := s.DeleteTaskWorktreeLinksByWorktreeID(c.WorktreePath); err != nil {
+		return fmt.Errorf("delete task worktree links: %w", err)
+	}
 	return nil
 }
