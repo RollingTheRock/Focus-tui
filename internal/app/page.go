@@ -647,6 +647,23 @@ func (p *page) renderPaneTitle(id models.PaneID, focused models.PaneID, mode App
 func (p *page) overlayContentSize() (int, int) {
 	bounds := p.bodyBoundsSize()
 
+	if _, ok := p.paneMeta[paneADRDetail]; ok {
+		width := bounds.W - 8
+		if width > 100 {
+			width = 100
+		}
+		if width < 40 {
+			width = 40
+		}
+		height := bounds.H - 4
+		if height > 32 {
+			height = 32
+		}
+		if height < 10 {
+			height = 10
+		}
+		return width, height
+	}
 
 	width := bounds.W - 12
 	if width > 96 {
@@ -689,7 +706,7 @@ func (p *page) largeOverlayContentSize() (int, int) {
 }
 
 func (p *page) isLargeOverlayPane(id models.PaneID) bool {
-	if id == paneGitDiff || id == paneADRDetail {
+	if id == paneGitDiff {
 		return true
 	}
 	if meta, ok := p.paneMeta[id]; ok && meta.Type == models.PaneTypeEditor {
