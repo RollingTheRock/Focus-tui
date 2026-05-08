@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -44,6 +45,30 @@ func LaunchCommand(provider Provider, worktreeID string) tea.Cmd {
 	return tea.ExecProcess(cmd, func(err error) tea.Msg {
 		return AgentExitedMsg{Provider: provider, WorktreeID: worktreeID, Err: err}
 	})
+}
+
+// HasResumableClaudeSession checks whether the given worktree directory has at
+// least one prior Claude Code session that can be resumed.
+func HasResumableClaudeSession(worktreePath string) bool {
+	if worktreePath == "" {
+		return false
+	}
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return false
+	}
+	projectHash := strings.ReplaceAll(filepath.Clean(worktreePath), string(filepath.Separator), "-")
+	projectDir := filepath.Join(homeDir, ".claude", "projects", projectHash)
+	entries, err := os.ReadDir(projectDir)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".jsonl") {
+			return true
+		}
+	}
+	return false
 }
 
 type AgentExitedMsg struct {
