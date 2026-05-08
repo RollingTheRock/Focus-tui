@@ -205,36 +205,6 @@ CREATE TABLE IF NOT EXISTS page_snapshots (
     updated_at    DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE IF NOT EXISTS adrs (
-    id            TEXT PRIMARY KEY,
-    title         TEXT NOT NULL,
-    status        TEXT NOT NULL CHECK(status IN ('proposed', 'accepted', 'deprecated', 'superseded')),
-    version       INTEGER NOT NULL DEFAULT 1,
-    context       TEXT NOT NULL,
-    decision      TEXT NOT NULL,
-    consequences  TEXT,
-    superseded_by TEXT REFERENCES adrs(id),
-    created_by    TEXT NOT NULL,
-    created_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    accepted_at   DATETIME,
-    accepted_by   TEXT,
-    updated_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE INDEX IF NOT EXISTS idx_adrs_status
-    ON adrs(status, updated_at DESC);
-
-CREATE TABLE IF NOT EXISTS adr_constraints (
-    id          TEXT PRIMARY KEY,
-    adr_id      TEXT NOT NULL REFERENCES adrs(id) ON DELETE CASCADE,
-    category    TEXT NOT NULL CHECK(category IN ('must', 'must_not', 'should', 'should_not')),
-    rule        TEXT NOT NULL,
-    rationale   TEXT,
-    created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE INDEX IF NOT EXISTS idx_adr_constraints_adr
-    ON adr_constraints(adr_id);
 
 CREATE TABLE IF NOT EXISTS task_contexts (
     id                    TEXT PRIMARY KEY,

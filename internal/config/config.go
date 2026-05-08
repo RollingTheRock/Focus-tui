@@ -31,6 +31,7 @@ type Config struct {
 		LongBreakInterval int  `yaml:"long_break_interval"`
 		Notify            bool `yaml:"notify"`
 	} `yaml:"pomodoro"`
+	AdrDir     string `yaml:"adr_dir"`   // optional override for ADR directory (default: repoRoot/docs/adr)
 	TimeFormat string `yaml:"time_format"`
 	Agent      struct {
 		ExternalTerminal     bool   `yaml:"external_terminal"`

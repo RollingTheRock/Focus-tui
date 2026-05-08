@@ -1867,8 +1867,8 @@ func TestOpenDiffPaneAddsBodyPaneAndRestoresOpenerFocus(t *testing.T) {
 	if m.activePage.focused != paneGitDiff {
 		t.Fatalf("expected diff pane to be focused, got %s", m.activePage.focused)
 	}
-	if got := len(layout.LeafOrder(m.activePage.bodyTree)); got != initialLeaves+1 {
-		t.Fatalf("expected leaf count %d after opening diff pane, got %d", initialLeaves+1, got)
+	if got := len(layout.LeafOrder(m.activePage.bodyTree)); got != initialLeaves {
+		t.Fatalf("expected leaf count %d after opening diff overlay (overlays do not add leaves), got %d", initialLeaves+1, got)
 	}
 	if meta, ok := m.activePage.paneMeta[paneGitDiff]; !ok || meta.Type != models.PaneTypeDiffView {
 		t.Fatalf("expected diff pane metadata to be registered")
@@ -2102,7 +2102,7 @@ func TestDagPaneQuickCreateTask(t *testing.T) {
 	if !strings.Contains(view, "Goal (optional):") {
 		t.Fatalf("expected goal input prompt in view, got:\n%s", view)
 	}
-	if !strings.Contains(view, "[Tab]switch") {
+	if !strings.Contains(view, "[T]asks [A]DRs") {
 		t.Fatalf("expected creating-mode hint in view, got:\n%s", view)
 	}
 	// Normal-mode hint should NOT appear.

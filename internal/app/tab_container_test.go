@@ -10,7 +10,7 @@ import (
 func TestTabContainerKeySwitching(t *testing.T) {
 	common := &models.CommonModel{}
 	dag := newDagPane(paneDAG, models.PaneMeta{}, common, "", nil)
-	adr := newAdrPane(paneDAG+"-adr", models.PaneMeta{}, common)
+	adr := newAdrPane(paneDAG+"-adr", models.PaneMeta{}, common, "")
 	tc := newTabContainer(paneDAG, models.PaneMeta{}, common, dag, adr)
 
 	if tc.activeTab != 0 {
