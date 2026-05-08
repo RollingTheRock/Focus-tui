@@ -25,6 +25,7 @@ import (
 	"focus/internal/ui/layout"
 	"focus/internal/ui/shell"
 	"hash/fnv"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -1671,6 +1672,24 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case gitplugin.WorktreeRemovedMsg:
 		m.closePanesForWorktree(msg.Path)
+
+		// Clean up orphaned SQLite records now that the filesystem removal succeeded.
+		if m.cmdBus != nil && msg.Path != "" {
+			if err := m.cmdBus.Send(context.Background(), &commands.DeleteWorktree{WorktreePath: msg.Path}); err != nil {
+				log.Printf("worktree removed but SQLite cleanup failed: %v", err)
+			}
+		}
+
+		// Clean up agent registry and terminate any external agent processes.
+		if m.agentRegistry != nil && msg.Path != "" {
+			for _, s := range m.agentRegistry.ByWorktree(msg.Path) {
+				m.agentRegistry.Remove(s.ID)
+				if s.PID > 0 {
+					_ = exec.Command("kill", "-TERM", strconv.Itoa(s.PID)).Run()
+				}
+			}
+		}
+
 		m.syncWorktreeActivities()
 		m.invalidateView()
 		if _, ok := m.activePage.paneMeta[paneWorktree]; ok {
@@ -3373,8 +3392,7 @@ func (m *model) removeWorktree(msg gitplugin.RequestRemoveWorktreeMsg) tea.Cmd {
 			DurationMinutes: duration,
 		})
 
-		// Clean up orphaned SQLite records.
-		_ = m.cmdBus.Send(context.Background(), &commands.DeleteWorktree{WorktreePath: worktreePath})
+
 	}
 
 	return func() tea.Msg {
