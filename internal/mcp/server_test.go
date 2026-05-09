@@ -460,3 +460,35 @@ func TestServerReadResourceNotFound(t *testing.T) {
 		t.Fatal("expected error for unknown resource")
 	}
 }
+
+// TestServerHTTPNotificationReturns202 verifies that JSON-RPC notifications
+// (requests without an id) return HTTP 202 Accepted with no body, per MCP
+// Streamable HTTP transport specification.
+func TestServerHTTPNotificationReturns202(t *testing.T) {
+	s := NewServer("", "127.0.0.1:0")
+	url, err := s.StartHTTP()
+	if err != nil {
+		t.Fatalf("start http: %v", err)
+	}
+	defer s.Stop()
+
+	reqBody := map[string]any{
+		"jsonrpc": "2.0",
+		"method":  "notifications/initialized",
+	}
+	body, _ := json.Marshal(reqBody)
+	resp, err := http.Post(url, "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("post: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("expected 202 Accepted for notification, got %d", resp.StatusCode)
+	}
+
+	b, _ := io.ReadAll(resp.Body)
+	if len(bytes.TrimSpace(b)) != 0 {
+		t.Fatalf("expected empty body for notification, got %q", string(b))
+	}
+}

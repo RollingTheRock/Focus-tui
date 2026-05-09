@@ -304,6 +304,13 @@ func (s *Server) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	resp := s.handleJSONRPC(req)
+
+	// MCP Streamable HTTP: notifications (no id) must return 202 Accepted with no body.
+	if req.ID == nil {
+		w.WriteHeader(http.StatusAccepted)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(resp)
 }
