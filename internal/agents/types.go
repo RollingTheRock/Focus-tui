@@ -36,7 +36,7 @@ const (
 )
 
 type Session struct {
-	ID               string
+ID               string
 	Provider         Provider
 	ProviderConfigID string // cc-switch provider ID for one-off override
 	WorktreeID       string
@@ -44,6 +44,7 @@ type Session struct {
 	TaskID           string
 	PlanID           string
 	StepID           string
+	DisplayTitle     string
 	BranchSnapshot   string
 	PID              int
 	State            SessionState
