@@ -42,29 +42,29 @@ import (
 )
 
 const (
-	paneHeader          models.PaneID = "header"
-	paneShell           models.PaneID = "shell-main"
-	paneWorktree        models.PaneID = "worktree-main"
-	paneDAG             models.PaneID = "dag-main"
-	paneWorktreeDetail  models.PaneID = "worktree-detail-main"
-	paneGitDiff         models.PaneID = "git-diff-pane"
-	paneGitCommit       models.PaneID = "git-commit-overlay"
-	paneWorktreeCreate  models.PaneID = "worktree-create-overlay"
-	paneTaskEdit        models.PaneID = "task-edit-overlay"
-	panePlanEdit        models.PaneID = "plan-edit-overlay"
-	paneAgentSelect     models.PaneID = "agent-select-overlay"
-	paneProviderSelect  models.PaneID = "provider-select-overlay"
-	paneWorktreeHistory        models.PaneID = "worktree-history-overlay"
-	paneWorktreeDeleteConfirm  models.PaneID = "worktree-delete-confirm-overlay"
-	paneADRDetail              models.PaneID = "adr-detail-overlay"
-	paneFooter                 models.PaneID = "footer"
+	paneHeader                models.PaneID = "header"
+	paneShell                 models.PaneID = "shell-main"
+	paneWorktree              models.PaneID = "worktree-main"
+	paneDAG                   models.PaneID = "dag-main"
+	paneWorktreeDetail        models.PaneID = "worktree-detail-main"
+	paneGitDiff               models.PaneID = "git-diff-pane"
+	paneGitCommit             models.PaneID = "git-commit-overlay"
+	paneWorktreeCreate        models.PaneID = "worktree-create-overlay"
+	paneTaskEdit              models.PaneID = "task-edit-overlay"
+	panePlanEdit              models.PaneID = "plan-edit-overlay"
+	paneAgentSelect           models.PaneID = "agent-select-overlay"
+	paneProviderSelect        models.PaneID = "provider-select-overlay"
+	paneWorktreeHistory       models.PaneID = "worktree-history-overlay"
+	paneWorktreeDeleteConfirm models.PaneID = "worktree-delete-confirm-overlay"
+	paneADRDetail             models.PaneID = "adr-detail-overlay"
+	paneFooter                models.PaneID = "footer"
 
-	paneTypeGitCommit       models.PaneType = "git-commit"
-	paneTypeWorktreeCreate  models.PaneType = "worktree-create"
-	paneTypeTaskEdit        models.PaneType = "task-edit"
-	paneTypePlanEdit        models.PaneType = "plan-edit"
-	paneTypeAgentSelect     models.PaneType = "agent-select"
-	paneTypeProviderSelect  models.PaneType = "provider-select"
+	paneTypeGitCommit             models.PaneType = "git-commit"
+	paneTypeWorktreeCreate        models.PaneType = "worktree-create"
+	paneTypeTaskEdit              models.PaneType = "task-edit"
+	paneTypePlanEdit              models.PaneType = "plan-edit"
+	paneTypeAgentSelect           models.PaneType = "agent-select"
+	paneTypeProviderSelect        models.PaneType = "provider-select"
 	paneTypeWorktreeHistory       models.PaneType = "worktree-history"
 	paneTypeWorktreeDeleteConfirm models.PaneType = "worktree-delete-confirm"
 	paneTypeADRDetail             models.PaneType = "adr-detail"
@@ -1372,6 +1372,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		session := m.newAgentSession(msg.WorktreeID, msg.Provider)
 		session.ExtraArgs = extraArgs
 		m.saveAgentSession(session)
+		_ = m.prepareAgentProfile(session)
 		if m.agentRegistry != nil {
 			m.agentRegistry.Register(session)
 		}
@@ -1671,6 +1672,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			session.ExtraArgs = append(session.ExtraArgs, "--continue")
 		}
 		m.saveAgentSession(session)
+			_ = m.prepareAgentProfile(session)
 		if m.agentRegistry != nil {
 			m.agentRegistry.Register(session)
 		}
@@ -3300,6 +3302,7 @@ func (l *protocolOrchestratorLauncher) LaunchTask(task orchestrator.Task) error 
 	provider := l.model.resolveOrchestratedProvider(task)
 	session := l.model.newProtocolAgentSession(task.ID, worktreeID, provider)
 	l.model.saveAgentSession(session)
+	_ = l.model.prepareAgentProfile(session)
 	if l.model.common != nil && l.model.common.Cfg.Agent.ExternalTerminal {
 		cmd := l.model.launchExternalAgent(session)
 		if cmd != nil {
@@ -3486,7 +3489,6 @@ func (m *model) removeWorktree(msg gitplugin.RequestRemoveWorktreeMsg) tea.Cmd {
 			Summary:         summary,
 			DurationMinutes: duration,
 		})
-
 
 	}
 
@@ -4551,6 +4553,21 @@ func (m *model) prepareAgentProfile(session *agents.Session) error {
 		}
 	}
 
+	// Populate DAG dependency context.
+	if session.TaskID != "" && m.common != nil && m.common.Store != nil {
+		ctx.UpstreamTasks, _ = m.common.Store.ListUpstreamTaskContexts(session.TaskID)
+		ctx.DownstreamTasks, _ = m.common.Store.ListDownstreamTaskContexts(session.TaskID)
+	}
+
+	// Populate git status.
+	ctx.GitBranch = session.BranchSnapshot
+	if m.adapterManager != nil && m.adapterManager.Git() != nil {
+		if status, err := m.adapterManager.Git().GetWorktreeStatus(session.WorktreeID); err == nil && status != nil {
+			ctx.GitBranch = status.Branch
+			ctx.GitDirty = formatGitDirty(status)
+		}
+	}
+
 	// Determine repo-level spec directory.
 	repoSpecDir := ""
 	if repoRoot, ok := gitRepoRoot(session.WorktreeID); ok {
@@ -4564,11 +4581,33 @@ func (m *model) prepareAgentProfile(session *agents.Session) error {
 	}
 
 	// Write AGENTS.md.
-	if err := pm.WriteAGENTSMD(spec); err != nil {
+	if err := pm.WriteRootFiles(spec); err != nil {
 		return err
 	}
 
 	return nil
+}
+
+// formatGitDirty builds a compact human-readable summary of staged,
+// unstaged, and untracked file counts from a git status.
+func formatGitDirty(s *gitmodel.Status) string {
+	staged := len(s.StagedFiles)
+	unstaged := len(s.UnstagedFiles)
+	untracked := len(s.UntrackedFiles)
+	if staged == 0 && unstaged == 0 && untracked == 0 {
+		return ""
+	}
+	var parts []string
+	if staged > 0 {
+		parts = append(parts, fmt.Sprintf("+%d staged", staged))
+	}
+	if unstaged > 0 {
+		parts = append(parts, fmt.Sprintf("~%d unstaged", unstaged))
+	}
+	if untracked > 0 {
+		parts = append(parts, fmt.Sprintf("?%d untracked", untracked))
+	}
+	return strings.Join(parts, ", ")
 }
 
 func (m *model) newProtocolAgentSession(taskID, worktreeID string, provider agents.Provider) *agents.Session {
@@ -4718,16 +4757,57 @@ func (m *model) backflowAgentSession(record models.AgentSessionRecord) {
 	if updatedTask != nil {
 		_ = m.cmdBus.Send(context.Background(), &commands.UpdateTask{Record: *updatedTask})
 		planID := record.PlanID
+		doneSummary := "Completed: " + currentTitle
+		remainingSummary := "Plan complete"
+		if nextTitle != "" {
+			remainingSummary = "Next: " + nextTitle
+		}
+		decisionSummary := "Auto-advanced to next plan step"
+		entrypoint := record.Summary
+		if entrypoint == "" {
+			entrypoint = "Continue from plan step: " + nextTitle
+		}
 		_ = m.cmdBus.Send(context.Background(), &commands.CreateSessionHandoff{
 			ID:               record.ID + "::handoff",
 			TaskID:           record.TaskID,
 			PlanID:           &planID,
 			SessionID:        record.ID,
-			DoneSummary:      currentTitle,
-			RemainingSummary: nextTitle,
-			DecisionSummary:  "advance to next plan step",
-			Entrypoint:       "Open plan detail and continue current step",
+			DoneSummary:      doneSummary,
+			RemainingSummary: remainingSummary,
+			DecisionSummary:  decisionSummary,
+			Entrypoint:       entrypoint,
 		})
+
+		// Write per-worktree handoff file for the next agent session.
+		pm := agents.NewProfileManager(record.WorktreeID)
+		handoffMD := "# Session Handoff\n\n" +
+			"## Completed\n" + doneSummary + "\n\n" +
+			"## Key Decisions\n" + decisionSummary + "\n\n" +
+			"## Remaining\n" + remainingSummary + "\n\n" +
+			"## Entrypoint\n" + entrypoint + "\n"
+		if err := pm.WriteHandoff(record.ID, handoffMD); err != nil {
+			log.Printf("backflow: write handoff for session %s: %v", record.ID, err)
+		}
+
+		// Append workspace journal entry.
+		taskTitle := currentTitle
+		if record.TaskID != "" {
+			if task, err := m.common.Store.GetTaskContext(record.TaskID); err == nil && task != nil {
+				taskTitle = task.Title
+			}
+		}
+		entry := agents.JournalEntry{
+			SessionID:    record.ID,
+			TaskTitle:    taskTitle,
+			StepTitle:    currentTitle,
+			Completed:    doneSummary,
+			NextSteps:    remainingSummary,
+			KeyDecisions: []string{decisionSummary},
+			Timestamp:    time.Now(),
+		}
+		if err := pm.WriteJournal("", entry); err != nil {
+			log.Printf("backflow: write journal for session %s: %v", record.ID, err)
+		}
 	}
 }
 
