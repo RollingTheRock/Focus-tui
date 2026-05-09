@@ -39,8 +39,8 @@ func TestCreateWorktreePaneSubmitCreatesWorktree(t *testing.T) {
 	pane := NewWorktreeCreatePane("create-1", models.PaneMeta{ID: "create-1", Type: "worktree-create", CWD: "/repo/focus-tui"}, models.CommonModel{}, adapter, OpenCreateWorktreeMsg{RepoPath: "/repo/focus-tui", BaseRef: "main"})
 	pane.SetSize(80, 12)
 
-	pane.inputs[0].SetValue("feature-a")
-	pane.inputs[2].SetValue("/repo/focus-tui-feature-a")
+	pane.inputs[createWorktreeFieldBranch].SetValue("feature-a")
+	pane.inputs[createWorktreeFieldPath].SetValue("/repo/focus-tui-feature-a")
 	updated, cmd := pane.submit()
 	pane = updated.(*WorktreeCreatePane)
 	if cmd == nil {
@@ -74,7 +74,7 @@ func TestCreateWorktreePaneViewShowsHints(t *testing.T) {
 	pane := NewWorktreeCreatePane("create-1", models.PaneMeta{ID: "create-1", Type: "worktree-create", CWD: "/repo/focus-tui"}, models.CommonModel{}, &fakeGitAdapter{}, OpenCreateWorktreeMsg{RepoPath: "/repo/focus-tui", BaseRef: "main"})
 	pane.SetSize(80, 12)
 	view := pane.View()
-	for _, want := range []string{"Create Worktree", "Branch:", "Base ref:", "Path:", "Ctrl+S create"} {
+	for _, want := range []string{"Create Worktree", "Task (optional):", "Branch:", "Base ref:", "Path:", "Ctrl+S create"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("expected view to contain %q, got:\n%s", want, view)
 		}

@@ -25,6 +25,7 @@ type WorktreeCreatedMsg struct {
 	ID           models.PaneID
 	Worktree     gitmodel.Worktree
 	OpenExternal bool
+	TaskTitle    string
 }
 
 type CloseCreateWorktreeMsg struct {
@@ -39,10 +40,10 @@ type createWorktreeFinishedMsg struct {
 }
 
 type WorktreeCreatePane struct {
-	id           models.PaneID
-	meta         models.PaneMeta
-	common       models.CommonModel
-	adapter      adapters.GitAdapter
+	id      models.PaneID
+	meta    models.PaneMeta
+	common  models.CommonModel
+	adapter adapters.GitAdapter
 
 	repoPath     string
 	width        int
@@ -53,10 +54,12 @@ type WorktreeCreatePane struct {
 	creating     bool
 	pathAuto     bool
 	openExternal bool
+	taskName     string
 }
 
 const (
-	createWorktreeFieldBranch = iota
+	createWorktreeFieldTask = iota
+	createWorktreeFieldBranch
 	createWorktreeFieldBaseRef
 	createWorktreeFieldPath
 )
@@ -76,6 +79,10 @@ func NewWorktreeCreatePane(id models.PaneID, meta models.PaneMeta, common models
 		baseRef = "HEAD"
 	}
 
+	taskInput := textinput.New()
+	taskInput.Prompt = "Task (optional): "
+	taskInput.Placeholder = "What are you working on?"
+
 	branchInput := textinput.New()
 	branchInput.Prompt = "Branch: "
 	branchInput.Placeholder = "feature/worktree-pane"
@@ -91,7 +98,7 @@ func NewWorktreeCreatePane(id models.PaneID, meta models.PaneMeta, common models
 	pathInput.Placeholder = defaultPath
 	pathInput.SetValue(defaultPath)
 
-	inputs := []textinput.Model{branchInput, baseRefInput, pathInput}
+	inputs := []textinput.Model{taskInput, branchInput, baseRefInput, pathInput}
 	applyCreateInputStyles(inputs)
 	inputs[0].Focus()
 
@@ -125,7 +132,7 @@ func (p *WorktreeCreatePane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 		}
 		p.err = nil
 		return p, func() tea.Msg {
-			return WorktreeCreatedMsg{ID: p.id, Worktree: *msg.worktree, OpenExternal: p.openExternal}
+			return WorktreeCreatedMsg{ID: p.id, Worktree: *msg.worktree, OpenExternal: p.openExternal, TaskTitle: p.taskName}
 		}
 	case tea.KeyMsg:
 		switch msg.String() {
@@ -182,6 +189,7 @@ func (p *WorktreeCreatePane) View() string {
 		commitHeaderStyle.Render("Create Worktree"),
 		upstreamStyle.Render("Create a branch-backed worktree from the current repository."),
 		"",
+		p.inputs[createWorktreeFieldTask].View(),
 		p.inputs[createWorktreeFieldBranch].View(),
 		p.inputs[createWorktreeFieldBaseRef].View(),
 		p.inputs[createWorktreeFieldPath].View(),
@@ -231,6 +239,7 @@ func (p *WorktreeCreatePane) submit() (models.Panel, tea.Cmd) {
 	if p.creating {
 		return p, nil
 	}
+	p.taskName = strings.TrimSpace(p.inputs[createWorktreeFieldTask].Value())
 	branch := strings.TrimSpace(p.inputs[createWorktreeFieldBranch].Value())
 	baseRef := strings.TrimSpace(p.inputs[createWorktreeFieldBaseRef].Value())
 	path := strings.TrimSpace(p.inputs[createWorktreeFieldPath].Value())
