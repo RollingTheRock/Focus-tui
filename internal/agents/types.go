@@ -43,6 +43,7 @@ type Session struct {
 	TaskID         string
 	PlanID         string
 	StepID         string
+	DisplayTitle   string
 	BranchSnapshot string
 	PID            int
 	State          SessionState
