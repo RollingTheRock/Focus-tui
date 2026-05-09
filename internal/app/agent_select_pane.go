@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"focus/internal/adapters/ccswitch"
 	"focus/internal/agents"
 	"focus/internal/models"
 	appstyles "focus/internal/styles"
@@ -14,10 +15,20 @@ import (
 
 // AgentSelectedMsg is emitted when the user chooses an agent provider.
 type AgentSelectedMsg struct {
+	PaneID           models.PaneID
+	WorktreeID       string
+	Provider         agents.Provider
+	ProviderConfigID string // cc-switch provider ID for one-off override
+	Resume           bool   // true = resume previous session with --continue
+}
+
+// OpenProviderSelectMsg is emitted when the user picks Claude or Codex and
+// we need a second overlay to choose the cc-switch provider.
+type OpenProviderSelectMsg struct {
 	PaneID     models.PaneID
 	WorktreeID string
 	Provider   agents.Provider
-	Resume     bool // true = resume previous session with --continue
+	Resume     bool
 }
 
 // CloseAgentSelectMsg closes the agent selection overlay.
@@ -105,6 +116,19 @@ func (p *agentSelectPane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 		case "enter":
 			if p.showResume {
 				if p.cursor >= 0 && p.cursor < len(p.resumeOptions) {
+					// Claude was chosen and resume/start-fresh is confirmed;
+					// open the provider selection overlay if cc-switch is installed,
+					// otherwise fall back to direct launch.
+					if ccswitch.IsInstalled() {
+						return p, func() tea.Msg {
+							return OpenProviderSelectMsg{
+								PaneID:     p.id,
+								WorktreeID: p.worktree,
+								Provider:   agents.ProviderClaude,
+								Resume:     p.cursor == 0,
+							}
+						}
+					}
 					return p, func() tea.Msg {
 						return AgentSelectedMsg{
 							PaneID:     p.id,
@@ -124,6 +148,16 @@ func (p *agentSelectPane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 						{provider: agents.ProviderClaude, name: "Start fresh", desc: "begin a new session"},
 					}
 					return p, nil
+				}
+				// For Claude or Codex, open provider selection if cc-switch is installed.
+				if (opt.provider == agents.ProviderClaude || opt.provider == agents.ProviderCodex) && ccswitch.IsInstalled() {
+					return p, func() tea.Msg {
+						return OpenProviderSelectMsg{
+							PaneID:     p.id,
+							WorktreeID: p.worktree,
+							Provider:   opt.provider,
+						}
+					}
 				}
 				return p, func() tea.Msg {
 					return AgentSelectedMsg{

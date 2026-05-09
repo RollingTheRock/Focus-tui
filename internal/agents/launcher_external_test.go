@@ -21,7 +21,8 @@ func TestBuildExternalTerminalCommand(t *testing.T) {
 		"Focus:plan-1:task-1",
 		"/tmp/worktree-a",
 		[]string{"FOCUS_SESSION_ID=session-1", "FOCUS_MCP_SOCKET=/tmp/focus-mcp.sock"},
-		ProviderClaude,
+		"claude",
+		nil,
 		nil,
 		1.0,
 	)
