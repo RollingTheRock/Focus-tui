@@ -36,24 +36,25 @@ const (
 )
 
 type Session struct {
-	ID             string
-	Provider       Provider
-	WorktreeID     string
-	RepoID         string
-	TaskID         string
-	PlanID         string
-	StepID         string
-	BranchSnapshot string
-	PID            int
-	State          SessionState
-	LaunchSource   string
-	Summary        string
-	EnvSnapshot    string
-	ExtraArgs      []string
-	StartedAt      time.Time
-	EndedAt        *time.Time
-	LastActivityAt *time.Time
-	UpdatedAt      time.Time
+	ID               string
+	Provider         Provider
+	ProviderConfigID string // cc-switch provider ID for one-off override
+	WorktreeID       string
+	RepoID           string
+	TaskID           string
+	PlanID           string
+	StepID           string
+	BranchSnapshot   string
+	PID              int
+	State            SessionState
+	LaunchSource     string
+	Summary          string
+	EnvSnapshot      string
+	ExtraArgs        []string
+	StartedAt        time.Time
+	EndedAt          *time.Time
+	LastActivityAt   *time.Time
+	UpdatedAt        time.Time
 }
 
 func NewSessionID() string {

@@ -130,8 +130,7 @@ func DetectTerminalEmulator() string {
 	return ""
 }
 
-func BuildExternalTerminalCommand(emulator, title, directory string, envVars []string, provider Provider, extraArgs []string, zoom float64) (string, []string) {
-	bin, providerArgs := ProviderCommand(provider)
+func BuildExternalTerminalCommand(emulator, title, directory string, envVars []string, bin string, providerArgs []string, extraArgs []string, zoom float64) (string, []string) {
 	if emulator == "" {
 		emulator = DetectTerminalEmulator()
 		if emulator == "" {
@@ -226,6 +225,12 @@ type ExternalLaunchRequest struct {
 	TerminalEmulator string
 	EnvVars          []string
 	ExtraArgs        []string
+	// OverrideBinary and OverrideArgs allow the caller to replace the default
+	// provider binary (e.g. "claude") with a custom command (e.g.
+	// "cc-switch start claude <provider>").  When OverrideBinary is empty the
+	// default provider binary is used.
+	OverrideBinary string
+	OverrideArgs   []string
 }
 
 type ExternalLaunchResultMsg struct {
@@ -248,12 +253,18 @@ func LaunchExternalCommand(req ExternalLaunchRequest) tea.Cmd {
 				Err:       fmt.Errorf("worktree id required"),
 			}
 		}
+		bin, providerArgs := ProviderCommand(req.Provider)
+		if req.OverrideBinary != "" {
+			bin = req.OverrideBinary
+			providerArgs = req.OverrideArgs
+		}
 		name, args := BuildExternalTerminalCommand(
 			req.TerminalEmulator,
 			req.Title,
 			req.WorktreeID,
 			req.EnvVars,
-			req.Provider,
+			bin,
+			providerArgs,
 			req.ExtraArgs,
 			1.2,
 		)
