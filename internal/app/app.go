@@ -9,7 +9,6 @@ import (
 	"focus/internal/avatar"
 	"focus/internal/commands"
 	"focus/internal/config"
-	dbstore "focus/internal/store"
 	gitmodel "focus/internal/git"
 	"focus/internal/mcp"
 	"focus/internal/models"
@@ -19,12 +18,14 @@ import (
 	editorplugin "focus/internal/plugins/editor"
 	filebrowser "focus/internal/plugins/filebrowser"
 	gitplugin "focus/internal/plugins/git"
+	dbstore "focus/internal/store"
 	"focus/internal/styles"
 	"focus/internal/ui/footer"
 	"focus/internal/ui/header"
 	"focus/internal/ui/layout"
 	"focus/internal/ui/shell"
 	"hash/fnv"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -40,33 +41,33 @@ import (
 )
 
 const (
-	paneHeader          models.PaneID = "header"
-	paneShell           models.PaneID = "shell-main"
-	paneWorktree        models.PaneID = "worktree-main"
-	paneDAG             models.PaneID = "dag-main"
-	paneWorktreeDetail  models.PaneID = "worktree-detail-main"
-	paneGitDiff         models.PaneID = "git-diff-pane"
-	paneGitCommit       models.PaneID = "git-commit-overlay"
-	paneWorktreeCreate  models.PaneID = "worktree-create-overlay"
-	paneTaskEdit        models.PaneID = "task-edit-overlay"
-	panePlanEdit        models.PaneID = "plan-edit-overlay"
-	paneAgentSelect     models.PaneID = "agent-select-overlay"
-	paneWorktreeHistory        models.PaneID = "worktree-history-overlay"
-	paneWorktreeDeleteConfirm  models.PaneID = "worktree-delete-confirm-overlay"
-	paneADRDetail              models.PaneID = "adr-detail-overlay"
-	paneFooter                 models.PaneID = "footer"
+	paneHeader                models.PaneID = "header"
+	paneShell                 models.PaneID = "shell-main"
+	paneWorktree              models.PaneID = "worktree-main"
+	paneDAG                   models.PaneID = "dag-main"
+	paneWorktreeDetail        models.PaneID = "worktree-detail-main"
+	paneGitDiff               models.PaneID = "git-diff-pane"
+	paneGitCommit             models.PaneID = "git-commit-overlay"
+	paneWorktreeCreate        models.PaneID = "worktree-create-overlay"
+	paneTaskEdit              models.PaneID = "task-edit-overlay"
+	panePlanEdit              models.PaneID = "plan-edit-overlay"
+	paneAgentSelect           models.PaneID = "agent-select-overlay"
+	paneWorktreeHistory       models.PaneID = "worktree-history-overlay"
+	paneWorktreeDeleteConfirm models.PaneID = "worktree-delete-confirm-overlay"
+	paneADRDetail             models.PaneID = "adr-detail-overlay"
+	paneFooter                models.PaneID = "footer"
 
-	paneTypeGitCommit       models.PaneType = "git-commit"
-	paneTypeWorktreeCreate  models.PaneType = "worktree-create"
-	paneTypeTaskEdit        models.PaneType = "task-edit"
-	paneTypePlanEdit        models.PaneType = "plan-edit"
-	paneTypeAgentSelect     models.PaneType = "agent-select"
+	paneTypeGitCommit             models.PaneType = "git-commit"
+	paneTypeWorktreeCreate        models.PaneType = "worktree-create"
+	paneTypeTaskEdit              models.PaneType = "task-edit"
+	paneTypePlanEdit              models.PaneType = "plan-edit"
+	paneTypeAgentSelect           models.PaneType = "agent-select"
 	paneTypeWorktreeHistory       models.PaneType = "worktree-history"
 	paneTypeWorktreeDeleteConfirm models.PaneType = "worktree-delete-confirm"
 	paneTypeADRDetail             models.PaneType = "adr-detail"
 	paneTypeOverviewSummary       models.PaneType = "overview-summary"
-	paneTypeOverviewDAG     models.PaneType = "overview-dag"
-	paneTypeOverviewDetail  models.PaneType = "overview-detail"
+	paneTypeOverviewDAG           models.PaneType = "overview-dag"
+	paneTypeOverviewDetail        models.PaneType = "overview-detail"
 
 	splitRatioStep = 5
 
@@ -690,8 +691,6 @@ func (m *model) mcpContextGetForTaskTool(params map[string]any) (map[string]any,
 	return result, nil
 }
 
-
-
 func (m *model) mcpTaskCreateTool(params map[string]any) (map[string]any, error) {
 	repoID := strings.TrimSpace(toolStringParam(params, "repo_id"))
 	if repoID == "" {
@@ -847,27 +846,27 @@ func (m *model) mcpPlanGetTool(params map[string]any) (map[string]any, error) {
 	stepItems := make([]map[string]any, 0, len(steps))
 	for _, s := range steps {
 		stepItems = append(stepItems, map[string]any{
-			"id":              s.ID,
-			"order_index":     s.OrderIndex,
-			"title":           s.Title,
-			"state":           s.State,
+			"id":               s.ID,
+			"order_index":      s.OrderIndex,
+			"title":            s.Title,
+			"state":            s.State,
 			"expanded_task_id": s.ExpandedTaskID,
-			"notes":           s.Notes,
+			"notes":            s.Notes,
 		})
 	}
 	return map[string]any{
 		"success": true,
 		"plan": map[string]any{
-			"id":          plan.ID,
-			"task_id":     plan.TaskID,
-			"title":       plan.Title,
-			"why_now":     plan.WhyNow,
-			"success":     plan.Success,
+			"id":           plan.ID,
+			"task_id":      plan.TaskID,
+			"title":        plan.Title,
+			"why_now":      plan.WhyNow,
+			"success":      plan.Success,
 			"out_of_scope": plan.OutOfScope,
-			"known_risks": plan.KnownRisks,
-			"status":      plan.Status,
+			"known_risks":  plan.KnownRisks,
+			"status":       plan.Status,
 			"current_step": plan.CurrentStep,
-			"plan_body":   plan.PlanBody,
+			"plan_body":    plan.PlanBody,
 		},
 		"steps": stepItems,
 	}, nil
@@ -1042,12 +1041,12 @@ func (m *model) mcpPlanExpandToTasksTool(params map[string]any) (map[string]any,
 	m.syncWorktreeActivities()
 
 	return map[string]any{
-		"success":        true,
-		"plan_id":        planID,
-		"task_ids":       taskIDs,
-		"first_task_id":  firstTaskID,
-		"dependencies":   dependencies,
-		"task_count":     len(taskIDs),
+		"success":       true,
+		"plan_id":       planID,
+		"task_ids":      taskIDs,
+		"first_task_id": firstTaskID,
+		"dependencies":  dependencies,
+		"task_count":    len(taskIDs),
 	}, nil
 }
 
@@ -1563,9 +1562,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.invalidateView()
 		return m, cmd
 
-		case openADRDetailMsg:
-			cmd := m.activePage.openADRDetailOverlay(msg.FilePath)
-			return m, cmd
+	case openADRDetailMsg:
+		cmd := m.activePage.openADRDetailOverlay(msg.FilePath)
+		return m, cmd
 
 	case editorplugin.CloseEditorMsg:
 		m.closePane(msg.ID)
@@ -1613,6 +1612,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmd := m.routeToPane(paneWorktree, gitplugin.RefreshWorktreesMsg{})
 			if cmd != nil {
 				cmds = append(cmds, cmd)
+			}
+		}
+		if msg.TaskTitle != "" {
+			if taskCmd := m.createTaskForWorktree(msg); taskCmd != nil {
+				cmds = append(cmds, taskCmd)
 			}
 		}
 		if msg.OpenExternal {
@@ -1974,6 +1978,56 @@ func (m *model) resumeWorktree(msg gitplugin.ResumeWorktreeMsg) tea.Cmd {
 	return cmd
 }
 
+func (m *model) createTaskForWorktree(msg gitplugin.WorktreeCreatedMsg) tea.Cmd {
+	if msg.TaskTitle == "" {
+		return nil
+	}
+	if m.common == nil || m.common.Store == nil || m.cmdBus == nil {
+		return nil
+	}
+	repoID := m.gitRepoPath()
+	if repoID == "" {
+		return nil
+	}
+	now := time.Now()
+	taskID := uuid.NewString()
+	if err := m.cmdBus.Send(context.Background(), &commands.CreateTask{
+		ID:     taskID,
+		RepoID: repoID,
+		Title:  msg.TaskTitle,
+		State:  "active",
+	}); err != nil {
+		log.Printf("createTaskForWorktree: create task %q: %v", msg.TaskTitle, err)
+		return nil
+	}
+	if err := m.cmdBus.Send(context.Background(), &commands.UpdateWorktreeContext{
+		Record: models.WorktreeContextRecord{
+			WorktreeID:    msg.Worktree.Path,
+			RepoID:        repoID,
+			PrimaryTaskID: &taskID,
+			TaskMode:      "single",
+			TaskName:      msg.TaskTitle,
+			LastActiveAt:  now,
+		},
+	}); err != nil {
+		log.Printf("createTaskForWorktree: update worktree context: %v", err)
+		return nil
+	}
+	linkID := taskID + "::" + msg.Worktree.Path + "::primary"
+	if err := m.cmdBus.Send(context.Background(), &commands.LinkTaskToWorktree{
+		ID:           linkID,
+		TaskID:       taskID,
+		WorktreeID:   msg.Worktree.Path,
+		RelationType: "primary",
+	}); err != nil {
+		log.Printf("createTaskForWorktree: link task to worktree: %v", err)
+		return nil
+	}
+	return func() tea.Msg {
+		return dagRefreshMsg{repoID: repoID}
+	}
+}
+
 func (m *model) launchAgent(msg agents.LaunchAgentMsg) tea.Cmd {
 	worktreeID := msg.WorktreeID
 	provider := msg.Provider
@@ -2036,9 +2090,13 @@ func (m *model) launchExternalAgent(session *agents.Session) tea.Cmd {
 	if session == nil {
 		return nil
 	}
-	title := fmt.Sprintf("Focus:%s:%s", session.PlanID, session.ID)
-	if session.TaskID != "" {
-		title = fmt.Sprintf("Focus:%s:%s", session.PlanID, session.TaskID)
+	title := "Focus: " + session.DisplayTitle
+	if session.DisplayTitle == "" {
+		if session.TaskID != "" {
+			title = "Focus: " + session.TaskID
+		} else {
+			title = fmt.Sprintf("Focus:%s:%s", session.PlanID, session.ID)
+		}
 	}
 	envVars := []string{
 		agents.SessionIDEnvVar + "=" + session.ID,
@@ -2122,7 +2180,10 @@ func (m *model) launchExternalShell(cwd string) tea.Cmd {
 	} else {
 		emulator = agents.DetectTerminalEmulator()
 	}
-	title := filepath.Base(cwd)
+	title := m.resolveWorktreeDisplayTitle(cwd, "")
+	if title == "" {
+		title = filepath.Base(cwd)
+	}
 	return agents.LaunchExternalShell(cwd, title, emulator, 1.2)
 }
 
@@ -4347,6 +4408,22 @@ func (m *model) sortedAgentSessions(sessionMap map[string]agents.Session) []*age
 	return list
 }
 
+// resolveWorktreeDisplayTitle returns a human-readable title for a worktree.
+func (m *model) resolveWorktreeDisplayTitle(worktreeID, taskID string) string {
+	if m.common == nil || m.common.Store == nil {
+		return ""
+	}
+	if taskID != "" {
+		if task, err := m.common.Store.GetTaskContext(taskID); err == nil && task != nil {
+			return task.Title
+		}
+	}
+	if wc, err := m.common.Store.GetWorktreeContext(worktreeID); err == nil && wc != nil && wc.TaskName != "" {
+		return wc.TaskName
+	}
+	return ""
+}
+
 func (m *model) newAgentSession(worktreeID string, provider agents.Provider) *agents.Session {
 	now := time.Now()
 	repoID := ""
@@ -4363,6 +4440,7 @@ func (m *model) newAgentSession(worktreeID string, provider agents.Provider) *ag
 		}
 	}
 	taskID, planID, stepID := m.currentExecutionSlice(worktreeID)
+	displayTitle := m.resolveWorktreeDisplayTitle(worktreeID, taskID)
 	return &agents.Session{
 		ID:             agents.NewSessionID(),
 		Provider:       provider,
@@ -4371,6 +4449,7 @@ func (m *model) newAgentSession(worktreeID string, provider agents.Provider) *ag
 		TaskID:         taskID,
 		PlanID:         planID,
 		StepID:         stepID,
+		DisplayTitle:   displayTitle,
 		BranchSnapshot: branchSnapshot,
 		State:          agents.SessionWaiting,
 		LaunchSource:   "focus",
