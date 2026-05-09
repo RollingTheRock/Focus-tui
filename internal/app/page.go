@@ -486,6 +486,9 @@ func (p *page) activeOverlayPane() models.PaneID {
 	if _, ok := p.paneMeta[paneAgentSelect]; ok {
 		return paneAgentSelect
 	}
+	if _, ok := p.paneMeta[paneProviderSelect]; ok {
+		return paneProviderSelect
+	}
 	if _, ok := p.paneMeta[paneGitDiff]; ok {
 		return paneGitDiff
 	}
@@ -507,7 +510,7 @@ func (p *page) activeOverlayPane() models.PaneID {
 }
 
 func (p *page) isOverlayPane(id models.PaneID) bool {
-	if id == paneGitCommit || id == paneWorktreeCreate || id == paneTaskEdit || id == panePlanEdit || id == paneAgentSelect || id == paneWorktreeHistory || id == paneWorktreeDeleteConfirm || id == paneADRDetail || id == paneGitDiff {
+	if id == paneGitCommit || id == paneWorktreeCreate || id == paneTaskEdit || id == panePlanEdit || id == paneAgentSelect || id == paneProviderSelect || id == paneWorktreeHistory || id == paneWorktreeDeleteConfirm || id == paneADRDetail || id == paneGitDiff {
 		return true
 	}
 	if meta, ok := p.paneMeta[id]; ok && meta.Type == models.PaneTypeEditor {
@@ -888,6 +891,35 @@ func (p *page) openAgentSelectPane(worktreeID string) tea.Cmd {
 		Closable:   true,
 	}
 	panel := newAgentSelectPane(meta.ID, meta, *p.common, worktreeID)
+	p.registerPane(meta.ID, panel, meta)
+	if p.returnFocus == nil {
+		p.returnFocus = make(map[models.PaneID]models.PaneID)
+	}
+	p.returnFocus[meta.ID] = baseFocus
+	p.setFocus(meta.ID)
+	p.updateSizes(p.bodyBoundsSize())
+	return panel.Init()
+}
+
+func (p *page) openProviderSelectPane(worktreeID string, provider agents.Provider, resume bool) tea.Cmd {
+	p.closePane(paneProviderSelect)
+
+	baseFocus := p.focused
+	if baseFocus == "" {
+		baseFocus = paneWorktree
+	}
+
+	meta := models.PaneMeta{
+		ID:         paneProviderSelect,
+		Name:       "Select Provider",
+		Type:       paneTypeProviderSelect,
+		CWD:        worktreeID,
+		RepoID:     p.currentRepoID(),
+		WorktreeID: worktreeID,
+		Status:     models.PaneStatusReady,
+		Closable:   true,
+	}
+	panel := newProviderSelectPane(meta.ID, meta, *p.common, worktreeID, provider, resume)
 	p.registerPane(meta.ID, panel, meta)
 	if p.returnFocus == nil {
 		p.returnFocus = make(map[models.PaneID]models.PaneID)

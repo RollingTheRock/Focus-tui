@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"focus/internal/adapters"
+	"focus/internal/adapters/ccswitch"
 	"focus/internal/agents"
 	"focus/internal/avatar"
 	"focus/internal/commands"
@@ -51,6 +52,7 @@ const (
 	paneTaskEdit        models.PaneID = "task-edit-overlay"
 	panePlanEdit        models.PaneID = "plan-edit-overlay"
 	paneAgentSelect     models.PaneID = "agent-select-overlay"
+	paneProviderSelect  models.PaneID = "provider-select-overlay"
 	paneWorktreeHistory        models.PaneID = "worktree-history-overlay"
 	paneWorktreeDeleteConfirm  models.PaneID = "worktree-delete-confirm-overlay"
 	paneADRDetail              models.PaneID = "adr-detail-overlay"
@@ -61,6 +63,7 @@ const (
 	paneTypeTaskEdit        models.PaneType = "task-edit"
 	paneTypePlanEdit        models.PaneType = "plan-edit"
 	paneTypeAgentSelect     models.PaneType = "agent-select"
+	paneTypeProviderSelect  models.PaneType = "provider-select"
 	paneTypeWorktreeHistory       models.PaneType = "worktree-history"
 	paneTypeWorktreeDeleteConfirm models.PaneType = "worktree-delete-confirm"
 	paneTypeADRDetail             models.PaneType = "adr-detail"
@@ -1635,6 +1638,23 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.invalidateView()
 		return m, nil
 
+	case OpenProviderSelectMsg:
+		m.closePane(msg.PaneID)
+		if selectCmd := m.openProviderSelectPane(msg.WorktreeID, msg.Provider, msg.Resume); selectCmd != nil {
+			m.syncWorktreeActivities()
+			m.invalidateView()
+			return m, selectCmd
+		}
+		m.syncWorktreeActivities()
+		m.invalidateView()
+		return m, nil
+
+	case CloseProviderSelectMsg:
+		m.closePane(msg.ID)
+		m.syncWorktreeActivities()
+		m.invalidateView()
+		return m, nil
+
 	case AgentSelectedMsg:
 		m.closePane(msg.PaneID)
 		var cmds []tea.Cmd
@@ -1642,6 +1662,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, pageCmd)
 		}
 		session := m.newAgentSession(msg.WorktreeID, msg.Provider)
+		session.ProviderConfigID = msg.ProviderConfigID
 		if msg.Resume {
 			session.ExtraArgs = append(session.ExtraArgs, "--continue")
 		}
@@ -2068,6 +2089,12 @@ func (m *model) launchExternalAgent(session *agents.Session) tea.Cmd {
 		emulator = agents.DetectTerminalEmulator()
 	}
 
+	bin, args := agents.ProviderCommand(session.Provider)
+	if session.ProviderConfigID != "" {
+		if ccsBin, ccsArgs := ccswitch.LaunchCommand(session.Provider, session.ProviderConfigID); ccsBin != "" {
+			bin, args = ccsBin, ccsArgs
+		}
+	}
 	return agents.LaunchExternalCommand(agents.ExternalLaunchRequest{
 		SessionID:        session.ID,
 		Title:            title,
@@ -2076,6 +2103,8 @@ func (m *model) launchExternalAgent(session *agents.Session) tea.Cmd {
 		TerminalEmulator: emulator,
 		EnvVars:          envVars,
 		ExtraArgs:        session.ExtraArgs,
+		OverrideBinary:   bin,
+		OverrideArgs:     args,
 	})
 }
 
@@ -2588,6 +2617,12 @@ func (m *model) openCreateWorktreePane(msg gitplugin.OpenCreateWorktreeMsg) tea.
 
 func (m *model) openAgentSelectPane(worktreeID string) tea.Cmd {
 	cmd := m.activePage.openAgentSelectPane(worktreeID)
+	m.updateSizes(m.common.Width, m.common.Height)
+	return cmd
+}
+
+func (m *model) openProviderSelectPane(worktreeID string, provider agents.Provider, resume bool) tea.Cmd {
+	cmd := m.activePage.openProviderSelectPane(worktreeID, provider, resume)
 	m.updateSizes(m.common.Width, m.common.Height)
 	return cmd
 }
