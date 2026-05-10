@@ -14,6 +14,15 @@ type fakeStore struct {
 	disconnected        []string
 	activeAgentSessions []AgentSession
 	taskContexts        map[string]*TaskContext
+	stateUpdates        map[string]string
+}
+
+func (f *fakeStore) UpdateTaskState(taskID string, newState string) error {
+	if f.stateUpdates == nil {
+		f.stateUpdates = make(map[string]string)
+	}
+	f.stateUpdates[taskID] = newState
+	return nil
 }
 
 func (f *fakeStore) GetDownstreamTasks(taskID string) ([]Task, error) {
@@ -57,6 +66,10 @@ func TestOrchestratorDownstreamReadyNotification(t *testing.T) {
 		ready: map[string]bool{
 			"task-B": true,
 			"task-C": false,
+		},
+		taskContexts: map[string]*TaskContext{
+			"task-B": {ID: "task-B", Title: "B", State: "blocked"},
+			"task-C": {ID: "task-C", Title: "C", State: "blocked"},
 		},
 	}
 	o := New(store, bus)
