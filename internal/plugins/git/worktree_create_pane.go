@@ -17,8 +17,10 @@ import (
 )
 
 type OpenCreateWorktreeMsg struct {
-	RepoPath string
-	BaseRef  string
+	RepoPath  string
+	BaseRef   string
+	TaskTitle string
+	TaskID    string
 }
 
 type WorktreeCreatedMsg struct {
@@ -26,6 +28,7 @@ type WorktreeCreatedMsg struct {
 	Worktree     gitmodel.Worktree
 	OpenExternal bool
 	TaskTitle    string
+	TaskID       string
 }
 
 type CloseCreateWorktreeMsg struct {
@@ -55,6 +58,7 @@ type WorktreeCreatePane struct {
 	pathAuto     bool
 	openExternal bool
 	taskName     string
+	taskID       string
 }
 
 const (
@@ -82,6 +86,9 @@ func NewWorktreeCreatePane(id models.PaneID, meta models.PaneMeta, common models
 	taskInput := textinput.New()
 	taskInput.Prompt = "Task (optional): "
 	taskInput.Placeholder = "What are you working on?"
+	if msg.TaskTitle != "" {
+		taskInput.SetValue(msg.TaskTitle)
+	}
 
 	branchInput := textinput.New()
 	branchInput.Prompt = "Branch: "
@@ -111,6 +118,7 @@ func NewWorktreeCreatePane(id models.PaneID, meta models.PaneMeta, common models
 		inputs:       inputs,
 		pathAuto:     true,
 		openExternal: true,
+		taskID:       msg.TaskID,
 	}
 }
 
@@ -132,7 +140,7 @@ func (p *WorktreeCreatePane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 		}
 		p.err = nil
 		return p, func() tea.Msg {
-			return WorktreeCreatedMsg{ID: p.id, Worktree: *msg.worktree, OpenExternal: p.openExternal, TaskTitle: p.taskName}
+			return WorktreeCreatedMsg{ID: p.id, Worktree: *msg.worktree, OpenExternal: p.openExternal, TaskTitle: p.taskName, TaskID: p.taskID}
 		}
 	case tea.KeyMsg:
 		switch msg.String() {

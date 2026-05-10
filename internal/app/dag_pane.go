@@ -324,11 +324,13 @@ func (p *dagPane) selectNodeCmd() tea.Cmd {
 	if !ok {
 		return nil
 	}
+	preferredWT := task.PreferredWorktreeID
 	return func() tea.Msg {
 		return dagNodeSelectedMsg{
-			TaskID:    task.ID,
-			TaskTitle: task.Title,
-			RepoID:    p.repoID,
+			TaskID:              task.ID,
+			TaskTitle:           task.Title,
+			RepoID:              p.repoID,
+			PreferredWorktreeID: preferredWT,
 		}
 	}
 }
@@ -396,9 +398,10 @@ func (p *dagPane) launchResearchAgentCmd() tea.Cmd {
 }
 
 type dagNodeSelectedMsg struct {
-	TaskID    string
-	TaskTitle string
-	RepoID    string
+	TaskID              string
+	TaskTitle           string
+	RepoID              string
+	PreferredWorktreeID string
 }
 
 type dagCreateWorktreeMsg struct {
@@ -497,7 +500,7 @@ func (p *dagPane) View() string {
 	} else {
 		lines = append(lines,
 			dagHeaderStyle.Render(" Task DAG ")+
-				dagHintStyle.Render("  [j/k]↑↓  [h/l]←→  [enter]select  [s]state  [c]wt  [r]research  [a]arch  [T]asks [A]DRs  [n]new-task  [R]refresh"),
+				dagHintStyle.Render("  [j/k]↑↓  [h/l]←→  [enter]open  [s]state  [c]new-wt  [r]research  [a]arch  [T]asks [A]DRs  [n]new-task  [R]refresh"),
 		)
 	}
 	lines = append(lines, "")
