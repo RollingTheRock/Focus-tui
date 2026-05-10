@@ -60,6 +60,7 @@ type Store interface {
 	ListActiveAgentSessions() ([]AgentSession, error)
 	GetTaskContext(taskID string) (*TaskContext, error)
 	ListPlanSteps(planID string) ([]PlanStep, error)
+	UpdateTaskState(taskID string, newState string) error
 }
 
 // Orchestrator is a resident goroutine that consumes domain events and
@@ -144,7 +145,10 @@ func (o *Orchestrator) handleEvent(ev events.Event) {
 			return
 		}
 		if p.NewState == "done" || p.NewState == "archived" {
-			o.checkDownstream(ev.AggregateID)
+			o.checkDownstreamReady(ev.AggregateID)
+		}
+		if p.PreviousState == "done" || p.PreviousState == "archived" {
+			o.checkDownstreamBlocked(ev.AggregateID)
 		}
 		if p.NewState == "blocked" {
 			o.notifyBlocked(ev.AggregateID)
@@ -161,7 +165,7 @@ func (o *Orchestrator) handleEvent(ev events.Event) {
 	}
 }
 
-func (o *Orchestrator) checkDownstream(taskID string) {
+func (o *Orchestrator) checkDownstreamReady(taskID string) {
 	downstream, err := o.store.GetDownstreamTasks(taskID)
 	if err != nil {
 		return
@@ -171,13 +175,56 @@ func (o *Orchestrator) checkDownstream(taskID string) {
 		if err != nil || !ready {
 			continue
 		}
-		o.send(Notification{
-			Type:     "downstream_ready",
-			Title:    "下游任务就绪",
-			Body:     fmt.Sprintf("任务 %s 的所有前置条件已满足，可以开始工作", next.Name),
-			TaskID:   next.ID,
-			Severity: "info",
-		})
+		tc, err := o.store.GetTaskContext(next.ID)
+		if err != nil || tc == nil {
+			continue
+		}
+		switch tc.State {
+		case "blocked":
+			_ = o.store.UpdateTaskState(next.ID, "active")
+			o.send(Notification{
+				Type:     "downstream_ready",
+				Title:    "下游任务已激活",
+				Body:     fmt.Sprintf("任务 %s 的所有前置条件已满足，已自动激活", next.Name),
+				TaskID:   next.ID,
+				Severity: "info",
+			})
+		case "paused":
+			o.send(Notification{
+				Type:     "downstream_ready",
+				Title:    "暂停的任务前置已满足",
+				Body:     fmt.Sprintf("任务 %s 的所有前置条件已满足，但任务处于暂停状态，需要手动激活", next.Name),
+				TaskID:   next.ID,
+				Severity: "info",
+			})
+		}
+	}
+}
+
+func (o *Orchestrator) checkDownstreamBlocked(taskID string) {
+	downstream, err := o.store.GetDownstreamTasks(taskID)
+	if err != nil {
+		return
+	}
+	for _, next := range downstream {
+		ready, err := o.store.AllPrerequisitesMet(next.ID)
+		if err != nil || ready {
+			continue
+		}
+		tc, err := o.store.GetTaskContext(next.ID)
+		if err != nil || tc == nil {
+			continue
+		}
+		if tc.State == "active" {
+			_ = o.store.UpdateTaskState(next.ID, "blocked")
+			o.send(Notification{
+				Type:     "task_blocked",
+				Title:    "任务已被阻塞",
+				Body:     fmt.Sprintf("任务 %s 的前置条件不再满足，已自动标记为阻塞", next.Name),
+				TaskID:   next.ID,
+				Severity: "warning",
+			})
+		}
 	}
 }
 

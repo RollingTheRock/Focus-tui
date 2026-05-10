@@ -8,6 +8,7 @@ import (
 	"focus/internal/adapters"
 	"focus/internal/agents"
 	"focus/internal/models"
+	gitplugin "focus/internal/plugins/git"
 	"focus/internal/styles"
 
 	"github.com/charmbracelet/bubbles/textinput"
@@ -135,6 +136,8 @@ func (p *dagPane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 			return p, p.launchArchitectureAgentCmd()
 		case "r":
 			return p, p.launchResearchAgentCmd()
+		case "s":
+			return p, p.cycleStateCmd()
 		case "n":
 			p.enterCreateMode()
 			return p, textinput.Blink
@@ -362,6 +365,19 @@ func (p *dagPane) launchArchitectureAgentCmd() tea.Cmd {
 	}
 }
 
+func (p *dagPane) cycleStateCmd() tea.Cmd {
+	node, ok := p.nodes[p.cursorNode]
+	if !ok || node.ID == "" {
+		return nil
+	}
+	return func() tea.Msg {
+		return gitplugin.CycleTaskStateMsg{
+			TaskID:       node.ID,
+			CurrentState: node.State,
+		}
+	}
+}
+
 func (p *dagPane) launchResearchAgentCmd() tea.Cmd {
 	task, _ := p.selectedTask()
 	return func() tea.Msg {
@@ -481,7 +497,7 @@ func (p *dagPane) View() string {
 	} else {
 		lines = append(lines,
 			dagHeaderStyle.Render(" Task DAG ")+
-				dagHintStyle.Render("  [j/k]↑↓  [h/l]←→  [enter]select  [c]wt  [r]research  [a]arch  [T]asks [A]DRs  [n]new-task  [R]refresh"),
+				dagHintStyle.Render("  [j/k]↑↓  [h/l]←→  [enter]select  [s]state  [c]wt  [r]research  [a]arch  [T]asks [A]DRs  [n]new-task  [R]refresh"),
 		)
 	}
 	lines = append(lines, "")

@@ -709,17 +709,17 @@ func nodeStyle(state string, focus bool) lipgloss.Style {
 	}
 	switch state {
 	case "active":
-		return lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#8fbc8f")).Background(lipgloss.Color("#252525"))
+		return lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#5ea3f4")).Background(lipgloss.Color("#252525"))
 	case "paused":
-		return lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#f0e68c")).Background(lipgloss.Color("#252525"))
-	case "done":
-		return lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#87ceeb")).Background(lipgloss.Color("#252525"))
-	case "ready":
-		return lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#add8e6")).Background(lipgloss.Color("#252525"))
+		return lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#f5a623")).Background(lipgloss.Color("#252525"))
 	case "blocked":
-		return lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#f08080")).Background(lipgloss.Color("#252525"))
+		return lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#f44747")).Background(lipgloss.Color("#252525"))
+	case "done":
+		return lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#4ec94e")).Background(lipgloss.Color("#252525"))
+	case "ready":
+		return lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#56d8d8")).Background(lipgloss.Color("#252525"))
 	default:
-		return lipgloss.NewStyle().Foreground(styles.Text).Background(lipgloss.Color("#252525"))
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("#999999")).Background(lipgloss.Color("#252525"))
 	}
 }
 

@@ -989,7 +989,7 @@ func (m *model) mcpPlanExpandToTasksTool(params map[string]any) (map[string]any,
 			firstTaskID = taskID
 		}
 
-		state := "paused"
+		state := "blocked"
 		if i == 0 {
 			state = "active"
 		}
@@ -1401,7 +1401,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				RepoID:    repoID,
 				Title:     msg.Title,
 				Goal:      msg.Goal,
-				State:     "paused",
+				State:     "active",
 				Priority:  "medium",
 				CreatedAt: now,
 				UpdatedAt: now,
@@ -1482,7 +1482,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmd := m.cycleTaskState(msg)
 		m.syncWorktreeActivities()
 		m.invalidateView()
-		return m, cmd
+		repoID := m.gitRepoPath()
+		return m, tea.Batch(cmd, func() tea.Msg { return dagRefreshMsg{repoID: repoID} })
 
 	case CloseTaskEditorMsg:
 		m.closePane(msg.ID)
@@ -3084,11 +3085,8 @@ func (m *model) expandPlanToTasks(planID, worktreeID string) {
 			continue
 		}
 		taskID := uuid.NewString()
-		state := "paused"
+		state := "blocked"
 		relationType := "queued"
-		if step.Notes == "blocked" {
-			state = "blocked"
-		}
 		if i == 0 && createdPrimary {
 			state = "active"
 			relationType = "primary"
@@ -3263,6 +3261,13 @@ func (s appOrchestratorStore) ListPlanSteps(planID string) ([]orchestrator.PlanS
 		}
 	}
 	return steps, nil
+}
+
+func (s appOrchestratorStore) UpdateTaskState(taskID string, newState string) error {
+	return s.model.cmdBus.Send(context.Background(), &commands.UpdateTaskState{
+		TaskID:   taskID,
+		NewState: newState,
+	})
 }
 
 type appOrchestratorLauncher struct {
