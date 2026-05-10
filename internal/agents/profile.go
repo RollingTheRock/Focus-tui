@@ -43,6 +43,16 @@ func (p ProfilePaths) AGENTSMDPath() string {
 	return filepath.Join(p.SpecDir, "AGENTS.md")
 }
 
+// RootCLAUDEPath returns the worktree-root CLAUDE.md path.
+func (p ProfilePaths) RootCLAUDEPath() string {
+	return filepath.Join(p.WorktreeID, "CLAUDE.md")
+}
+
+// RootAGENTSPath returns the worktree-root AGENTS.md path.
+func (p ProfilePaths) RootAGENTSPath() string {
+	return filepath.Join(p.WorktreeID, "AGENTS.md")
+}
+
 // ContextMDPath returns the path to the standalone context file.
 func (p ProfilePaths) ContextMDPath() string {
 	return filepath.Join(p.SpecDir, "context.md")
@@ -84,6 +94,19 @@ func NewProfileManager(worktreeID string) *ProfileManager {
 // Prepare ensures the directory tree exists.
 func (pm *ProfileManager) Prepare() error {
 	return pm.Paths.Ensure()
+}
+
+// WriteRootFiles writes the spec to CLAUDE.md and AGENTS.md at the
+// worktree root so agents discover context on startup without hooks.
+func (pm *ProfileManager) WriteRootFiles(spec *AgentSpec) error {
+	if spec == nil {
+		return fmt.Errorf("spec is nil")
+	}
+	md := []byte(spec.ToMarkdown())
+	if err := os.WriteFile(pm.Paths.RootCLAUDEPath(), md, 0644); err != nil {
+		return err
+	}
+	return os.WriteFile(pm.Paths.RootAGENTSPath(), md, 0644)
 }
 
 // WriteAGENTSMD writes the assembled spec to AGENTS.md.
