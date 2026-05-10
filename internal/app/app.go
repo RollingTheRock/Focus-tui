@@ -1482,7 +1482,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmd := m.cycleTaskState(msg)
 		m.syncWorktreeActivities()
 		m.invalidateView()
-		return m, cmd
+		repoID := m.gitRepoPath()
+		return m, tea.Batch(cmd, func() tea.Msg { return dagRefreshMsg{repoID: repoID} })
 
 	case CloseTaskEditorMsg:
 		m.closePane(msg.ID)
