@@ -1346,15 +1346,30 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleMouse(msg)
 
 	case dagNodeSelectedMsg:
-		// Focus worktree detail pane to show selected task
-		m.setFocus(paneWorktreeDetail)
+		if msg.PreferredWorktreeID != "" {
+			if wc, _ := m.common.Store.GetWorktreeContext(msg.PreferredWorktreeID); wc != nil {
+				cmd := m.switchToWorktreePage(msg.PreferredWorktreeID, string(paneWorktreeDetail))
+				m.syncWorktreeActivities()
+				m.invalidateView()
+				return m, cmd
+			}
+		}
+		cmd := m.openCreateWorktreePane(gitplugin.OpenCreateWorktreeMsg{
+			RepoPath:  m.gitRepoPath(),
+			TaskTitle: msg.TaskTitle,
+			TaskID:    msg.TaskID,
+			BaseRef:   "master",
+		})
+		m.syncWorktreeActivities()
 		m.invalidateView()
-		return m, nil
+		return m, cmd
 
 	case dagCreateWorktreeMsg:
 		cmd := m.openCreateWorktreePane(gitplugin.OpenCreateWorktreeMsg{
-			RepoPath: m.gitRepoPath(),
-			BaseRef:  msg.TaskTitle,
+			RepoPath:  m.gitRepoPath(),
+			TaskTitle: msg.TaskTitle,
+			TaskID:    msg.TaskID,
+			BaseRef:   "master",
 		})
 		m.syncWorktreeActivities()
 		m.invalidateView()
@@ -2030,6 +2045,49 @@ func (m *model) createTaskForWorktree(msg gitplugin.WorktreeCreatedMsg) tea.Cmd 
 		return nil
 	}
 	now := time.Now()
+
+	// If TaskID is set, link the existing task to the new worktree instead
+	// of creating a duplicate.
+	if msg.TaskID != "" {
+		task, err := m.common.Store.GetTaskContext(msg.TaskID)
+		if err != nil || task == nil {
+			log.Printf("createTaskForWorktree: task %q not found: %v", msg.TaskID, err)
+			return nil
+		}
+		task.PreferredWorktreeID = msg.Worktree.Path
+		if err := m.cmdBus.Send(context.Background(), &commands.UpdateTask{Record: *task}); err != nil {
+			log.Printf("createTaskForWorktree: update task preferred worktree: %v", err)
+			return nil
+		}
+		if err := m.cmdBus.Send(context.Background(), &commands.UpdateWorktreeContext{
+			Record: models.WorktreeContextRecord{
+				WorktreeID:    msg.Worktree.Path,
+				RepoID:        repoID,
+				PrimaryTaskID: &msg.TaskID,
+				TaskMode:      "single",
+				TaskName:      msg.TaskTitle,
+				LastActiveAt:  now,
+			},
+		}); err != nil {
+			log.Printf("createTaskForWorktree: update worktree context: %v", err)
+			return nil
+		}
+		linkID := msg.TaskID + "::" + msg.Worktree.Path + "::primary"
+		if err := m.cmdBus.Send(context.Background(), &commands.LinkTaskToWorktree{
+			ID:           linkID,
+			TaskID:       msg.TaskID,
+			WorktreeID:   msg.Worktree.Path,
+			RelationType: "primary",
+		}); err != nil {
+			log.Printf("createTaskForWorktree: link task to worktree: %v", err)
+			return nil
+		}
+		return func() tea.Msg {
+			return dagRefreshMsg{repoID: repoID}
+		}
+	}
+
+	// No existing task — create one (manual worktree creation flow).
 	taskID := uuid.NewString()
 	if err := m.cmdBus.Send(context.Background(), &commands.CreateTask{
 		ID:     taskID,
