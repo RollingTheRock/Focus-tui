@@ -25,11 +25,12 @@ type Config struct {
 		Mouse bool `yaml:"mouse"` // enable mouse forwarding to embedded shell
 	} `yaml:"shell"`
 	Pomodoro struct {
-		WorkMinutes       int  `yaml:"work_minutes"`
-		ShortBreakMinutes int  `yaml:"short_break_minutes"`
-		LongBreakMinutes  int  `yaml:"long_break_minutes"`
-		LongBreakInterval int  `yaml:"long_break_interval"`
-		Notify            bool `yaml:"notify"`
+		WorkMinutes          int  `yaml:"work_minutes"`
+		ShortBreakMinutes    int  `yaml:"short_break_minutes"`
+		LongBreakMinutes     int  `yaml:"long_break_minutes"`
+		LongBreakInterval    int  `yaml:"long_break_interval"`
+		Notify               bool `yaml:"notify"`
+		FocusReminderMinutes int  `yaml:"focus_reminder_minutes"`
 	} `yaml:"pomodoro"`
 	AdrDir     string `yaml:"adr_dir"`   // optional override for ADR directory (default: repoRoot/docs/adr)
 	TimeFormat string `yaml:"time_format"`
@@ -59,6 +60,7 @@ func DefaultConfig() Config {
 	cfg.Pomodoro.LongBreakMinutes = 15
 	cfg.Pomodoro.LongBreakInterval = 4
 	cfg.Pomodoro.Notify = true
+	cfg.Pomodoro.FocusReminderMinutes = 90
 	cfg.TimeFormat = "Mon Jan 2 · 15:04"
 	cfg.Agent.ExternalTerminal = false
 	cfg.Agent.TerminalEmulator = ""

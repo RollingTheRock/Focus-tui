@@ -468,7 +468,16 @@ CREATE INDEX IF NOT EXISTS idx_worktree_history_repo
 	if err := s.migrateAgentSessionsWorkflowColumns(); err != nil {
 		return err
 	}
+	if err := s.migrateTodosTaskID(); err != nil {
+		return err
+	}
 	return s.migrateFixTaskPlansForeignKeys()
+}
+
+func (s *Store) migrateTodosTaskID() error {
+	return ensureColumns(s.db, "todos", map[string]string{
+		"task_id": "TEXT",
+	})
 }
 
 func (s *Store) migrateTaskPlansForPlanFirst() error {

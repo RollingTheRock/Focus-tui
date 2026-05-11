@@ -19,8 +19,9 @@ const (
 type Todo struct {
 	ID        int
 	Text      string
-	Status    string // todo, done, overdue
-	List      string // today, someday
+	Status    string  // todo, done, overdue
+	List      string  // today, someday
+	TaskID    *string // nullable FK to task_contexts.id
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
