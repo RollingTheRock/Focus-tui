@@ -16,6 +16,11 @@ type SpecLoadContext struct {
 	Plan    *models.TaskPlanRecord
 	Step    *models.PlanStepRecord
 	Handoff *models.SessionHandoffRecord
+
+	UpstreamTasks   []models.TaskContextRecord
+	DownstreamTasks []models.TaskContextRecord
+	GitBranch       string
+	GitDirty        string
 }
 
 // SpecLoader progressively assembles an AgentSpec from layered sources.
@@ -40,11 +45,14 @@ func NewSpecLoader(repoSpecDir, worktreeSpecDir string) *SpecLoader {
 // Load builds an AgentSpec by layering context from general to specific.
 //
 // Layer order:
-//   1. Repo general spec      (coding standards, architecture)
-//   2. Repo domain spec       (backend/frontend/database rules)
-//   3. Worktree context       (task goal, plan body)
-//   4. Step-specific context  (current step objective)
-//   5. Handoff context        (previous session summary)
+//  1. Repo general spec      (coding standards, architecture)
+//  2. Repo domain spec       (backend/frontend/database rules)
+//  3. Worktree context       (task goal, plan body)
+//  4. Step-specific context  (current step objective)
+//  5. DAG dependencies       (upstream/downstream tasks)
+//  6. Git status             (branch, dirty summary)
+//  7. MCP tools reference    (key tools for querying context)
+//  8. Handoff context        (previous session summary)
 func (l *SpecLoader) Load(ctx SpecLoadContext) (*AgentSpec, error) {
 	spec := NewAgentSpec()
 
@@ -73,7 +81,22 @@ func (l *SpecLoader) Load(ctx SpecLoadContext) (*AgentSpec, error) {
 		spec.AddLayer(*layer)
 	}
 
-	// Layer 5: Handoff from previous session.
+	// Layer 5: DAG dependency context.
+	if layer := l.buildDAGLayer(ctx); layer != nil {
+		spec.AddLayer(*layer)
+	}
+
+	// Layer 6: Git status.
+	if layer := l.buildGitStatusLayer(ctx); layer != nil {
+		spec.AddLayer(*layer)
+	}
+
+	// Layer 7: MCP tools reference.
+	if layer := l.buildMCPToolsLayer(); layer != nil {
+		spec.AddLayer(*layer)
+	}
+
+	// Layer 8: Handoff from previous session.
 	if ctx.Handoff != nil {
 		if layer := l.buildHandoffLayer(ctx.Handoff); layer != nil {
 			spec.AddLayer(*layer)
@@ -196,6 +219,82 @@ func (l *SpecLoader) buildHandoffLayer(h *models.SessionHandoffRecord) *SpecLaye
 	}
 }
 
+// buildDAGLayer creates a layer describing task dependency relationships.
+func (l *SpecLoader) buildDAGLayer(ctx SpecLoadContext) *SpecLayer {
+	if len(ctx.UpstreamTasks) == 0 && len(ctx.DownstreamTasks) == 0 {
+		return nil
+	}
+
+	var parts []string
+
+	if len(ctx.UpstreamTasks) > 0 {
+		parts = append(parts, "### Blocked By")
+		for _, t := range ctx.UpstreamTasks {
+			parts = append(parts, fmt.Sprintf("- [%s] **%s** _(%s)_", t.State, t.Title, t.Priority))
+		}
+	}
+
+	if len(ctx.DownstreamTasks) > 0 {
+		if len(parts) > 0 {
+			parts = append(parts, "")
+		}
+		parts = append(parts, "### Blocks")
+		for _, t := range ctx.DownstreamTasks {
+			parts = append(parts, fmt.Sprintf("- [%s] **%s** _(%s)_", t.State, t.Title, t.Priority))
+		}
+	}
+
+	return &SpecLayer{
+		Title:   "DAG Dependencies",
+		Content: strings.Join(parts, "\n"),
+		Source:  "dag",
+	}
+}
+
+// buildGitStatusLayer creates a layer with the current git branch and dirty
+// state so the agent knows the starting code state.
+func (l *SpecLoader) buildGitStatusLayer(ctx SpecLoadContext) *SpecLayer {
+	if ctx.GitBranch == "" && ctx.GitDirty == "" {
+		return nil
+	}
+
+	var parts []string
+	if ctx.GitBranch != "" {
+		parts = append(parts, fmt.Sprintf("**Branch:** %s", ctx.GitBranch))
+	}
+	if ctx.GitDirty != "" {
+		parts = append(parts, fmt.Sprintf("**Changes:** %s", ctx.GitDirty))
+	}
+
+	return &SpecLayer{
+		Title:   "Git Status",
+		Content: strings.Join(parts, "\n"),
+		Source:  "git",
+	}
+}
+
+// buildMCPToolsLayer returns a static reference of the MCP tools an agent can
+// use to query additional context from Focus.
+func (l *SpecLoader) buildMCPToolsLayer() *SpecLayer {
+	tools := []string{
+		"- `task.get` — task details (title, goal, next_step, state)",
+		"- `task.list` — all tasks in the repo",
+		"- `task.create_output` — record an output/artifact for this task",
+		"- `plan.get` — plan details with steps",
+		"- `plan.list` — all task plans",
+		"- `plan.add_step` — add a step to a plan",
+		"- `dag.get_status` — full DAG topology and dependencies",
+		"- `context.get_for_task` — full context for a task",
+		"- `kg.add_fact` — add a knowledge graph fact",
+	}
+
+	return &SpecLayer{
+		Title:   "Available MCP Tools",
+		Content: strings.Join(tools, "\n"),
+		Source:  "mcp",
+	}
+}
+
 // inferDomain guesses the technical domain from task/step metadata so that
 // the loader can pull the most relevant spec layer.
 func inferDomain(ctx SpecLoadContext) string {
@@ -211,13 +310,13 @@ func inferDomain(ctx SpecLoadContext) string {
 	}
 
 	keywords := map[string][]string{
-		"backend":   {"api", "server", "backend", "database", "db", "sql", "postgres", "redis", "grpc", "rest"},
-		"frontend":  {"ui", "frontend", "react", "vue", "component", "html", "css", "dom", "browser"},
-		"database":  {"database", "db", "schema", "migration", "sql", "postgres", "sqlite", "index"},
-		"devops":    {"docker", "kubernetes", "k8s", "ci", "cd", "deploy", "infra", "terraform"},
-		"testing":   {"test", "testing", "spec", "jest", "pytest", "coverage", "e2e"},
-		"security":  {"auth", "oauth", "jwt", "security", "encrypt", "permission", "rbac"},
-		"cli":       {"cli", "command", "terminal", "tui", "shell", "script"},
+		"backend":  {"api", "server", "backend", "database", "db", "sql", "postgres", "redis", "grpc", "rest"},
+		"frontend": {"ui", "frontend", "react", "vue", "component", "html", "css", "dom", "browser"},
+		"database": {"database", "db", "schema", "migration", "sql", "postgres", "sqlite", "index"},
+		"devops":   {"docker", "kubernetes", "k8s", "ci", "cd", "deploy", "infra", "terraform"},
+		"testing":  {"test", "testing", "spec", "jest", "pytest", "coverage", "e2e"},
+		"security": {"auth", "oauth", "jwt", "security", "encrypt", "permission", "rbac"},
+		"cli":      {"cli", "command", "terminal", "tui", "shell", "script"},
 	}
 
 	scores := make(map[string]int)

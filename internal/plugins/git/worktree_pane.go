@@ -286,6 +286,16 @@ func (p *WorktreePane) Render(canvas render.Surface, width, height int) {
 		}
 	}
 
+	lines = append(lines, renderedLine{content: "", style: nil})
+	lines = append(lines, renderedLine{
+		content: taskStateActiveStyle.Render("●") + " active  " +
+			taskStatePausedStyle.Render("◐") + " paused  " +
+			taskStateBlockedStyle.Render("◍") + " blocked  " +
+			taskStateDoneStyle.Render("✓") + " done  " +
+			taskStateNoneStyle.Render("○") + " none",
+		style: nil,
+	})
+
 	if p.notice != "" {
 		lines = append(lines, renderedLine{content: "", style: nil})
 		lines = append(lines, renderedLine{content: p.notice, style: &upstreamStyle})
@@ -353,12 +363,17 @@ func (p *WorktreePane) renderWorktreeRow(wt gitmodel.Worktree) string {
 	if summary.TaskTitle != "" {
 		title = summary.TaskTitle
 	}
+
+	// state indicator
+	stateSymbol, stateStyle := taskStateIndicator(summary.TaskState)
+	line := stateStyle.Render(stateSymbol) + " " + title
+
 	branchText := wt.Branch
 	if branchText == "" && wt.HeadOID != "" {
 		branchText = wt.HeadOID[:7]
 	}
 	if branchText != "" {
-		title += "  " + branchStyle.Render(branchText)
+		line += "  " + branchStyle.Render(branchText)
 	}
 
 	var marks []string
@@ -373,9 +388,33 @@ func (p *WorktreePane) renderWorktreeRow(wt gitmodel.Worktree) string {
 		marks = append(marks, fmt.Sprintf("agent:%d", activity.AgentCount))
 	}
 	if len(marks) > 0 {
-		title += "  " + upstreamStyle.Render(strings.Join(marks, " "))
+		line += "  " + upstreamStyle.Render(strings.Join(marks, " "))
 	}
-	return title
+
+	// cleanup hint for done tasks
+	if summary.TaskState == "done" {
+		if wt.DirtySummary.IsDirty() {
+			line += "  " + cleanupHintStyle.Render("[commit first]")
+		} else {
+			line += "  " + cleanupHintStyle.Render("[d del]")
+		}
+	}
+	return line
+}
+
+func taskStateIndicator(state string) (string, lipgloss.Style) {
+	switch state {
+	case "active":
+		return "●", taskStateActiveStyle
+	case "paused":
+		return "◐", taskStatePausedStyle
+	case "blocked":
+		return "◍", taskStateBlockedStyle
+	case "done":
+		return "✓", taskStateDoneStyle
+	default:
+		return "○", taskStateNoneStyle
+	}
 }
 
 func (p *WorktreePane) SelectedContext() (gitmodel.Worktree, gitmodel.WorktreeResumeSummary, gitmodel.WorktreeActivity, bool) {

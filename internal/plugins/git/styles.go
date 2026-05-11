@@ -33,6 +33,14 @@ var (
 
 	selectedRowStyle = lipgloss.NewStyle().Background(appstyles.Highlight)
 	loadingStyle     = lipgloss.NewStyle().Foreground(appstyles.Subtle)
+	cleanupHintStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#666666"))
+
+	// Task state indicators — colors match DAG node state colors
+	taskStateActiveStyle  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#5ea3f4"))
+	taskStatePausedStyle  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#f5a623"))
+	taskStateBlockedStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#f44747"))
+	taskStateDoneStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#4ec94e"))
+	taskStateNoneStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#999999"))
 
 	modifiedIconStyle   = lipgloss.NewStyle().Foreground(appstyles.Warning)
 	addedIconStyle      = lipgloss.NewStyle().Foreground(appstyles.Success)
