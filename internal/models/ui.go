@@ -11,7 +11,7 @@ import (
 
 // Store defines the storage interface used by UI components.
 type Store interface {
-	CreateTodo(text, list string) (*Todo, error)
+	CreateTodo(text, list string, taskID *string) (*Todo, error)
 	GetTodo(id int) (*Todo, error)
 	ListTodos(list string) ([]Todo, error)
 	ToggleTodo(id int) error
@@ -25,6 +25,7 @@ type Store interface {
 	CancelSession(id int64) error
 	TodaySessionCount() (int, error)
 	GetStreak() (int, error)
+	GetSessionTimeByTodoToday(todoID int) (time.Duration, error)
 	SavePageSnapshot(worktreeID string, snapshotJSON []byte) error
 	LoadPageSnapshot(worktreeID string) ([]byte, error)
 	ListPageSnapshots() ([]PageSnapshotRecord, error)

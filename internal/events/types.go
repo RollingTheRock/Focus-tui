@@ -221,8 +221,9 @@ type AgentMessageSentPayload struct {
 
 // TodoCreatedPayload is emitted when a todo is created.
 type TodoCreatedPayload struct {
-	Text string `json:"text"`
-	List string `json:"list"`
+	Text   string  `json:"text"`
+	List   string  `json:"list"`
+	TaskID *string `json:"task_id,omitempty"`
 }
 
 // TaskPlanCreatedPayload is emitted when a task plan is created.

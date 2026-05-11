@@ -18,6 +18,7 @@ import (
 	"focus/internal/ui/header"
 	"focus/internal/ui/layout"
 	"focus/internal/ui/shell"
+	"focus/internal/ui/todo"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -130,6 +131,18 @@ func newOverviewPage(common *models.CommonModel, pluginRegistry *plugins.Registr
 
 	// Worktree detail pane
 	p.registerPane(paneWorktreeDetail, newWorktreeDetailPane(paneWorktreeDetail, detailMeta, common, adapterManager.Git(), repoRoot), detailMeta)
+
+	// Todo overlay pane (persistent — visibility-toggled via Ctrl+T).
+	todoMeta := models.PaneMeta{
+		ID:       paneTodoOverlay,
+		Name:     "Todos",
+		Type:     paneTypeTodoOverlay,
+		CWD:      cwd,
+		RepoID:   cwd,
+		Status:   models.PaneStatusReady,
+		Closable: false,
+	}
+	p.registerPane(paneTodoOverlay, todo.New(common), todoMeta)
 
 	// Fixed three-pane layout:
 	//   Top    : DAG (30%)
@@ -471,6 +484,10 @@ func (p *page) removePaneOrder(id models.PaneID) {
 }
 
 func (p *page) activeOverlayPane() models.PaneID {
+	// Persistent todo overlay (visibility-toggled, highest priority).
+	if tp, ok := p.pane(paneTodoOverlay).(*todo.Model); ok && tp.Visible() {
+		return paneTodoOverlay
+	}
 	if _, ok := p.paneMeta[paneWorktreeCreate]; ok {
 		return paneWorktreeCreate
 	}
@@ -510,7 +527,7 @@ func (p *page) activeOverlayPane() models.PaneID {
 }
 
 func (p *page) isOverlayPane(id models.PaneID) bool {
-	if id == paneGitCommit || id == paneWorktreeCreate || id == paneTaskEdit || id == panePlanEdit || id == paneAgentSelect || id == paneProviderSelect || id == paneWorktreeHistory || id == paneWorktreeDeleteConfirm || id == paneADRDetail || id == paneGitDiff {
+	if id == paneTodoOverlay || id == paneGitCommit || id == paneWorktreeCreate || id == paneTaskEdit || id == panePlanEdit || id == paneAgentSelect || id == paneProviderSelect || id == paneWorktreeHistory || id == paneWorktreeDeleteConfirm || id == paneADRDetail || id == paneGitDiff {
 		return true
 	}
 	if meta, ok := p.paneMeta[id]; ok && meta.Type == models.PaneTypeEditor {
@@ -649,6 +666,24 @@ func (p *page) renderPaneTitle(id models.PaneID, focused models.PaneID, mode App
 
 func (p *page) overlayContentSize() (int, int) {
 	bounds := p.bodyBoundsSize()
+
+	if tp, ok := p.pane(paneTodoOverlay).(*todo.Model); ok && tp.Visible() {
+		width := bounds.W - 8
+		if width > 70 {
+			width = 70
+		}
+		if width < 30 {
+			width = 30
+		}
+		height := bounds.H - 4
+		if height > 24 {
+			height = 24
+		}
+		if height < 8 {
+			height = 8
+		}
+		return width, height
+	}
 
 	if _, ok := p.paneMeta[paneADRDetail]; ok {
 		width := bounds.W - 8

@@ -239,6 +239,7 @@ CREATE TABLE IF NOT EXISTS proj_todos (
     text        TEXT NOT NULL,
     status      TEXT DEFAULT 'todo',
     list        TEXT DEFAULT 'today',
+    task_id     TEXT,
     event_version BIGINT NOT NULL DEFAULT 0,
     created_at  TIMESTAMPTZ DEFAULT NOW(),
     updated_at  TIMESTAMPTZ DEFAULT NOW()

@@ -1,7 +1,9 @@
 package todo
 
 import (
+	"fmt"
 	"strings"
+	"time"
 
 	"focus/internal/models"
 	"focus/internal/styles"
@@ -13,8 +15,8 @@ import (
 
 // Messages sent to the parent app.
 type (
-	// ModeChangeMsg requests a mode switch (Normal ↔ Input).
-	ModeChangeMsg struct{ InputActive bool }
+	ModeChangeMsg     struct{ InputActive bool }
+	OverlayVisibleMsg struct{ Visible bool }
 )
 
 // Model is the Todo panel sub-model.
@@ -26,12 +28,28 @@ type Model struct {
 	width      int
 	height     int
 
-	// Input mode state.
-	input      textinput.Model
-	inputMode  inputAction
-	editID     int // ID of todo being edited
+	// Overlay visibility.
+	visible bool
 
-	// Delete confirmation.
+	// Timer state.
+	runningTimers map[int]*runningTimer // keyed by todo ID
+	sessionTimes  map[int]time.Duration // completed session time today per todo
+
+	// Focus tracking (wall-clock based).
+	focusSince             *time.Time
+	totalWallClock         time.Duration // accumulated wall-clock focus time today
+	focusReminderShown     bool
+	focusReminderDismissed bool
+	lastTimerStopped       time.Time
+	ticking                bool
+
+	// Linked task context data.
+	linkedTasks map[string]models.TaskContextRecord // keyed by task_id
+
+	// Input mode state.
+	input         textinput.Model
+	inputMode     inputAction
+	editID        int // ID of todo being edited
 	confirmDelete bool
 }
 
@@ -43,6 +61,39 @@ const (
 	inputEdit
 )
 
+type runningTimer struct {
+	SessionID int64
+	StartedAt time.Time
+	Elapsed   time.Duration
+}
+
+// Internal messages.
+type tickMsg time.Time
+
+type timerStartedMsg struct {
+	TodoID    int
+	SessionID int64
+	At        time.Time
+}
+
+type timerStoppedMsg struct {
+	TodoID    int
+	SessionID int64
+	Elapsed   time.Duration
+}
+
+type todosLoadedMsg struct {
+	items []models.Todo
+}
+
+type linkedTasksLoadedMsg struct {
+	tasks map[string]models.TaskContextRecord
+}
+
+type sessionTimesLoadedMsg struct {
+	times map[int]time.Duration // todo ID -> session duration
+}
+
 // New creates a new Todo panel.
 func New(common *models.CommonModel) models.Panel {
 	ti := textinput.New()
@@ -50,9 +101,12 @@ func New(common *models.CommonModel) models.Panel {
 	ti.CharLimit = 120
 
 	m := &Model{
-		common:     common,
-		activeList: models.ListToday,
-		input:      ti,
+		common:        common,
+		activeList:    models.ListToday,
+		input:         ti,
+		runningTimers: make(map[int]*runningTimer),
+		sessionTimes:  make(map[int]time.Duration),
+		linkedTasks:   make(map[string]models.TaskContextRecord),
 	}
 	return m
 }
@@ -61,21 +115,74 @@ func (m *Model) Init() tea.Cmd {
 	return m.loadTodos
 }
 
+func (m *Model) SetSize(width, height int) {
+	m.width = width
+	m.height = height
+}
+
 func (m *Model) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
-	// Handle input mode first — all keys routed to textinput.
+	// Input mode first.
 	if m.inputMode != inputNone {
 		return m.updateInput(msg)
 	}
 
-	// Handle delete confirmation.
+	// Delete confirmation.
 	if m.confirmDelete {
 		return m.updateConfirm(msg)
 	}
 
+	// Focus reminder consumes y/n.
+	if m.focusReminderShown {
+		return m.updateReminder(msg)
+	}
+
 	switch msg := msg.(type) {
+	case tickMsg:
+		return m.updateTick()
+
+	case timerStartedMsg:
+		m.runningTimers[msg.TodoID] = &runningTimer{
+			SessionID: msg.SessionID,
+			StartedAt: msg.At,
+			Elapsed:   0,
+		}
+		if m.focusSince == nil {
+			now := time.Now()
+			m.focusSince = &now
+		}
+		m.focusReminderShown = false
+		m.focusReminderDismissed = false
+		m.lastTimerStopped = time.Time{}
+		if !m.ticking {
+			m.ticking = true
+			return m, m.startTicking()
+		}
+
+	case timerStoppedMsg:
+		delete(m.runningTimers, msg.TodoID)
+		m.sessionTimes[msg.TodoID] += msg.Elapsed
+		if len(m.runningTimers) == 0 {
+			// Accumulate wall-clock time for this focus session.
+			if m.focusSince != nil {
+				m.totalWallClock += time.Since(*m.focusSince)
+				m.focusSince = nil
+			}
+			m.lastTimerStopped = time.Now()
+			m.ticking = false
+		}
+		return m, sendStatsRefresh
+
 	case todosLoadedMsg:
 		m.items = msg.items
 		m.clampCursor()
+		return m, m.loadLinkedTasks()
+
+	case linkedTasksLoadedMsg:
+		m.linkedTasks = msg.tasks
+		return m, m.loadSessionTimes()
+
+	case sessionTimesLoadedMsg:
+		m.sessionTimes = msg.times
 
 	case tea.KeyMsg:
 		return m.updateNormal(msg)
@@ -83,55 +190,108 @@ func (m *Model) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 	return m, nil
 }
 
-func (m *Model) View() string {
-	w := m.width
-	if w <= 0 {
-		w = 40
+// --- Tick ---
+
+func (m *Model) startTicking() tea.Cmd {
+	return tea.Every(time.Second, func(t time.Time) tea.Msg {
+		return tickMsg(t)
+	})
+}
+
+func (m *Model) updateTick() (models.Panel, tea.Cmd) {
+	if !m.ticking {
+		return m, nil
 	}
+	anyRunning := false
+	for _, rt := range m.runningTimers {
+		rt.Elapsed += time.Second
+		anyRunning = true
+	}
+	m.ticking = anyRunning
 
-	var b strings.Builder
-
-	// Items.
-	if len(m.items) == 0 {
-		empty := lipgloss.NewStyle().Foreground(styles.Subtle).Render("No tasks yet. Press [a] to add one.")
-		b.WriteString(empty)
-	} else {
-		for i, item := range m.items {
-			b.WriteString(m.renderItem(i, item, w))
-			if i < len(m.items)-1 {
-				b.WriteByte('\n')
-			}
+	// Focus reminder check.
+	reminderMin := m.common.Cfg.Pomodoro.FocusReminderMinutes
+	if reminderMin > 0 && m.focusSince != nil && !m.focusReminderDismissed {
+		if time.Since(*m.focusSince) >= time.Duration(reminderMin)*time.Minute {
+			m.focusReminderShown = true
 		}
 	}
 
-	// Input / confirm bar.
-	if m.inputMode != inputNone {
-		b.WriteByte('\n')
-		b.WriteString(m.input.View())
-	} else if m.confirmDelete {
-		b.WriteByte('\n')
-		b.WriteString(lipgloss.NewStyle().Foreground(styles.Overdue).Render("Delete? [y/n]"))
+	// Auto-reset: all stopped >5 min.
+	if !anyRunning && !m.lastTimerStopped.IsZero() && time.Since(m.lastTimerStopped) > 5*time.Minute {
+		if m.focusSince != nil {
+			m.totalWallClock += time.Since(*m.focusSince)
+			m.focusSince = nil
+		}
+		m.focusReminderShown = false
+		m.focusReminderDismissed = false
+		m.lastTimerStopped = time.Time{}
 	}
 
-	return b.String()
+	if m.ticking {
+		return m, m.startTicking()
+	}
+	return m, nil
 }
 
-func (m *Model) SetSize(width, height int) {
-	m.width = width
-	m.height = height
+// --- Reminder ---
+
+func (m *Model) updateReminder(msg tea.Msg) (models.Panel, tea.Cmd) {
+	if keyMsg, ok := msg.(tea.KeyMsg); ok {
+		switch keyMsg.String() {
+		case "y":
+			// Stop all timers, reset focus.
+			var cmds []tea.Cmd
+			for _, rt := range m.runningTimers {
+				sid := rt.SessionID
+				elapsed := rt.Elapsed
+				cmds = append(cmds, func() tea.Msg {
+					_ = m.common.Store.CompleteSession(sid)
+					return timerStoppedMsg{TodoID: 0, SessionID: sid, Elapsed: elapsed}
+				})
+			}
+			// We need to stop each running timer with proper info.
+			// Build closures by iterating over items.
+			cmds = nil
+			for _, item := range m.items {
+				if rt, ok := m.runningTimers[item.ID]; ok {
+					todoID := item.ID
+					sid := rt.SessionID
+					elapsed := rt.Elapsed
+					cmds = append(cmds, func() tea.Msg {
+						_ = m.common.Store.CompleteSession(sid)
+						return timerStoppedMsg{TodoID: todoID, SessionID: sid, Elapsed: elapsed}
+					})
+				}
+			}
+			m.focusReminderShown = false
+			m.focusReminderDismissed = true
+			if m.focusSince != nil {
+				m.totalWallClock += time.Since(*m.focusSince)
+			}
+			m.focusSince = nil
+			m.ticking = false
+			if len(cmds) > 0 {
+				return m, tea.Batch(cmds...)
+			}
+			return m, nil
+
+		case "n":
+			// Dismiss reminder, reset tracking.
+			m.focusReminderShown = false
+			m.focusReminderDismissed = true
+			if m.focusSince != nil {
+				m.totalWallClock += time.Since(*m.focusSince)
+			}
+			now := time.Now()
+			m.focusSince = &now
+			return m, nil
+		}
+	}
+	return m, nil
 }
 
-// ActiveList returns the currently active list name ("today" or "someday").
-func (m *Model) ActiveList() string {
-	return m.activeList
-}
-
-// IsConfirmingDelete returns true when a delete confirmation prompt is active.
-func (m *Model) IsConfirmingDelete() bool {
-	return m.confirmDelete
-}
-
-// --- Normal mode key handling ---
+// --- Normal mode keys ---
 
 func (m *Model) updateNormal(msg tea.KeyMsg) (models.Panel, tea.Cmd) {
 	switch msg.String() {
@@ -172,8 +332,56 @@ func (m *Model) updateNormal(msg tea.KeyMsg) (models.Panel, tea.Cmd) {
 		return m, m.loadTodos
 	case "m":
 		return m, m.moveCurrentToToday()
+	case "g":
+		return m, m.startCurrentTimer()
+	case "s":
+		return m, m.stopCurrentTimer()
+	case "esc":
+		m.visible = false
+		return m, func() tea.Msg {
+			return OverlayVisibleMsg{Visible: false}
+		}
 	}
 	return m, nil
+}
+
+// --- Timer controls ---
+
+func (m *Model) startCurrentTimer() tea.Cmd {
+	cur := m.currentItem()
+	if cur == nil {
+		return nil
+	}
+	if _, running := m.runningTimers[cur.ID]; running {
+		return nil // already running
+	}
+	todoID := cur.ID
+	return func() tea.Msg {
+		linkedID := todoID
+		id, err := m.common.Store.StartSession(&linkedID)
+		if err != nil {
+			return nil
+		}
+		return timerStartedMsg{TodoID: todoID, SessionID: id, At: time.Now()}
+	}
+}
+
+func (m *Model) stopCurrentTimer() tea.Cmd {
+	cur := m.currentItem()
+	if cur == nil {
+		return nil
+	}
+	rt, running := m.runningTimers[cur.ID]
+	if !running {
+		return nil
+	}
+	sessionID := rt.SessionID
+	todoID := cur.ID
+	elapsed := rt.Elapsed
+	return func() tea.Msg {
+		_ = m.common.Store.CompleteSession(sessionID)
+		return timerStoppedMsg{TodoID: todoID, SessionID: sessionID, Elapsed: elapsed}
+	}
 }
 
 // --- Input mode ---
@@ -224,41 +432,220 @@ func (m *Model) updateConfirm(msg tea.Msg) (models.Panel, tea.Cmd) {
 	return m, nil
 }
 
-// --- Rendering ---
+// --- View ---
 
-func (m *Model) renderItem(idx int, item models.Todo, maxWidth int) string {
+func (m *Model) View() string {
+	w := m.width
+	if w <= 0 {
+		w = 50
+	}
+	// Content area: subtract outer border/padding (4 chars).
+	contentW := w - 4
+	if contentW < 30 {
+		contentW = 30
+	}
+
+	var b strings.Builder
+
+	// Header: bold accent title.
+	headerStyle := lipgloss.NewStyle().Bold(true).Foreground(styles.Accent)
+	hintStyle := lipgloss.NewStyle().Foreground(styles.Subtle)
+	sepStyle := lipgloss.NewStyle().Foreground(styles.DimBorder)
+
+	title := "Today's Focus"
+	listHint := "[shift+tab] Someday"
+	if m.activeList == models.ListSomeday {
+		title = "Someday"
+		listHint = "[shift+tab] Today"
+	}
+
+	// Title line: title left, list hint right.
+	titleLeft := headerStyle.Render(title)
+	titleRight := hintStyle.Render(listHint)
+	pad := contentW - lipgloss.Width(titleLeft) - lipgloss.Width(titleRight)
+	if pad < 1 {
+		pad = 1
+	}
+	b.WriteString(titleLeft + strings.Repeat(" ", pad) + titleRight + "\n")
+
+	// Context hint.
+	b.WriteString(hintStyle.Render("[a]dd items  ·  [t] in DAG to link tasks  ·  [g]o to start tracking") + "\n")
+
+	// Separator.
+	b.WriteString(sepStyle.Render(strings.Repeat("─", contentW)) + "\n")
+
+	// Items.
+	if len(m.items) == 0 && m.inputMode == inputNone {
+		empty := lipgloss.NewStyle().Foreground(styles.Subtle).Render("No items yet. [a] to add, or [t] in DAG to link a task.")
+		b.WriteString(empty + "\n")
+	} else {
+		for i, item := range m.items {
+			b.WriteString(m.renderItem(i, item, contentW) + "\n")
+		}
+	}
+
+	// Input bar.
+	if m.inputMode != inputNone {
+		b.WriteByte('\n')
+		b.WriteString(sepStyle.Render(strings.Repeat("─", contentW)) + "\n\n")
+		b.WriteString(lipgloss.NewStyle().Foreground(styles.Accent).Render(
+			fmt.Sprintf("[%s] ", map[inputAction]string{inputAdd: "add", inputEdit: "edit"}[m.inputMode]),
+		) + m.input.View())
+		b.WriteByte('\n')
+	}
+
+	// Delete confirmation.
+	if m.confirmDelete {
+		b.WriteByte('\n')
+		b.WriteString(lipgloss.NewStyle().Foreground(styles.Overdue).Bold(true).Render(
+			fmt.Sprintf("Delete \"%s\"? [y/n]", m.currentItem().Text),
+		))
+		b.WriteByte('\n')
+	}
+
+	// Separator before status area.
+	b.WriteByte('\n')
+	b.WriteString(sepStyle.Render(strings.Repeat("─", contentW)) + "\n")
+
+	// Focus reminder.
+	if m.focusReminderShown {
+		reminderStyle := lipgloss.NewStyle().Foreground(styles.Warning).Bold(true)
+		b.WriteString(reminderStyle.Render("⚡ Focused 90+ min — take a break? [y]es  [n]ot yet") + "\n")
+	}
+
+	// Status line: total time + running indicator.
+	totalDur := m.totalFocusTime()
+	runningCount := len(m.runningTimers)
+	statusLeft := ""
+	if runningCount > 0 {
+		statusLeft = hintStyle.Render(fmt.Sprintf("● %d running", runningCount))
+	}
+	statusRight := ""
+	if totalDur > 0 {
+		statusRight = hintStyle.Render(fmt.Sprintf("Total today: %s", formatDuration(totalDur)))
+	}
+	if statusLeft != "" || statusRight != "" {
+		pad := contentW - lipgloss.Width(statusLeft) - lipgloss.Width(statusRight)
+		if pad < 1 {
+			pad = 1
+		}
+		b.WriteString(statusLeft + strings.Repeat(" ", pad) + statusRight + "\n")
+	}
+
+	// Footer: keybinding help with · separator.
+	footer := "[j/k]nav  [g]o  [s]top  [a]dd  [e]dit  [d]el  [space]done  [esc]close"
+	b.WriteString(hintStyle.Render(footer) + "\n")
+
+	return b.String()
+}
+
+// --- Render helpers ---
+
+func (m *Model) renderItem(idx int, item models.Todo, maxW int) string {
+	isSelected := idx == m.cursor
+	isRunning := false
+	var elapsed time.Duration
+	if rt, ok := m.runningTimers[item.ID]; ok {
+		isRunning = true
+		elapsed = rt.Elapsed
+	}
+
+	// Status icon.
+	var icon string
+	var iconStyle lipgloss.Style
+	if isRunning {
+		icon = "●"
+		iconStyle = lipgloss.NewStyle().Foreground(styles.Accent).Bold(true)
+	} else {
+		switch item.Status {
+		case models.StatusDone:
+			icon = "✓"
+			iconStyle = lipgloss.NewStyle().Foreground(styles.Done)
+		case models.StatusOverdue:
+			icon = "!"
+			iconStyle = lipgloss.NewStyle().Foreground(styles.Overdue)
+		default:
+			icon = "○"
+			iconStyle = lipgloss.NewStyle().Foreground(styles.Subtle)
+		}
+	}
+
+	// Cursor.
 	cursor := "  "
-	if idx == m.cursor {
+	if isSelected {
 		cursor = "▸ "
 	}
 
-	var icon string
+	// Task info (right side).
+	taskInfo := "—"
+	if item.TaskID != nil {
+		if tc, ok := m.linkedTasks[*item.TaskID]; ok {
+			taskInfo = tc.State + "/" + tc.Priority
+		}
+	}
+
+	// Time display.
+	total := m.sessionTimes[item.ID]
+	if isRunning {
+		total += elapsed
+	}
+	timeStr := "—"
+	if total > 0 {
+		timeStr = formatDuration(total)
+	}
+
+	// Text style.
 	var textStyle lipgloss.Style
-	switch item.Status {
-	case models.StatusDone:
-		icon = "✓ "
+	if isRunning {
+		textStyle = lipgloss.NewStyle().Foreground(styles.Text).Bold(true)
+	} else if item.Status == models.StatusDone {
 		textStyle = lipgloss.NewStyle().Foreground(styles.Done).Strikethrough(true)
-	case models.StatusOverdue:
-		icon = "! "
-		textStyle = lipgloss.NewStyle().Foreground(styles.Overdue)
-	default:
-		icon = "○ "
+	} else {
 		textStyle = lipgloss.NewStyle().Foreground(styles.Text)
 	}
 
-	if idx == m.cursor {
-		// Highlight row background for selected item.
-		textStyle = textStyle.Background(styles.Highlight)
+
+	// Calculate available width for the text.
+	leftFixed := lipgloss.Width(cursor) + lipgloss.Width(iconStyle.Render(icon)) + 1 // +1 for space after icon
+	rightFixed := lipgloss.Width(lipgloss.NewStyle().Foreground(styles.Subtle).Render(taskInfo)) + 2 + lipgloss.Width(lipgloss.NewStyle().Foreground(styles.Subtle).Render(timeStr))
+	textMaxW := maxW - leftFixed - rightFixed
+	if textMaxW < 8 {
+		textMaxW = 8
 	}
 
-	return cursor + icon + textStyle.Render(item.Text)
+	// Truncate item text if needed.
+	displayText := item.Text
+	if lipgloss.Width(textStyle.Render(displayText)) > textMaxW {
+		displayText = ansiTruncate(displayText, textMaxW-1) + "…"
+	}
+
+	// Assemble the full line.
+	line := cursor + iconStyle.Render(icon) + " " + textStyle.Render(displayText)
+	// Pad to fill remaining space before right-aligned info.
+	rightSide := lipgloss.NewStyle().Foreground(styles.Subtle).Render(taskInfo) + "  " + lipgloss.NewStyle().Foreground(styles.Subtle).Render(timeStr)
+	pad := maxW - lipgloss.Width(line) - lipgloss.Width(rightSide)
+	if pad < 0 {
+		pad = 0
+	}
+	line += strings.Repeat(" ", pad) + rightSide
+
+	// Apply highlight background to entire line if selected.
+	if isSelected {
+		line = lipgloss.NewStyle().Background(styles.Highlight).Render(line)
+	}
+
+	return line
+}
+
+func ansiTruncate(s string, maxW int) string {
+	runes := []rune(s)
+	if len(runes) <= maxW {
+		return s
+	}
+	return string(runes[:maxW])
 }
 
 // --- Store commands ---
-
-type todosLoadedMsg struct {
-	items []models.Todo
-}
 
 func (m *Model) loadTodos() tea.Msg {
 	items, err := m.common.Store.ListTodos(m.activeList)
@@ -266,6 +653,36 @@ func (m *Model) loadTodos() tea.Msg {
 		return todosLoadedMsg{}
 	}
 	return todosLoadedMsg{items: items}
+}
+
+func (m *Model) loadLinkedTasks() tea.Cmd {
+	return func() tea.Msg {
+		tasks := make(map[string]models.TaskContextRecord)
+		for _, item := range m.items {
+			if item.TaskID == nil {
+				continue
+			}
+			tc, err := m.common.Store.GetTaskContext(*item.TaskID)
+			if err != nil || tc == nil {
+				continue
+			}
+			tasks[*item.TaskID] = *tc
+		}
+		return linkedTasksLoadedMsg{tasks: tasks}
+	}
+}
+
+func (m *Model) loadSessionTimes() tea.Cmd {
+	return func() tea.Msg {
+		times := make(map[int]time.Duration)
+		for _, item := range m.items {
+			dur, err := m.common.Store.GetSessionTimeByTodoToday(item.ID)
+			if err == nil && dur > 0 {
+				times[item.ID] = dur
+			}
+		}
+		return sessionTimesLoadedMsg{times: times}
+	}
 }
 
 func (m *Model) toggleCurrent() tea.Cmd {
@@ -287,7 +704,7 @@ func (m *Model) addTodo(text string) tea.Cmd {
 	list := m.activeList
 	return tea.Batch(
 		func() tea.Msg {
-			_, _ = m.common.Store.CreateTodo(text, list)
+			_, _ = m.common.Store.CreateTodo(text, list, nil)
 			return m.loadTodos()
 		},
 		sendStatsRefresh,
@@ -352,6 +769,36 @@ func (m *Model) clampCursor() {
 	}
 }
 
+func (m *Model) totalFocusTime() time.Duration {
+	total := m.totalWallClock
+	if m.focusSince != nil {
+		total += time.Since(*m.focusSince)
+	}
+	return total
+}
+
+// --- Getters for app layer ---
+
+func (m *Model) Visible() bool { return m.visible }
+
+// SetVisible toggles overlay visibility. When showing, reloads todo data.
+func (m *Model) SetVisible(v bool) tea.Cmd {
+	m.visible = v
+	if v {
+		return m.loadTodos
+	}
+	return nil
+}
+
+// TimerSummary returns a compact status for the header, e.g. "● 2 running".
+func (m *Model) TimerSummary() string {
+	n := len(m.runningTimers)
+	if n == 0 {
+		return ""
+	}
+	return fmt.Sprintf("● %d running", n)
+}
+
 func sendModeChange(inputActive bool) tea.Cmd {
 	return func() tea.Msg {
 		return ModeChangeMsg{InputActive: inputActive}
@@ -360,4 +807,16 @@ func sendModeChange(inputActive bool) tea.Cmd {
 
 func sendStatsRefresh() tea.Msg {
 	return models.StatsRefreshMsg{}
+}
+
+func formatDuration(d time.Duration) string {
+	if d < time.Minute {
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	}
+	if d < time.Hour {
+		return fmt.Sprintf("%dm", int(d.Minutes()))
+	}
+	h := int(d.Hours())
+	m := int(d.Minutes()) % 60
+	return fmt.Sprintf("%dh%dm", h, m)
 }

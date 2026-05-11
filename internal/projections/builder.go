@@ -185,10 +185,10 @@ func (b *Builder) applyTodoCreated(ctx context.Context, ev events.Event) error {
 		return err
 	}
 	_, err := b.pool.Exec(ctx, `
-		INSERT INTO proj_todos (id, text, list, status, event_version)
-		VALUES ($1, $2, $3, 'todo', $4)
+		INSERT INTO proj_todos (id, text, list, task_id, status, event_version)
+		VALUES ($1, $2, $3, $4, 'todo', $5)
 		ON CONFLICT (id) DO NOTHING
-	`, ev.AggregateID, p.Text, p.List, ev.EventID)
+	`, ev.AggregateID, p.Text, p.List, p.TaskID, ev.EventID)
 	return err
 }
 

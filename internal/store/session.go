@@ -7,6 +7,36 @@ import (
 	"focus/internal/events"
 )
 
+// GetSessionTimeByTodoToday returns the total completed session duration for a
+// todo item today.
+func (s *Store) GetSessionTimeByTodoToday(todoID int) (time.Duration, error) {
+	tbl := s.tbl("pomodoro_sessions", "proj_pomodoro_sessions")
+	today := time.Now().Format("2006-01-02")
+
+	// Use different duration computation for SQLite vs PostgreSQL.
+	if s.mode == "postgresql" {
+		var seconds float64
+		err := s.qRow(
+			fmt.Sprintf(`SELECT COALESCE(SUM(EXTRACT(EPOCH FROM (end_time - start_time))), 0) FROM %s WHERE linked_todo_id = ? AND date = ? AND status = 'completed'`, tbl),
+			todoID, today,
+		).Scan(&seconds)
+		if err != nil {
+			return 0, err
+		}
+		return time.Duration(seconds) * time.Second, nil
+	}
+
+	var seconds float64
+	err := s.qRow(
+		fmt.Sprintf(`SELECT COALESCE(SUM(CAST((julianday(end_time) - julianday(start_time)) * 86400 AS REAL)), 0) FROM %s WHERE linked_todo_id = ? AND date = ? AND status = 'completed'`, tbl),
+		todoID, today,
+	).Scan(&seconds)
+	if err != nil {
+		return 0, err
+	}
+	return time.Duration(seconds) * time.Second, nil
+}
+
 // StartSession creates a new pomodoro session, optionally linked to a todo.
 func (s *Store) StartSession(linkedTodoID *int) (int64, error) {
 	now := time.Now()

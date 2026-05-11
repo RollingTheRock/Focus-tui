@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"log"
 	"time"
@@ -11,9 +12,9 @@ import (
 )
 
 // CreateTodo inserts a new todo item.
-func (s *Store) CreateTodo(text, list string) (*models.Todo, error) {
-	q := fmt.Sprintf(`INSERT INTO %s (text, list, status) VALUES (?, ?, 'todo') RETURNING id`, s.tbl("todos", "proj_todos"))
-	id, err := s.insertReturningID(q, text, list)
+func (s *Store) CreateTodo(text, list string, taskID *string) (*models.Todo, error) {
+	q := fmt.Sprintf(`INSERT INTO %s (text, list, task_id, status) VALUES (?, ?, ?, 'todo') RETURNING id`, s.tbl("todos", "proj_todos"))
+	id, err := s.insertReturningID(q, text, list, taskID)
 	if err != nil {
 		return nil, err
 	}
@@ -22,9 +23,10 @@ func (s *Store) CreateTodo(text, list string) (*models.Todo, error) {
 	if s.events != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		payload, _ := events.Serialize(map[string]any{
-			"text": text,
-			"list": list,
+		payload, _ := events.Serialize(events.TodoCreatedPayload{
+			Text:   text,
+			List:   list,
+			TaskID: taskID,
 		})
 		todoID := fmt.Sprintf("todo-%d", id)
 		_, evErr := s.events.AppendEvent(ctx, events.Event{
@@ -48,7 +50,7 @@ func (s *Store) CreateTodo(text, list string) (*models.Todo, error) {
 // GetTodo returns a single todo by ID.
 func (s *Store) GetTodo(id int) (*models.Todo, error) {
 	q := fmt.Sprintf(
-		`SELECT id, text, status, list, created_at, updated_at FROM %s WHERE id = ?`,
+		`SELECT id, text, status, list, task_id, created_at, updated_at FROM %s WHERE id = ?`,
 		s.tbl("todos", "proj_todos"),
 	)
 	return scanTodo(s.qRow(q, id))
@@ -57,7 +59,7 @@ func (s *Store) GetTodo(id int) (*models.Todo, error) {
 // ListTodos returns todos for a given list, with done/overdue items sorted to the bottom.
 func (s *Store) ListTodos(list string) ([]models.Todo, error) {
 	q := fmt.Sprintf(`
-		SELECT id, text, status, list, created_at, updated_at
+		SELECT id, text, status, list, task_id, created_at, updated_at
 		FROM %s WHERE list = ?
 		ORDER BY CASE status
 			WHEN 'todo' THEN 0
@@ -73,8 +75,12 @@ func (s *Store) ListTodos(list string) ([]models.Todo, error) {
 	var todos []models.Todo
 	for rows.Next() {
 		var t models.Todo
-		if err := rows.Scan(&t.ID, &t.Text, &t.Status, &t.List, &t.CreatedAt, &t.UpdatedAt); err != nil {
+		var taskID sql.NullString
+		if err := rows.Scan(&t.ID, &t.Text, &t.Status, &t.List, &taskID, &t.CreatedAt, &t.UpdatedAt); err != nil {
 			return nil, err
+		}
+		if taskID.Valid {
+			t.TaskID = &taskID.String
 		}
 		todos = append(todos, t)
 	}
@@ -137,8 +143,12 @@ func (s *Store) TodayDoneCount() (done int, total int, err error) {
 
 func scanTodo(row rowScanner) (*models.Todo, error) {
 	var t models.Todo
-	if err := row.Scan(&t.ID, &t.Text, &t.Status, &t.List, &t.CreatedAt, &t.UpdatedAt); err != nil {
+	var taskID sql.NullString
+	if err := row.Scan(&t.ID, &t.Text, &t.Status, &t.List, &taskID, &t.CreatedAt, &t.UpdatedAt); err != nil {
 		return nil, err
+	}
+	if taskID.Valid {
+		t.TaskID = &taskID.String
 	}
 	return &t, nil
 }
