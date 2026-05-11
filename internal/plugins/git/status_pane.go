@@ -41,6 +41,9 @@ type statusRow struct {
 	path string
 }
 
+// RefreshStatusMsg asks the status pane to fetch latest git status now.
+type RefreshStatusMsg struct{}
+
 func NewStatusPane(id models.PaneID, meta models.PaneMeta, common models.CommonModel, adapter adapters.GitAdapter) *StatusPane {
 	repoPath := meta.CWD
 	if repoPath == "" {
@@ -100,6 +103,9 @@ func (p *StatusPane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 
 	case models.StatsRefreshMsg:
 		return p, nil
+
+	case RefreshStatusMsg:
+		return p, p.refreshCmd()
 	}
 
 	return p, nil

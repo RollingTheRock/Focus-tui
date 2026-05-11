@@ -19,18 +19,18 @@ import (
 // dagPane shows the full Task DAG at the top of the screen.
 // Humans navigate nodes here and decide which task to create a worktree for.
 type dagPane struct {
-	id     models.PaneID
-	meta   models.PaneMeta
-	common models.CommonModel
-	repoID string
+	id      models.PaneID
+	meta    models.PaneMeta
+	common  models.CommonModel
+	repoID  string
 	adapter adapters.GitAdapter
 
-	tasks     []models.TaskContextRecord
-	nodes     map[string]dagNode
-	edges     []dagEdge
-	levels    map[string]int
-	layerIDs  map[int][]string
-	maxLevel  int
+	tasks      []models.TaskContextRecord
+	nodes      map[string]dagNode
+	edges      []dagEdge
+	levels     map[string]int
+	layerIDs   map[int][]string
+	maxLevel   int
 	cursorNode string
 
 	width  int
@@ -477,12 +477,12 @@ type dagCreateWorktreeMsg struct {
 }
 
 type dagLaunchAgentMsg struct {
-	TaskID      string
-	TaskTitle   string
-	RepoID      string
-	WorktreeID  string
-	Provider    agents.Provider
-	ExtraArgs   []string
+	TaskID     string
+	TaskTitle  string
+	RepoID     string
+	WorktreeID string
+	Provider   agents.Provider
+	ExtraArgs  []string
 }
 
 func (p *dagPane) enterCreateMode() {
@@ -558,17 +558,9 @@ func (p *dagPane) View() string {
 	headerRows := 2
 
 	var lines []string
-	if p.creating {
-		lines = append(lines,
-			dagHeaderStyle.Render(" Task DAG ")+
-				dagHintStyle.Render("  [T]asks [A]DRs  [Enter/Ctrl+S]save  [Esc]cancel"),
-		)
-	} else {
-		lines = append(lines,
-			dagHeaderStyle.Render(" Task DAG ")+
-				dagHintStyle.Render("  [j/k]↑↓  [h/l]←→  [enter]open  [s]state  [c]new-wt  [r]research  [a]arch  [T]asks [A]DRs  [n]new-task  [R]refresh"),
-		)
-	}
+	lines = append(lines,
+		dagHeaderStyle.Render(" Task DAG ")+dagHintStyle.Render(dagHelpHint(w, p.creating)),
+	)
 	lines = append(lines, "")
 
 	if !p.hasDAG() && !p.creating {
@@ -618,6 +610,19 @@ func (p *dagPane) View() string {
 	}
 
 	return p.clampAndJoin(lines, h, w)
+}
+
+func dagHelpHint(width int, creating bool) string {
+	if creating {
+		if width < 72 {
+			return "  [enter]save  [tab]switch  [esc]cancel"
+		}
+		return "  [T]asks [A]DRs  [Enter/Ctrl+S]save  [Tab]switch field  [Esc]cancel"
+	}
+	if width < 90 {
+		return "  [j/k]move [h/l]level [enter/c]open/wt [s]state [t]todo [n]new [R]refresh"
+	}
+	return "  [j/k]move  [h/l]level  [enter]open/create  [c]new-wt  [s]state  [t]todo  [n]new-task  [r]research  [a]arch  [T]asks [A]DRs  [R]refresh"
 }
 
 func (p *dagPane) clampAndJoin(lines []string, h, w int) string {

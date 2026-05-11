@@ -7,6 +7,7 @@ import (
 	"focus/internal/styles"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // ────────────────────────────────────────────────────────────
@@ -63,7 +64,7 @@ func buildLayout(
 		w := minColW
 		for _, id := range layerIDs[lv] {
 			n := nodes[id]
-			lw := len(chipLabel(n)) + 4 // [ title ] = title + 2 brackets + 2 spaces
+			lw := ansi.StringWidth(chipLabel(n)) + 4 // [ title ] = title + 2 brackets + 2 spaces
 			if lw > w {
 				w = lw
 			}
@@ -237,9 +238,8 @@ func chipLabel(n dagNode) string {
 		title = shortTaskID(n.ID)
 	}
 	maxTitle := 45
-	runes := []rune(title)
-	if len(runes) > maxTitle {
-		title = string(runes[:maxTitle-3]) + "..."
+	if ansi.StringWidth(title) > maxTitle {
+		title = ansi.Truncate(title, maxTitle, "...")
 	}
 	return title
 }
@@ -664,13 +664,10 @@ func paintNodes(g *dagGrid, l *hLayout, nodes map[string]dagNode, focusID string
 			if title == "" {
 				title = shortTaskID(n.ID)
 			}
-			runes := []rune(title)
-			if len(runes) > maxChipW-2 {
-				title = string(runes[:maxChipW-5]) + "..."
-			}
+			title = ansi.Truncate(title, maxChipW-2, "...")
 			chip = "▸ " + title
 			// Pad to maxChipW so background is consistent
-			pad := maxChipW - len([]rune(chip))
+			pad := maxChipW - ansi.StringWidth(chip)
 			if pad > 0 {
 				chip += strings.Repeat(" ", pad)
 			}
@@ -678,11 +675,8 @@ func paintNodes(g *dagGrid, l *hLayout, nodes map[string]dagNode, focusID string
 			// Normal node: [ title    ] with brackets
 			title := chipLabel(n)
 			innerW := maxChipW - 2 // space inside [ ]
-			trunes := []rune(title)
-			if len(trunes) > innerW {
-				title = string(trunes[:innerW-3]) + "..."
-			}
-			pad := innerW - len([]rune(title))
+			title = ansi.Truncate(title, innerW, "...")
+			pad := innerW - ansi.StringWidth(title)
 			if pad < 0 {
 				pad = 0
 			}
@@ -692,7 +686,7 @@ func paintNodes(g *dagGrid, l *hLayout, nodes map[string]dagNode, focusID string
 		// Draw chip starting at colX+1 (arrow will be at colX if any)
 		g.putStr(colX+1, row, chip)
 
-		boxes = append(boxes, nodeBox{id: id, x: colX + 1, y: row, w: len([]rune(chip)), state: n.State})
+		boxes = append(boxes, nodeBox{id: id, x: colX + 1, y: row, w: ansi.StringWidth(chip), state: n.State})
 	}
 	return boxes
 }
@@ -705,26 +699,26 @@ func nodeStyle(state string, focus bool) lipgloss.Style {
 		return lipgloss.NewStyle().
 			Bold(true).
 			Foreground(lipgloss.Color("#ffffff")).
-			Background(lipgloss.Color("#5a5080"))
+			Background(styles.AccentDim)
 	}
 	switch state {
 	case "active":
-		return lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#5ea3f4"))
+		return lipgloss.NewStyle().Bold(true).Foreground(styles.StateActive)
 	case "paused":
-		return lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#f5a623"))
+		return lipgloss.NewStyle().Bold(true).Foreground(styles.StatePaused)
 	case "blocked":
-		return lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#f44747"))
+		return lipgloss.NewStyle().Bold(true).Foreground(styles.StateBlocked)
 	case "done":
-		return lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#4ec94e"))
+		return lipgloss.NewStyle().Bold(true).Foreground(styles.StateDone)
 	case "ready":
-		return lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#56d8d8"))
+		return lipgloss.NewStyle().Bold(true).Foreground(styles.StateReady)
 	default:
-		return lipgloss.NewStyle().Foreground(lipgloss.Color("#999999"))
+		return lipgloss.NewStyle().Foreground(styles.StateIdle)
 	}
 }
 
 var (
-	stEdge   = lipgloss.NewStyle().Foreground(lipgloss.Color("#777777"))
+	stEdge   = lipgloss.NewStyle().Foreground(styles.StateIdle)
 	stFocusE = lipgloss.NewStyle().Foreground(styles.Accent)
 	stPrefix = lipgloss.NewStyle().Bold(true).Foreground(styles.Accent)
 )

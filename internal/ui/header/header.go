@@ -14,6 +14,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // Model is the Header sub-model.
@@ -187,15 +188,27 @@ func (m *Model) ViewCompact(w int, showQuote bool) string {
 	if w <= 0 {
 		w = 78
 	}
+	if w < 36 {
+		line := fmt.Sprintf("%s  ✓%d/%d", m.timeStr, m.todoDone, m.todoTotal)
+		return lipgloss.NewStyle().MaxWidth(w).Render(ansi.Truncate(line, w, "…"))
+	}
 
 	statsBlock := fmt.Sprintf("🍅x%d ✓%d/%d", m.pomoCount, m.todoDone, m.todoTotal)
-	weatherBlock := m.theme.NormalStyle.Render(" " + m.weather)
+	weatherText := strings.TrimSpace(m.weather)
+	if w < 56 {
+		weatherText = ansi.Truncate(weatherText, 16, "…")
+	}
+	weatherBlock := m.theme.NormalStyle.Render(" " + weatherText)
 	timeBlock := m.theme.NormalStyle.Render(m.timeStr + " ")
 	statsStyle := lipgloss.NewStyle().Foreground(styles.Accent).Bold(true)
 	statsRendered := statsStyle.Render(statsBlock)
 
 	leftWidth := lipgloss.Width(weatherBlock) + lipgloss.Width(timeBlock) + lipgloss.Width(statsRendered) + 2
-	timeStyle := lipgloss.NewStyle().Width(w - leftWidth).Align(lipgloss.Right)
+	remaining := w - leftWidth
+	if remaining < 0 {
+		remaining = 0
+	}
+	timeStyle := lipgloss.NewStyle().Width(remaining).Align(lipgloss.Right)
 
 	timeLine := lipgloss.JoinHorizontal(
 		lipgloss.Top,
@@ -203,13 +216,22 @@ func (m *Model) ViewCompact(w int, showQuote bool) string {
 		timeBlock,
 		timeStyle.Render(statsRendered),
 	)
+	timeLine = lipgloss.NewStyle().MaxWidth(w).Render(timeLine)
 
 	if !showQuote || m.quote == "" {
 		return timeLine
 	}
+	if w < 52 {
+		return timeLine
+	}
 
 	quoteStyle := lipgloss.NewStyle().Foreground(styles.Subtle).Italic(true)
-	quoteLine := quoteStyle.Render(" \"" + m.quote + "\"")
+	quoteW := w - 4
+	if quoteW < 10 {
+		quoteW = 10
+	}
+	quoteText := ansi.Truncate(strings.TrimSpace(m.quote), quoteW, "…")
+	quoteLine := quoteStyle.Render(" \"" + quoteText + "\"")
 
 	return timeLine + "\n" + quoteLine
 }

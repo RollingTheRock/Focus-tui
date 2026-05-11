@@ -525,9 +525,9 @@ func (p *page) activeOverlayPane() models.PaneID {
 	if _, ok := p.paneMeta[paneWorktreeDeleteConfirm]; ok {
 		return paneWorktreeDeleteConfirm
 	}
-		if _, ok := p.paneMeta[paneADRDetail]; ok {
-			return paneADRDetail
-		}
+	if _, ok := p.paneMeta[paneADRDetail]; ok {
+		return paneADRDetail
+	}
 	return ""
 }
 
@@ -674,16 +674,30 @@ func (p *page) overlayContentSize() (int, int) {
 	bounds := p.bodyBoundsSize()
 
 	if tp, ok := p.pane(paneTodoOverlay).(*todo.Model); ok && tp.Visible() {
-		width := bounds.W - 8
-		if width > 70 {
-			width = 70
+		var width int
+		switch {
+		case bounds.W >= 140:
+			width = 84
+		case bounds.W >= 100:
+			width = 72
+		case bounds.W >= 80:
+			width = 64
+		default:
+			width = bounds.W - 4
+		}
+		if width > bounds.W-2 {
+			width = bounds.W - 2
 		}
 		if width < 30 {
 			width = 30
 		}
-		height := bounds.H - 4
-		if height > 24 {
-			height = 24
+
+		height := int(float64(bounds.H) * 0.78)
+		if height < 14 {
+			height = 14
+		}
+		if height > bounds.H-3 {
+			height = bounds.H - 3
 		}
 		if height < 8 {
 			height = 8
@@ -786,7 +800,7 @@ func (p *page) renderOverlayPane(base string, id models.PaneID) string {
 	} else {
 		overlayW, overlayH = p.overlayContentSize()
 	}
-		panel.SetSize(overlayW, overlayH)
+	panel.SetSize(overlayW, overlayH)
 	overlayView := layout.RenderPanel(p.renderPaneTitle(id, p.focused, ModeNormal, overlayW), panel.View(), overlayW, overlayH, true)
 	bounds := p.bodyBoundsSize()
 	x := bounds.X + (bounds.W-(overlayW+4))/2
