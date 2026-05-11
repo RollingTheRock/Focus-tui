@@ -1401,20 +1401,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.invalidateView()
 		return m, batchCmds(cmds)
 
-		case dagAddTaskToTodoMsg:
-			if m.common.Store != nil {
-				taskID := msg.TaskID
-				_, err := m.common.Store.CreateTodo(msg.TaskTitle, "today", &taskID)
-				if err == nil {
-					m.notifications = append(m.notifications, orchestrator.Notification{
-						Title:    "Todo",
-						Body:     fmt.Sprintf("Added \"%s\" to today", msg.TaskTitle),
-						Severity: "info",
-					})
-					m.invalidateView()
-				}
+	case dagAddTaskToTodoMsg:
+		if m.common.Store != nil {
+			taskID := msg.TaskID
+			_, err := m.common.Store.CreateTodo(msg.TaskTitle, "today", &taskID)
+			if err == nil {
+				m.notifications = append(m.notifications, orchestrator.Notification{
+					Title:    "Todo",
+					Body:     fmt.Sprintf("Added \"%s\" to today", msg.TaskTitle),
+					Severity: "info",
+				})
+				m.invalidateView()
 			}
-			return m, nil
+		}
+		return m, nil
 
 	case dagTaskCreatedMsg:
 		if m.common == nil || m.common.Store == nil || m.cmdBus == nil {
@@ -1531,24 +1531,24 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.invalidateView()
 		return m, nil
 
-		case todo.OverlayVisibleMsg:
-			if !msg.Visible {
-				if prev, ok := m.activePage.returnFocus[paneTodoOverlay]; ok {
-					m.setFocus(prev)
-					delete(m.activePage.returnFocus, paneTodoOverlay)
-				}
-				m.invalidateView()
-			}
-			return m, nil
-
-		case todo.ModeChangeMsg:
-			if msg.InputActive {
-				m.mode = ModeInput
-			} else {
-				m.mode = ModeNormal
+	case todo.OverlayVisibleMsg:
+		if !msg.Visible {
+			if prev, ok := m.activePage.returnFocus[paneTodoOverlay]; ok {
+				m.setFocus(prev)
+				delete(m.activePage.returnFocus, paneTodoOverlay)
 			}
 			m.invalidateView()
-			return m, nil
+		}
+		return m, nil
+
+	case todo.ModeChangeMsg:
+		if msg.InputActive {
+			m.mode = ModeInput
+		} else {
+			m.mode = ModeNormal
+		}
+		m.invalidateView()
+		return m, nil
 
 	case closeADRDetailMsg:
 		m.closePane(paneADRDetail)
@@ -1725,7 +1725,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			session.ExtraArgs = append(session.ExtraArgs, "--continue")
 		}
 		m.saveAgentSession(session)
-			_ = m.prepareAgentProfile(session)
+		_ = m.prepareAgentProfile(session)
 		if m.agentRegistry != nil {
 			m.agentRegistry.Register(session)
 		}
@@ -1942,6 +1942,8 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	switch msg.String() {
+	case "ctrl+r":
+		return m, m.globalRefreshCmd()
 	case "q", "ctrl+c":
 		m.closeShellPanes()
 		return m, tea.Quit
@@ -2030,6 +2032,47 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+func (m model) globalRefreshCmd() tea.Cmd {
+	var cmds []tea.Cmd
+
+	repoID := m.currentRepoID()
+	if meta, ok := m.activePage.paneMeta[paneDAG]; ok && strings.TrimSpace(meta.RepoID) != "" {
+		repoID = meta.RepoID
+	}
+	if repoID == "" {
+		repoID = m.gitRepoPath()
+	}
+
+	if _, ok := m.activePage.paneMeta[paneDAG]; ok {
+		if cmd := m.routeToPane(paneDAG, dagRefreshMsg{repoID: repoID}); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	}
+	if _, ok := m.activePage.paneMeta[paneWorktree]; ok {
+		if cmd := m.routeToPane(paneWorktree, gitplugin.RefreshWorktreesMsg{}); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	}
+	if _, ok := m.activePage.paneMeta[paneWorktreeDetail]; ok {
+		if cmd := m.routeToPane(paneWorktreeDetail, refreshWorktreeDetailMsg{}); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	}
+	if _, ok := m.activePage.paneMeta[paneTodoOverlay]; ok {
+		if cmd := m.routeToPane(paneTodoOverlay, todo.RefreshTodosMsg{}); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	}
+
+	if ft, ok := m.pane(paneFooter).(*footer.Model); ok {
+		if cmd := ft.Refresh(); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	}
+
+	return batchCmds(cmds)
 }
 
 func (m *model) setPaneStatus(id models.PaneID, status models.PaneStatus) {
@@ -2626,7 +2669,7 @@ func (m model) buildView(dims layout.Dimensions, w, h int) string {
 }
 
 func (m model) renderNotificationBar(w int) string {
-	if len(m.notifications) == 0 {
+	if len(m.notifications) == 0 || w <= 0 {
 		return ""
 	}
 	n := m.notifications[0]
@@ -2645,6 +2688,8 @@ func (m model) renderNotificationBar(w int) string {
 		countHint = fmt.Sprintf(" [%d more]", len(m.notifications)-1)
 	}
 	text := fmt.Sprintf("%s %s: %s%s [d]dismiss", icon, n.Title, n.Body, countHint)
+	// Keep notification bar strictly single-line so body height math remains stable.
+	text = truncateToWidth(text, max(0, w-2))
 	style := lipgloss.NewStyle().
 		Width(w).
 		Background(bgColor).
@@ -2690,58 +2735,193 @@ func (m model) renderHelpLine(w int) string {
 		return renderCompactHelpLine(helpStyle, text, w)
 	}
 
-	left := "[tab]cycle focus  [enter]activate"
-	compact := "[tab]cycle  [enter]open  [q]uit"
+	left := []helpAction{
+		{Key: "tab", Label: "cycle focus"},
+		{Key: "enter", Label: "activate"},
+	}
+	compact := []helpAction{
+		{Key: "tab", Label: "cycle"},
+		{Key: "enter", Label: "open"},
+		{Key: "q", Label: "quit"},
+	}
 	switch m.activePage.focused {
 	case paneDAG:
-		left = "[j/k]nav  [h/l]pan  [enter]create worktree  [r]esearch  [a]rch  [s]tart agent  [t]odo  [tab]cycle focus"
-		compact = "[j/k]nav  [enter]create  [r/a/s/t]agents/todo"
+		left = []helpAction{
+			{Key: "j/k", Label: "move"},
+			{Key: "h/l", Label: "level"},
+			{Key: "enter", Label: "open/create"},
+			{Key: "c", Label: "new-wt"},
+			{Key: "s", Label: "state"},
+			{Key: "t", Label: "todo"},
+			{Key: "n", Label: "new-task"},
+			{Key: "r", Label: "research"},
+			{Key: "a", Label: "arch"},
+			{Key: "R", Label: "refresh"},
+		}
+		compact = []helpAction{
+			{Key: "j/k", Label: "move"},
+			{Key: "h/l", Label: "level"},
+			{Key: "enter/c", Label: "open/wt"},
+			{Key: "s", Label: "state"},
+			{Key: "t", Label: "todo"},
+		}
 	case paneWorktree:
-		left = "[j/k]nav  [enter]select  [n]ew  [d]elete  [o]shell  [tab]cycle focus"
-		compact = "[j/k]nav  [enter]select  [n]ew  [d]el"
+		left = []helpAction{
+			{Key: "j/k", Label: "nav"},
+			{Key: "enter", Label: "select"},
+			{Key: "n", Label: "new"},
+			{Key: "d", Label: "el"},
+			{Key: "o", Label: "shell"},
+			{Key: "tab", Label: "cycle focus"},
+		}
+		compact = []helpAction{
+			{Key: "j/k", Label: "nav"},
+			{Key: "enter", Label: "select"},
+			{Key: "n", Label: "new"},
+			{Key: "d", Label: "del"},
+		}
 	case paneWorktreeDetail:
 		if dp, ok := m.activePage.pane(paneWorktreeDetail).(*worktreeDetailPane); ok {
-			left, compact = dp.helpText()
+			leftText, compactText := dp.helpText()
+			left = []helpAction{{Key: leftText, Label: ""}}
+			compact = []helpAction{{Key: compactText, Label: ""}}
 		} else {
-			left = "[1-3]tabs  [j/k]nav  [enter]open  [tab]cycle focus"
-			compact = "[1-3]tabs  [j/k]nav  [enter]open"
+			left = []helpAction{
+				{Key: "1-3", Label: "tabs"},
+				{Key: "j/k", Label: "nav"},
+				{Key: "enter", Label: "open"},
+				{Key: "tab", Label: "cycle focus"},
+			}
+			compact = []helpAction{
+				{Key: "1-3", Label: "tabs"},
+				{Key: "j/k", Label: "nav"},
+				{Key: "enter", Label: "open"},
+			}
 		}
 	case paneShell:
 		switch m.activePage.paneMeta[m.activePage.focused].Status {
 		case models.PaneStatusExited:
-			left = "[tab]cycle focus  [enter]restart shell"
-			compact = "[enter]restart  [q]uit"
+			left = []helpAction{
+				{Key: "tab", Label: "cycle focus"},
+				{Key: "enter", Label: "restart shell"},
+			}
+			compact = []helpAction{
+				{Key: "enter", Label: "restart"},
+				{Key: "q", Label: "quit"},
+			}
 		case models.PaneStatusStarting:
-			left = "[tab]cycle focus  [shell starting]"
-			compact = "[shell starting]"
+			left = []helpAction{{Key: "shell starting", Label: ""}}
+			compact = []helpAction{{Key: "shell starting", Label: ""}}
 		default:
-			left = "[tab]cycle focus  [enter]shell  [alt+z]external  [ctrl+g]overview"
-			compact = "[enter]shell  [alt+z]ext  [ctrl+g]overview"
+			left = []helpAction{
+				{Key: "tab", Label: "cycle focus"},
+				{Key: "enter", Label: "shell"},
+				{Key: "alt+z", Label: "external"},
+				{Key: "ctrl+g", Label: "overview"},
+			}
+			compact = []helpAction{
+				{Key: "enter", Label: "shell"},
+				{Key: "alt+z", Label: "ext"},
+				{Key: "ctrl+g", Label: "overview"},
+			}
 		}
 	default:
 		switch focusedType {
 		case models.PaneTypeEditor:
-			left = "[ctrl+s]save  [ctrl+f /]search  [:]line  [n/N]result  [esc]close"
-			compact = "[ctrl+s]save  [/]search  [:]line"
+			left = []helpAction{
+				{Key: "ctrl+s", Label: "save"},
+				{Key: "ctrl+f /", Label: "search"},
+				{Key: ":", Label: "line"},
+				{Key: "n/N", Label: "result"},
+				{Key: "esc", Label: "close"},
+			}
+			compact = []helpAction{
+				{Key: "ctrl+s", Label: "save"},
+				{Key: "/", Label: "search"},
+				{Key: ":", Label: "line"},
+			}
 		case models.PaneTypeDiffView:
-			left = "[enter]open file  [s]toggle staged  [[]/[]]files  [j/k]scroll  [wheel]scroll  [q/esc]close review"
-			compact = "[enter]open  [s]toggle  [wheel]scroll"
+			left = []helpAction{
+				{Key: "enter", Label: "open file"},
+				{Key: "s", Label: "toggle staged"},
+				{Key: "[]/[]", Label: "files"},
+				{Key: "j/k", Label: "scroll"},
+				{Key: "wheel", Label: "scroll"},
+				{Key: "q/esc", Label: "close review"},
+			}
+			compact = []helpAction{
+				{Key: "enter", Label: "open"},
+				{Key: "s", Label: "toggle"},
+				{Key: "wheel", Label: "scroll"},
+			}
 		}
 	}
 	if w < simplifiedHelpMaxWidth {
-		return renderCompactHelpLine(helpStyle, compact, w)
+		return renderCompactHelpLine(helpStyle, joinHelpActions(compact), w)
 	}
-	right := "[q]uit"
-	return renderHelpBar(helpStyle, left, right, w)
+	right := "[ctrl+r]refresh  [q]uit"
+	return renderHelpBar(helpStyle, joinHelpActions(left), right, w)
 }
 func renderHelpBar(helpStyle lipgloss.Style, left, right string, w int) string {
+	if w <= 0 {
+		return ""
+	}
+	if w <= 2 {
+		return helpStyle.Render(strings.Repeat(" ", w))
+	}
 	leftRendered := helpStyle.Render("  " + left)
 	rightRendered := helpStyle.Render(right + "  ")
+	if lipgloss.Width(leftRendered)+lipgloss.Width(rightRendered) >= w {
+		compact := truncateToWidth(left+"  "+right, w-2)
+		return helpStyle.Render("  " + compact)
+	}
 	gap := w - lipgloss.Width(leftRendered) - lipgloss.Width(rightRendered)
 	if gap < 1 {
 		gap = 1
 	}
 	return leftRendered + strings.Repeat(" ", gap) + rightRendered
+}
+
+func truncateToWidth(text string, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	if ansi.StringWidth(text) <= width {
+		return text
+	}
+	if width == 1 {
+		return "…"
+	}
+	return ansi.Truncate(text, width, "…")
+}
+
+type helpAction struct {
+	Key   string
+	Label string
+}
+
+func joinHelpActions(actions []helpAction) string {
+	if len(actions) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(actions))
+	for _, a := range actions {
+		key := strings.TrimSpace(a.Key)
+		label := strings.TrimSpace(a.Label)
+		if key == "" && label == "" {
+			continue
+		}
+		if label == "" {
+			if strings.Contains(key, "[") {
+				parts = append(parts, key)
+				continue
+			}
+			parts = append(parts, "["+key+"]")
+			continue
+		}
+		parts = append(parts, "["+key+"]"+label)
+	}
+	return strings.Join(parts, "  ")
 }
 
 func renderCompactHelpLine(helpStyle lipgloss.Style, text string, w int) string {

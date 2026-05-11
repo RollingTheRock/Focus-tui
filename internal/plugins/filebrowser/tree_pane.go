@@ -15,7 +15,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-const refreshInterval = time.Second
+const refreshInterval = 8 * time.Second
 
 type TreePane struct {
 	id     models.PaneID
@@ -51,6 +51,9 @@ type treeRefreshMsg struct {
 
 type treeTickMsg struct{}
 
+// RefreshTreeMsg triggers an immediate tree refresh.
+type RefreshTreeMsg struct{}
+
 func NewTreePane(id models.PaneID, meta models.PaneMeta, common models.CommonModel) *TreePane {
 	cwd := meta.CWD
 	if cwd == "" {
@@ -83,6 +86,10 @@ func (p *TreePane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 	case treeTickMsg:
 		return p, tea.Batch(p.refreshTreeCmd(), p.refreshTickCmd())
 
+	case RefreshTreeMsg:
+		p.loading = true
+		return p, p.refreshTreeCmd()
+
 	case tea.KeyMsg:
 		return p.updateKey(msg)
 	}
@@ -114,8 +121,15 @@ func (p *TreePane) View() string {
 	}
 
 	start, end := p.visibleRange()
+	lines = append(lines, metaStyle.Render(fmt.Sprintf("  %d/%d", p.cursor+1, len(p.flatList))))
+	if start > 0 {
+		lines = append(lines, metaStyle.Render(fmt.Sprintf("  ▲ %d hidden", start)))
+	}
 	for index := start; index < end; index++ {
 		lines = append(lines, p.renderNode(index, p.flatList[index], width))
+	}
+	if end < len(p.flatList) {
+		lines = append(lines, metaStyle.Render(fmt.Sprintf("  ▼ %d hidden", len(p.flatList)-end)))
 	}
 
 	return p.fitHeight(lines, width)
@@ -153,6 +167,9 @@ func (p *TreePane) updateKey(msg tea.KeyMsg) (models.Panel, tea.Cmd) {
 			return p, nil
 		}
 		return p, openEditorCmd(node.Path, editorplugin.OpenBehaviorVSplit)
+	case "r":
+		p.loading = true
+		return p, p.refreshTreeCmd()
 	case "enter", " ", "right", "left":
 		node := p.selectedNode()
 		if node == nil {
@@ -274,11 +291,11 @@ func (p *TreePane) fitHeight(lines []string, width int) string {
 }
 
 func (p *TreePane) visibleRange() (int, int) {
-	if p.height <= 1 {
+	if p.height <= 3 {
 		return 0, len(p.flatList)
 	}
 
-	bodyHeight := p.height - 1
+	bodyHeight := p.height - 3 // cwd + position + at least one list row
 	if bodyHeight <= 0 || len(p.flatList) <= bodyHeight {
 		return 0, len(p.flatList)
 	}

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"focus/internal/adapters"
 	"focus/internal/agents"
@@ -14,13 +15,17 @@ import (
 	gitplugin "focus/internal/plugins/git"
 	"focus/internal/render"
 	"focus/internal/store"
+	"focus/internal/styles"
 	"focus/internal/ui/footer"
 	"focus/internal/ui/header"
 	"focus/internal/ui/layout"
 	"focus/internal/ui/shell"
 	"focus/internal/ui/todo"
 
+	"github.com/charmbracelet/x/ansi"
+
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 // page holds the pane collection, layout tree, and focus state for a single
@@ -520,9 +525,9 @@ func (p *page) activeOverlayPane() models.PaneID {
 	if _, ok := p.paneMeta[paneWorktreeDeleteConfirm]; ok {
 		return paneWorktreeDeleteConfirm
 	}
-		if _, ok := p.paneMeta[paneADRDetail]; ok {
-			return paneADRDetail
-		}
+	if _, ok := p.paneMeta[paneADRDetail]; ok {
+		return paneADRDetail
+	}
 	return ""
 }
 
@@ -624,6 +629,7 @@ func (p *page) renderBody(w, h int, overlay OverlayKind) string {
 	}
 
 	if overlayID := p.activeOverlayPane(); overlayID != "" {
+		base = dimCanvas(base)
 		base = p.renderOverlayPane(base, overlayID)
 	}
 
@@ -668,16 +674,30 @@ func (p *page) overlayContentSize() (int, int) {
 	bounds := p.bodyBoundsSize()
 
 	if tp, ok := p.pane(paneTodoOverlay).(*todo.Model); ok && tp.Visible() {
-		width := bounds.W - 8
-		if width > 70 {
-			width = 70
+		var width int
+		switch {
+		case bounds.W >= 140:
+			width = 84
+		case bounds.W >= 100:
+			width = 72
+		case bounds.W >= 80:
+			width = 64
+		default:
+			width = bounds.W - 4
+		}
+		if width > bounds.W-2 {
+			width = bounds.W - 2
 		}
 		if width < 30 {
 			width = 30
 		}
-		height := bounds.H - 4
-		if height > 24 {
-			height = 24
+
+		height := int(float64(bounds.H) * 0.78)
+		if height < 14 {
+			height = 14
+		}
+		if height > bounds.H-3 {
+			height = bounds.H - 3
 		}
 		if height < 8 {
 			height = 8
@@ -753,6 +773,21 @@ func (p *page) isLargeOverlayPane(id models.PaneID) bool {
 	return false
 }
 
+// dimCanvas strips existing ANSI colors and re-renders every non-empty line
+// with a subtle gray foreground, dimming the entire base canvas so an overlay
+// popped on top gains clear visual hierarchy.
+func dimCanvas(s string) string {
+	lines := strings.Split(s, "\n")
+	for i, line := range lines {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		plain := ansi.Strip(line)
+		lines[i] = lipgloss.NewStyle().Foreground(styles.Subtle).Render(plain)
+	}
+	return strings.Join(lines, "\n")
+}
+
 func (p *page) renderOverlayPane(base string, id models.PaneID) string {
 	panel := p.pane(id)
 	if panel == nil {
@@ -765,7 +800,7 @@ func (p *page) renderOverlayPane(base string, id models.PaneID) string {
 	} else {
 		overlayW, overlayH = p.overlayContentSize()
 	}
-		panel.SetSize(overlayW, overlayH)
+	panel.SetSize(overlayW, overlayH)
 	overlayView := layout.RenderPanel(p.renderPaneTitle(id, p.focused, ModeNormal, overlayW), panel.View(), overlayW, overlayH, true)
 	bounds := p.bodyBoundsSize()
 	x := bounds.X + (bounds.W-(overlayW+4))/2

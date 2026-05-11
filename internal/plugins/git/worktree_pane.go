@@ -15,6 +15,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 var (
@@ -276,33 +277,32 @@ func (p *WorktreePane) Render(canvas render.Surface, width, height int) {
 	if len(visible) == 0 {
 		lines = append(lines, renderedLine{content: "No worktrees found.", style: &emptyStyle})
 	} else {
-		for i, wt := range visible {
-			line := p.renderWorktreeRow(wt)
-			style := (*lipgloss.Style)(nil)
-			if i == p.cursor {
-				style = &selectedRowStyle
-			}
-			lines = append(lines, renderedLine{content: line, style: style})
+		tail := p.tailLines()
+		rowBudget := height - len(lines) - len(tail)
+		if rowBudget < 1 {
+			rowBudget = 1
 		}
-	}
-
-	lines = append(lines, renderedLine{content: "", style: nil})
-	lines = append(lines, renderedLine{
-		content: taskStateActiveStyle.Render("●") + " active  " +
-			taskStatePausedStyle.Render("◐") + " paused  " +
-			taskStateBlockedStyle.Render("◍") + " blocked  " +
-			taskStateDoneStyle.Render("✓") + " done  " +
-			taskStateNoneStyle.Render("○") + " none",
-		style: nil,
-	})
-
-	if p.notice != "" {
-		lines = append(lines, renderedLine{content: "", style: nil})
-		lines = append(lines, renderedLine{content: p.notice, style: &upstreamStyle})
-	}
-	if p.err != nil {
-		lines = append(lines, renderedLine{content: "", style: nil})
-		lines = append(lines, renderedLine{content: p.err.Error(), style: &errorStyle})
+		start, end, showUp, showDown := p.computeWorktreeWindow(len(visible), rowBudget)
+		if showUp {
+			lines = append(lines, renderedLine{
+				content: fmt.Sprintf("▲ %d hidden", start),
+				style:   &upstreamStyle,
+			})
+		}
+		for i := start; i < end; i++ {
+			primary, secondary := p.renderWorktreeRow(visible[i], width, i)
+			metaPrimary := &rowMeta{selected: i == p.cursor, striped: i%2 == 1, secondary: false}
+			metaSecondary := &rowMeta{selected: i == p.cursor, striped: i%2 == 1, secondary: true}
+			lines = append(lines, renderedLine{content: primary, rowMeta: metaPrimary})
+			lines = append(lines, renderedLine{content: secondary, rowMeta: metaSecondary})
+		}
+		if showDown {
+			lines = append(lines, renderedLine{
+				content: fmt.Sprintf("▼ %d hidden", len(visible)-end),
+				style:   &upstreamStyle,
+			})
+		}
+		lines = append(lines, tail...)
 	}
 
 	if height > 0 && len(lines) > height {
@@ -313,6 +313,10 @@ func (p *WorktreePane) Render(canvas render.Surface, width, height int) {
 		if y >= height {
 			break
 		}
+		if line.rowMeta != nil {
+			canvas.SetString(0, y, p.renderRowLine(line.content, width, line.rowMeta), nil)
+			continue
+		}
 		s := line.style
 		if s == nil {
 			canvas.SetString(0, y, maxWidthStyle.Render(line.content), nil)
@@ -322,9 +326,99 @@ func (p *WorktreePane) Render(canvas render.Surface, width, height int) {
 	}
 }
 
+func (p *WorktreePane) renderRowLine(content string, width int, meta *rowMeta) string {
+	if meta == nil {
+		return content
+	}
+	if width <= 0 {
+		width = 40
+	}
+	contentW := width - 2
+	if contentW < 1 {
+		contentW = 1
+	}
+
+	if meta.selected {
+		// Row-level background cannot reliably wrap nested ANSI spans (resets create visual holes).
+		// For selected rows we strip nested styling and apply one unified container style.
+		plain := ansi.Strip(content)
+		trimmed := ansi.Truncate(plain, contentW, "…")
+		if meta.secondary {
+			return rowRailSecondaryStyle.Render("▌ ") + selectedSecondaryRowStyle.Width(contentW).Render(trimmed)
+		}
+		return rowRailStyle.Render("▌ ") + selectedRowStyle.Width(contentW).Render(trimmed)
+	}
+
+	trimmed := ansi.Truncate(content, contentW, "…")
+	if meta.striped {
+		return rowStripeRailStyle.Render("┆ ") + lipgloss.NewStyle().Width(contentW).Render(trimmed)
+	}
+	return "  " + lipgloss.NewStyle().Width(contentW).Render(trimmed)
+}
+
+func (p *WorktreePane) tailLines() []renderedLine {
+	lines := []renderedLine{
+		{content: "", style: nil},
+		{content: taskStateActiveStyle.Render("●") + " active  " +
+			taskStatePausedStyle.Render("◐") + " paused  " +
+			taskStateBlockedStyle.Render("◍") + " blocked  " +
+			taskStateDoneStyle.Render("✓") + " done  " +
+			taskStateNoneStyle.Render("○") + " none", style: nil},
+	}
+	visibleCount := len(p.visibleWorktrees())
+	pos := "0/0"
+	if visibleCount > 0 {
+		pos = fmt.Sprintf("%d/%d", p.cursor+1, visibleCount)
+	}
+	lines = append(lines, renderedLine{content: "position " + pos, style: &upstreamStyle})
+	if p.notice != "" {
+		lines = append(lines, renderedLine{content: "", style: nil})
+		lines = append(lines, renderedLine{content: p.notice, style: &upstreamStyle})
+	}
+	if p.err != nil {
+		lines = append(lines, renderedLine{content: "", style: nil})
+		lines = append(lines, renderedLine{content: p.err.Error(), style: &errorStyle})
+	}
+	return lines
+}
+
+func (p *WorktreePane) computeWorktreeWindow(total, rowBudget int) (start, end int, showUp, showDown bool) {
+	if total <= 0 {
+		return 0, 0, false, false
+	}
+	if total <= 2 {
+		return 0, total, false, false
+	}
+	rowsPerItem := 2
+	visibleItems := rowBudget / rowsPerItem
+	if visibleItems < 1 {
+		visibleItems = 1
+	}
+	if total <= visibleItems {
+		return 0, total, false, false
+	}
+	start = p.cursor - visibleItems/2
+	if start < 0 {
+		start = 0
+	}
+	end = start + visibleItems
+	if end > total {
+		end = total
+		start = end - visibleItems
+	}
+	return start, end, start > 0, end < total
+}
+
 type renderedLine struct {
 	content string
 	style   *lipgloss.Style
+	rowMeta *rowMeta
+}
+
+type rowMeta struct {
+	selected  bool
+	striped   bool
+	secondary bool
 }
 
 func (p *WorktreePane) SetSize(width, height int) {
@@ -357,7 +451,7 @@ func (p *WorktreePane) loadWorktreesCmd() tea.Cmd {
 	}
 }
 
-func (p *WorktreePane) renderWorktreeRow(wt gitmodel.Worktree) string {
+func (p *WorktreePane) renderWorktreeRow(wt gitmodel.Worktree, width int, _ int) (string, string) {
 	summary := p.summaries[wt.Path]
 	title := wt.DisplayName()
 	if summary.TaskTitle != "" {
@@ -366,14 +460,11 @@ func (p *WorktreePane) renderWorktreeRow(wt gitmodel.Worktree) string {
 
 	// state indicator
 	stateSymbol, stateStyle := taskStateIndicator(summary.TaskState)
-	line := stateStyle.Render(stateSymbol) + " " + title
+	primaryRaw := stateStyle.Render(stateSymbol) + " " + lipgloss.NewStyle().Bold(true).Foreground(styles.Text).Render(title)
 
 	branchText := wt.Branch
 	if branchText == "" && wt.HeadOID != "" {
 		branchText = wt.HeadOID[:7]
-	}
-	if branchText != "" {
-		line += "  " + branchStyle.Render(branchText)
 	}
 
 	var marks []string
@@ -387,19 +478,30 @@ func (p *WorktreePane) renderWorktreeRow(wt gitmodel.Worktree) string {
 	if activity.AgentCount > 0 {
 		marks = append(marks, fmt.Sprintf("agent:%d", activity.AgentCount))
 	}
-	if len(marks) > 0 {
-		line += "  " + upstreamStyle.Render(strings.Join(marks, " "))
+	if branchText != "" {
+		marks = append([]string{"branch:" + branchText}, marks...)
 	}
 
 	// cleanup hint for done tasks
 	if summary.TaskState == "done" {
 		if wt.DirtySummary.IsDirty() {
-			line += "  " + cleanupHintStyle.Render("[commit first]")
+			marks = append(marks, "commit first")
 		} else {
-			line += "  " + cleanupHintStyle.Render("[d del]")
+			marks = append(marks, "d del")
 		}
 	}
-	return line
+	secondaryRaw := strings.Join(marks, " · ")
+	if len(marks) == 0 {
+		secondaryRaw = shortenWorktreePath(wt.Path)
+	}
+
+	available := width - 2 // leave space for row rail
+	if available <= 0 {
+		available = 40
+	}
+	primary := ansi.Truncate(primaryRaw, available, "…")
+	secondary := cleanupHintStyle.Render(ansi.Truncate(secondaryRaw, available, "…"))
+	return primary, secondary
 }
 
 func taskStateIndicator(state string) (string, lipgloss.Style) {

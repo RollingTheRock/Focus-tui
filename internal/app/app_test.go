@@ -20,6 +20,8 @@ import (
 	"focus/internal/ui/shell"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 type fakePanel struct {
@@ -158,6 +160,53 @@ func TestRenderHelpLineForWorktreePaneIncludesRefreshShortcut(t *testing.T) {
 		if !strings.Contains(help, want) {
 			t.Fatalf("expected help line to contain %q, got %q", want, help)
 		}
+	}
+}
+
+func TestRenderHelpLineForDAGMatchesCurrentKeybindings(t *testing.T) {
+	cfg := config.DefaultConfig()
+	st, _ := store.New(":memory:")
+	m := New(cfg, st).(model)
+	m.activePage.focused = paneDAG
+
+	help := m.renderHelpLine(140)
+	for _, want := range []string{"[s]state", "[t]todo", "[c]new-wt"} {
+		if !strings.Contains(help, want) {
+			t.Fatalf("expected DAG help line to contain %q, got %q", want, help)
+		}
+	}
+	if strings.Contains(help, "[s]tart agent") {
+		t.Fatalf("expected DAG help line to avoid stale binding text, got %q", help)
+	}
+}
+
+func TestRenderNotificationBarStaysSingleLine(t *testing.T) {
+	cfg := config.DefaultConfig()
+	st, _ := store.New(":memory:")
+	m := New(cfg, st).(model)
+	m.notifications = []orchestrator.Notification{
+		{
+			Title:    "Agent",
+			Body:     strings.Repeat("very long message ", 20),
+			Severity: "info",
+		},
+	}
+	bar := m.renderNotificationBar(40)
+	if strings.Count(bar, "\n") > 0 {
+		t.Fatalf("expected single-line notification bar, got %q", bar)
+	}
+	if got := ansi.StringWidth(bar); got > 40 {
+		t.Fatalf("expected notification width <= 40, got %d", got)
+	}
+}
+
+func TestRenderHelpBarCollapsesWhenTextOverflows(t *testing.T) {
+	line := renderHelpBar(lipgloss.NewStyle(), "left section that is too long", "[q]uit", 24)
+	if strings.Count(line, "\n") > 0 {
+		t.Fatalf("expected single-line help bar, got %q", line)
+	}
+	if got := ansi.StringWidth(line); got > 24 {
+		t.Fatalf("expected compact help bar width <= 24, got %d", got)
 	}
 }
 
@@ -1033,7 +1082,6 @@ func TestProtocolClosedLoopSmoke(t *testing.T) {
 	if !ok || len(facts) == 0 {
 		t.Fatalf("expected knowledge facts in smoke context, got %+v", ctx["knowledge_facts"])
 	}
-
 
 }
 

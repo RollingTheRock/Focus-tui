@@ -21,4 +21,17 @@ var (
 	// Semantic colors.
 	Success = lipgloss.AdaptiveColor{Light: "#059669", Dark: "#34D399"}
 	Warning = lipgloss.AdaptiveColor{Light: "#D97706", Dark: "#FBBF24"}
+
+	// Shared task state colors (used across DAG, worktree, and detail panes).
+	StateActive  = lipgloss.AdaptiveColor{Light: "#2563EB", Dark: "#60A5FA"}
+	StatePaused  = lipgloss.AdaptiveColor{Light: "#D97706", Dark: "#FBBF24"}
+	StateBlocked = lipgloss.AdaptiveColor{Light: "#DC2626", Dark: "#F87171"}
+	StateDone    = lipgloss.AdaptiveColor{Light: "#059669", Dark: "#34D399"}
+	StateReady   = lipgloss.AdaptiveColor{Light: "#0891B2", Dark: "#22D3EE"}
+	StateIdle    = lipgloss.AdaptiveColor{Light: "#9CA3AF", Dark: "#6B7280"}
+
+	PriorityCritical = lipgloss.AdaptiveColor{Light: "#DC2626", Dark: "#F87171"}
+	PriorityHigh     = lipgloss.AdaptiveColor{Light: "#D97706", Dark: "#FBBF24"}
+	PriorityMedium   = lipgloss.AdaptiveColor{Light: "#2563EB", Dark: "#60A5FA"}
+	PriorityLow      = lipgloss.AdaptiveColor{Light: "#6B7280", Dark: "#9CA3AF"}
 )

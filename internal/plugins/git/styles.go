@@ -31,16 +31,25 @@ var (
 	commitHintStyle        = lipgloss.NewStyle().Foreground(appstyles.Subtle)
 	commitHintWarningStyle = lipgloss.NewStyle().Foreground(appstyles.Warning)
 
-	selectedRowStyle = lipgloss.NewStyle().Background(appstyles.Highlight)
-	loadingStyle     = lipgloss.NewStyle().Foreground(appstyles.Subtle)
-	cleanupHintStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#666666"))
+	selectedRowStyle = lipgloss.NewStyle().
+				Background(lipgloss.AdaptiveColor{Light: "#E8F0FE", Dark: "#2B364B"}).
+				Foreground(appstyles.Text).
+				Bold(true)
+	selectedSecondaryRowStyle = lipgloss.NewStyle().
+					Background(lipgloss.AdaptiveColor{Light: "#E8F0FE", Dark: "#2B364B"}).
+					Foreground(appstyles.Subtle)
+	rowRailStyle          = lipgloss.NewStyle().Foreground(appstyles.Accent)
+	rowRailSecondaryStyle = lipgloss.NewStyle().Foreground(appstyles.AccentDim)
+	rowStripeRailStyle    = lipgloss.NewStyle().Foreground(appstyles.Subtle)
+	loadingStyle          = lipgloss.NewStyle().Foreground(appstyles.Subtle)
+	cleanupHintStyle      = lipgloss.NewStyle().Foreground(appstyles.Subtle)
 
 	// Task state indicators — colors match DAG node state colors
-	taskStateActiveStyle  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#5ea3f4"))
-	taskStatePausedStyle  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#f5a623"))
-	taskStateBlockedStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#f44747"))
-	taskStateDoneStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#4ec94e"))
-	taskStateNoneStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#999999"))
+	taskStateActiveStyle  = lipgloss.NewStyle().Bold(true).Foreground(appstyles.StateActive)
+	taskStatePausedStyle  = lipgloss.NewStyle().Bold(true).Foreground(appstyles.StatePaused)
+	taskStateBlockedStyle = lipgloss.NewStyle().Bold(true).Foreground(appstyles.StateBlocked)
+	taskStateDoneStyle    = lipgloss.NewStyle().Bold(true).Foreground(appstyles.StateDone)
+	taskStateNoneStyle    = lipgloss.NewStyle().Foreground(appstyles.StateIdle)
 
 	modifiedIconStyle   = lipgloss.NewStyle().Foreground(appstyles.Warning)
 	addedIconStyle      = lipgloss.NewStyle().Foreground(appstyles.Success)

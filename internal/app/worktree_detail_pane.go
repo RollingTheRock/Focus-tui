@@ -2,7 +2,9 @@ package app
 
 import (
 	"fmt"
+	"sort"
 	"strings"
+	"time"
 
 	"focus/internal/adapters"
 	"focus/internal/agents"
@@ -13,14 +15,15 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // worktreeDetailPane is the right-side pane showing the current worktree's
 // tasks, git status, file tree, agent cards, and a human shell below.
 type worktreeDetailPane struct {
-	id     models.PaneID
-	meta   models.PaneMeta
-	common models.CommonModel
+	id      models.PaneID
+	meta    models.PaneMeta
+	common  models.CommonModel
 	adapter adapters.GitAdapter
 
 	repoID     string
@@ -33,7 +36,7 @@ type worktreeDetailPane struct {
 	filesPane *filebrowser.TreePane
 
 	// Tasks for this worktree
-	tasks  []models.TaskContextRecord
+	tasks      []models.TaskContextRecord
 	taskCursor int
 
 	// Agent sessions attached to this worktree
@@ -162,6 +165,28 @@ func (p *worktreeDetailPane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 			p.refreshSessions()
 		}
 		return p, nil
+	case refreshWorktreeDetailMsg:
+		p.loadTasks()
+		var cmds []tea.Cmd
+		if p.gitPane != nil {
+			newPane, cmd := p.gitPane.Update(gitplugin.RefreshStatusMsg{})
+			if gp, ok := newPane.(*gitplugin.StatusPane); ok {
+				p.gitPane = gp
+			}
+			if cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		}
+		if p.filesPane != nil {
+			newPane, cmd := p.filesPane.Update(filebrowser.RefreshTreeMsg{})
+			if fp, ok := newPane.(*filebrowser.TreePane); ok {
+				p.filesPane = fp
+			}
+			if cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		}
+		return p, tea.Batch(cmds...)
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "1":
@@ -229,6 +254,8 @@ type worktreeSelectedMsg struct {
 type OpenAgentSelectMsg struct {
 	WorktreeID string
 }
+
+type refreshWorktreeDetailMsg struct{}
 
 func (p *worktreeDetailPane) openAgentSelectCmd() tea.Cmd {
 	if p.worktreeID == "" {
@@ -341,21 +368,52 @@ func (p *worktreeDetailPane) renderTasks(w, h int) string {
 	if len(p.tasks) == 0 {
 		return lipgloss.NewStyle().MaxWidth(w).Render("  No tasks assigned to this worktree.")
 	}
+	if p.taskCursor >= len(p.tasks) {
+		p.taskCursor = len(p.tasks) - 1
+	}
+	if p.taskCursor < 0 {
+		p.taskCursor = 0
+	}
+
+	header := detailMetaStyle.Render(fmt.Sprintf("  tasks %d  position %d/%d", len(p.tasks), p.taskCursor+1, len(p.tasks)))
 	var lines []string
-	for i, t := range p.tasks {
+	lines = append(lines, header, "")
+
+	rowBudget := h - len(lines)
+	if rowBudget < 2 {
+		rowBudget = 2
+	}
+	start, end, showUp, showDown := taskWindow(len(p.tasks), p.taskCursor, rowBudget)
+	if showUp {
+		lines = append(lines, detailMetaStyle.Render(fmt.Sprintf("  ▲ %d hidden", start)))
+	}
+	for i := start; i < end; i++ {
+		t := p.tasks[i]
 		state := t.State
 		if state == "" {
-			state = "pending"
+			state = "ready"
 		}
-		cursor := "  ·"
+		cursor := "  "
 		if i == p.taskCursor {
-			cursor = "▸"
+			cursor = "▸ "
 		}
-		line := fmt.Sprintf("%s [%s] %s", cursor, state, clipText(t.Title, w-20))
+		stateBadge := detailStateBadge(state)
+		priorityBadge := detailPriorityBadge(t.Priority)
+		title := clipDisplayText(t.Title, max(10, w-32))
+		line := fmt.Sprintf("%s%s %s %s", cursor, stateBadge, priorityBadge, title)
+		if i == p.taskCursor {
+			line = detailSelectedRowStyle.Render(ansi.Truncate(line, w, "…"))
+		} else {
+			line = ansi.Truncate(line, w, "…")
+		}
 		lines = append(lines, line)
+		if i == p.taskCursor && strings.TrimSpace(t.NextStep) != "" {
+			next := detailMetaStyle.Render("   next: " + ansi.Truncate(strings.TrimSpace(strings.ReplaceAll(t.NextStep, "\n", " ")), max(8, w-9), "…"))
+			lines = append(lines, next)
+		}
 	}
-	if len(lines) > h {
-		lines = lines[:h]
+	if showDown {
+		lines = append(lines, detailMetaStyle.Render(fmt.Sprintf("  ▼ %d hidden", len(p.tasks)-end)))
 	}
 	return lipgloss.NewStyle().MaxWidth(w).Render(strings.Join(lines, "\n"))
 }
@@ -367,15 +425,31 @@ func (p *worktreeDetailPane) renderAgentCards(w int) string {
 	if len(p.sessions) == 0 {
 		return lipgloss.NewStyle().MaxWidth(w).Foreground(styles.Subtle).Render("  Agents: none  [s] start")
 	}
+	sessions := append([]*agents.Session(nil), p.sessions...)
+	sort.SliceStable(sessions, func(i, j int) bool {
+		li, lj := sessions[i], sessions[j]
+		if li.State == agents.SessionRunning && lj.State != agents.SessionRunning {
+			return true
+		}
+		if li.State != agents.SessionRunning && lj.State == agents.SessionRunning {
+			return false
+		}
+		lti := sessionActivityAt(li)
+		ltj := sessionActivityAt(lj)
+		return lti.After(ltj)
+	})
+
 	var parts []string
-	for _, s := range p.sessions {
+	for _, s := range sessions {
 		icon := "○"
 		if s.State == agents.SessionRunning {
 			icon = "●"
 		}
-		parts = append(parts, fmt.Sprintf("%s %s(%s)", icon, s.Provider, s.State))
+		stateStyle := detailSessionStateStyle(s.State)
+		card := fmt.Sprintf("%s %s | %s | %s", icon, s.Provider, s.State, sessionRecencyLabel(s))
+		parts = append(parts, stateStyle.Render("["+card+"]"))
 	}
-	return lipgloss.NewStyle().MaxWidth(w).Render("  Agents: " + strings.Join(parts, "  "))
+	return lipgloss.NewStyle().MaxWidth(w).Render("  Agents: " + strings.Join(parts, " "))
 }
 
 func (p *worktreeDetailPane) SetAgentSessions(sessions []*agents.Session) {
@@ -387,6 +461,117 @@ func emptyLine(w, h int) string {
 }
 
 var (
-	detailTabStyle      = lipgloss.NewStyle().Foreground(styles.Subtle)
-	detailTabActiveStyle = lipgloss.NewStyle().Bold(true).Foreground(styles.Accent)
+	detailTabStyle         = lipgloss.NewStyle().Foreground(styles.Subtle)
+	detailTabActiveStyle   = lipgloss.NewStyle().Bold(true).Foreground(styles.Accent)
+	detailMetaStyle        = lipgloss.NewStyle().Foreground(styles.Subtle)
+	detailSelectedRowStyle = lipgloss.NewStyle().Background(styles.Highlight)
 )
+
+func clipDisplayText(value string, maxW int) string {
+	value = strings.TrimSpace(strings.ReplaceAll(value, "\n", " "))
+	if value == "" || maxW <= 0 {
+		return ""
+	}
+	return ansi.Truncate(value, maxW, "…")
+}
+
+func detailStateBadge(state string) string {
+	label := strings.ToUpper(state)
+	if label == "" {
+		label = "READY"
+	}
+	switch state {
+	case "active":
+		return lipgloss.NewStyle().Foreground(styles.StateActive).Bold(true).Render("[" + label + "]")
+	case "paused":
+		return lipgloss.NewStyle().Foreground(styles.StatePaused).Bold(true).Render("[" + label + "]")
+	case "blocked":
+		return lipgloss.NewStyle().Foreground(styles.StateBlocked).Bold(true).Render("[" + label + "]")
+	case "done":
+		return lipgloss.NewStyle().Foreground(styles.StateDone).Bold(true).Render("[" + label + "]")
+	default:
+		return lipgloss.NewStyle().Foreground(styles.StateReady).Bold(true).Render("[" + label + "]")
+	}
+}
+
+func detailPriorityBadge(priority string) string {
+	label := strings.ToUpper(strings.TrimSpace(priority))
+	if label == "" {
+		label = "MEDIUM"
+	}
+	switch strings.ToLower(priority) {
+	case "critical":
+		return lipgloss.NewStyle().Foreground(styles.PriorityCritical).Bold(true).Render("{" + label + "}")
+	case "high":
+		return lipgloss.NewStyle().Foreground(styles.PriorityHigh).Bold(true).Render("{" + label + "}")
+	case "low":
+		return lipgloss.NewStyle().Foreground(styles.PriorityLow).Render("{" + label + "}")
+	default:
+		return lipgloss.NewStyle().Foreground(styles.PriorityMedium).Render("{" + label + "}")
+	}
+}
+
+func taskWindow(total, cursor, rowBudget int) (start, end int, showUp, showDown bool) {
+	if total <= 0 {
+		return 0, 0, false, false
+	}
+	// Reserve one line for selected "next step" detail when possible.
+	visible := rowBudget
+	if visible > 3 {
+		visible--
+	}
+	if visible < 1 {
+		visible = 1
+	}
+	if total <= visible {
+		return 0, total, false, false
+	}
+	start = cursor - visible/2
+	if start < 0 {
+		start = 0
+	}
+	end = start + visible
+	if end > total {
+		end = total
+		start = end - visible
+	}
+	return start, end, start > 0, end < total
+}
+
+func detailSessionStateStyle(state agents.SessionState) lipgloss.Style {
+	switch state {
+	case agents.SessionRunning:
+		return lipgloss.NewStyle().Foreground(styles.StateActive)
+	case agents.SessionFailed, agents.SessionDisconnected:
+		return lipgloss.NewStyle().Foreground(styles.StateBlocked)
+	case agents.SessionExited:
+		return lipgloss.NewStyle().Foreground(styles.StateIdle)
+	default:
+		return lipgloss.NewStyle().Foreground(styles.StatePaused)
+	}
+}
+
+func sessionActivityAt(s *agents.Session) time.Time {
+	if s == nil {
+		return time.Time{}
+	}
+	if s.LastActivityAt != nil {
+		return *s.LastActivityAt
+	}
+	return s.StartedAt
+}
+
+func sessionRecencyLabel(s *agents.Session) string {
+	at := sessionActivityAt(s)
+	if at.IsZero() {
+		return "idle"
+	}
+	d := time.Since(at)
+	if d < time.Minute {
+		return "active now"
+	}
+	if d < time.Hour {
+		return fmt.Sprintf("%dm ago", int(d.Minutes()))
+	}
+	return fmt.Sprintf("%dh ago", int(d.Hours()))
+}
