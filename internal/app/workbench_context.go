@@ -31,6 +31,58 @@ type workbenchQueueItem struct {
 	HandoffSummary     string
 }
 
+type overviewSummaryStats struct {
+	Total        int
+	Active       int
+	Blocked      int
+	Queued       int
+	Dirty        int
+	RunningAgent int
+	Focus        int
+	Recent       string
+}
+
+type overviewDetailSelection struct {
+	TaskID            string
+	Title             string
+	Branch            string
+	WorktreePath      string
+	State             string
+	Priority          string
+	ResumeReason      string
+	ResumeHint        string
+	Goal              string
+	WhyNow            string
+	SuccessCriteria   string
+	OutOfScope        string
+	KnownRisks        string
+	NextStep          string
+	PlanTitle         string
+	PlanStatus        string
+	CurrentPlanStep   string
+	PlanBody          string
+	PlanSteps         []string
+	HandoffEntrypoint string
+	Attention         string
+	RecentArtifact    string
+	AgentSummary      string
+	QueuedSummary     string
+	GitSummary        string
+	GitPressure       string
+	RuntimeSummary    string
+	Upstream          string
+	DAGSummary        string
+	DAGLanes          []string
+	DAGEdges          []string
+	UpstreamTasks     []string
+	DownstreamTasks   []string
+	SharedContext     []string
+	PinnedNote        string
+	BlockerNote       string
+	HandoffNote       string
+	HasSelection      bool
+}
+
 type workbenchOverviewContext struct {
 	Items    []workbenchQueueItem
 	Selected *workbenchQueueItem
