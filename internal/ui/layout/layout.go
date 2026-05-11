@@ -118,7 +118,12 @@ func RenderPanel(title, content string, w, h int, active bool) string {
 	}
 
 	bc := lipgloss.NewStyle().Foreground(borderColor)
-	tc := lipgloss.NewStyle().Foreground(styles.Accent).Bold(true)
+	var tc lipgloss.Style
+	if active {
+		tc = lipgloss.NewStyle().Foreground(styles.Accent).Bold(true)
+	} else {
+		tc = lipgloss.NewStyle().Foreground(styles.Subtle)
+	}
 
 	totalW := w + 4 // border + padding on each side
 	maxTitleWidth := totalW - 6

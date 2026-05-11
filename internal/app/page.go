@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"focus/internal/adapters"
 	"focus/internal/agents"
@@ -14,13 +15,17 @@ import (
 	gitplugin "focus/internal/plugins/git"
 	"focus/internal/render"
 	"focus/internal/store"
+	"focus/internal/styles"
 	"focus/internal/ui/footer"
 	"focus/internal/ui/header"
 	"focus/internal/ui/layout"
 	"focus/internal/ui/shell"
 	"focus/internal/ui/todo"
 
+	"github.com/charmbracelet/x/ansi"
+
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 // page holds the pane collection, layout tree, and focus state for a single
@@ -624,6 +629,7 @@ func (p *page) renderBody(w, h int, overlay OverlayKind) string {
 	}
 
 	if overlayID := p.activeOverlayPane(); overlayID != "" {
+		base = dimCanvas(base)
 		base = p.renderOverlayPane(base, overlayID)
 	}
 
@@ -751,6 +757,21 @@ func (p *page) isLargeOverlayPane(id models.PaneID) bool {
 		return true
 	}
 	return false
+}
+
+// dimCanvas strips existing ANSI colors and re-renders every non-empty line
+// with a subtle gray foreground, dimming the entire base canvas so an overlay
+// popped on top gains clear visual hierarchy.
+func dimCanvas(s string) string {
+	lines := strings.Split(s, "\n")
+	for i, line := range lines {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		plain := ansi.Strip(line)
+		lines[i] = lipgloss.NewStyle().Foreground(styles.Subtle).Render(plain)
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (p *page) renderOverlayPane(base string, id models.PaneID) string {
