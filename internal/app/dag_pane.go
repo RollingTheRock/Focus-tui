@@ -138,6 +138,8 @@ func (p *dagPane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 			return p, p.launchResearchAgentCmd()
 		case "s":
 			return p, p.cycleStateCmd()
+		case "t":
+			return p, p.addToTodayTodosCmd()
 		case "n":
 			p.enterCreateMode()
 			return p, textinput.Blink
@@ -395,10 +397,28 @@ func (p *dagPane) launchResearchAgentCmd() tea.Cmd {
 	}
 }
 
+func (p *dagPane) addToTodayTodosCmd() tea.Cmd {
+	task, ok := p.selectedTask()
+	if !ok {
+		return nil
+	}
+	return func() tea.Msg {
+		return dagAddTaskToTodoMsg{
+			TaskID:    task.ID,
+			TaskTitle: task.Title,
+		}
+	}
+}
+
 type dagNodeSelectedMsg struct {
 	TaskID    string
 	TaskTitle string
 	RepoID    string
+}
+
+type dagAddTaskToTodoMsg struct {
+	TaskID    string
+	TaskTitle string
 }
 
 type dagCreateWorktreeMsg struct {

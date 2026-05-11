@@ -25,6 +25,7 @@ import (
 	"focus/internal/ui/header"
 	"focus/internal/ui/layout"
 	"focus/internal/ui/shell"
+	"focus/internal/ui/todo"
 	"hash/fnv"
 	"log"
 	"os"
@@ -57,6 +58,7 @@ const (
 	paneWorktreeHistory        models.PaneID = "worktree-history-overlay"
 	paneWorktreeDeleteConfirm  models.PaneID = "worktree-delete-confirm-overlay"
 	paneADRDetail              models.PaneID = "adr-detail-overlay"
+	paneTodoOverlay            models.PaneID = "todo-overlay"
 	paneFooter                 models.PaneID = "footer"
 
 	paneTypeGitCommit       models.PaneType = "git-commit"
@@ -68,6 +70,7 @@ const (
 	paneTypeWorktreeHistory       models.PaneType = "worktree-history"
 	paneTypeWorktreeDeleteConfirm models.PaneType = "worktree-delete-confirm"
 	paneTypeADRDetail             models.PaneType = "adr-detail"
+	paneTypeTodoOverlay           models.PaneType = "todo-overlay"
 	paneTypeOverviewSummary       models.PaneType = "overview-summary"
 	paneTypeOverviewDAG           models.PaneType = "overview-dag"
 	paneTypeOverviewDetail        models.PaneType = "overview-detail"
@@ -1382,6 +1385,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.invalidateView()
 		return m, batchCmds(cmds)
 
+		case dagAddTaskToTodoMsg:
+			if m.common.Store != nil {
+				taskID := msg.TaskID
+				_, err := m.common.Store.CreateTodo(msg.TaskTitle, "today", &taskID)
+				if err == nil {
+					m.notifications = append(m.notifications, orchestrator.Notification{
+						Title:    "Todo",
+						Body:     fmt.Sprintf("Added \"%s\" to today", msg.TaskTitle),
+						Severity: "info",
+					})
+					m.invalidateView()
+				}
+			}
+			return m, nil
+
 	case dagTaskCreatedMsg:
 		if m.common == nil || m.common.Store == nil || m.cmdBus == nil {
 			return m, nil
@@ -1496,6 +1514,25 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.syncWorktreeActivities()
 		m.invalidateView()
 		return m, nil
+
+		case todo.OverlayVisibleMsg:
+			if !msg.Visible {
+				if prev, ok := m.activePage.returnFocus[paneTodoOverlay]; ok {
+					m.setFocus(prev)
+					delete(m.activePage.returnFocus, paneTodoOverlay)
+				}
+				m.invalidateView()
+			}
+			return m, nil
+
+		case todo.ModeChangeMsg:
+			if msg.InputActive {
+				m.mode = ModeInput
+			} else {
+				m.mode = ModeNormal
+			}
+			m.invalidateView()
+			return m, nil
 
 	case closeADRDetailMsg:
 		m.closePane(paneADRDetail)
@@ -1913,6 +1950,27 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.adjustFocusedSplit(layout.FocusUp)
 	case "ctrl+down", "ctrl+shift+down":
 		return m.adjustFocusedSplit(layout.FocusDown)
+	case "ctrl+t":
+		if tp, ok := m.activePage.pane(paneTodoOverlay).(*todo.Model); ok {
+			var cmd tea.Cmd
+			if tp.Visible() {
+				cmd = tp.SetVisible(false)
+				if prev, ok := m.activePage.returnFocus[paneTodoOverlay]; ok {
+					m.setFocus(prev)
+					delete(m.activePage.returnFocus, paneTodoOverlay)
+				}
+			} else {
+				if m.activePage.returnFocus == nil {
+					m.activePage.returnFocus = make(map[models.PaneID]models.PaneID)
+				}
+				m.activePage.returnFocus[paneTodoOverlay] = m.activePage.focused
+				cmd = tp.SetVisible(true)
+				m.setFocus(paneTodoOverlay)
+			}
+			m.invalidateView()
+			return m, cmd
+		}
+		return m, nil
 	case "tab":
 		if th, ok := m.activePage.pane(m.activePage.focused).(tabHandler); ok {
 			if th.HandleTab() {
@@ -2466,8 +2524,12 @@ func (m model) buildView(dims layout.Dimensions, w, h int) string {
 	hdr := m.pane(paneHeader).(*header.Model)
 
 	var headerView string
+	timerSummary := ""
+	if tp, ok := m.activePage.pane(paneTodoOverlay).(*todo.Model); ok {
+		timerSummary = tp.TimerSummary()
+	}
 	if dims.UseBanner {
-		headerView = hdr.ViewBanner(w, "", "", "")
+		headerView = hdr.ViewBanner(w, timerSummary, "", "")
 	} else {
 		headerView = hdr.ViewCompact(w, dims.ShowQuote)
 	}
@@ -2572,8 +2634,8 @@ func (m model) renderHelpLine(w int) string {
 	compact := "[tab]cycle  [enter]open  [q]uit"
 	switch m.activePage.focused {
 	case paneDAG:
-		left = "[j/k]nav  [h/l]pan  [enter]create worktree  [r]esearch  [a]rch  [s]tart agent  [tab]cycle focus"
-		compact = "[j/k]nav  [enter]create  [r/a/s]agents"
+		left = "[j/k]nav  [h/l]pan  [enter]create worktree  [r]esearch  [a]rch  [s]tart agent  [t]odo  [tab]cycle focus"
+		compact = "[j/k]nav  [enter]create  [r/a/s/t]agents/todo"
 	case paneWorktree:
 		left = "[j/k]nav  [enter]select  [n]ew  [d]elete  [o]shell  [tab]cycle focus"
 		compact = "[j/k]nav  [enter]select  [n]ew  [d]el"
