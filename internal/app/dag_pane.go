@@ -36,6 +36,9 @@ type dagPane struct {
 	width  int
 	height int
 
+	// vertical scroll offset for DAG body (in lines)
+	scrollOffset int
+
 	// quick-create state
 	creating    bool
 	titleInput  textinput.Model
@@ -279,6 +282,7 @@ func (p *dagPane) moveCursor(dLevel, dIndex int) {
 			idx = len(ids) - 1
 		}
 		p.cursorNode = ids[idx]
+		p.ensureCursorVisible()
 		return
 	}
 
@@ -289,6 +293,7 @@ func (p *dagPane) moveCursor(dLevel, dIndex int) {
 			return
 		}
 		p.cursorNode = ids[target]
+		p.ensureCursorVisible()
 	}
 }
 
@@ -296,6 +301,7 @@ func (p *dagPane) resetCursor() {
 	for _, t := range p.tasks {
 		if t.State == "ready" || t.State == "" {
 			p.cursorNode = t.ID
+			p.scrollOffset = 0
 			return
 		}
 	}
@@ -303,6 +309,46 @@ func (p *dagPane) resetCursor() {
 		p.cursorNode = p.tasks[0].ID
 	} else {
 		p.cursorNode = ""
+	}
+	p.scrollOffset = 0
+}
+
+// ensureCursorVisible adjusts scrollOffset so the cursor node is within the visible area.
+// It uses an approximate row calculation (each node occupies ~2 lines with spacing).
+func (p *dagPane) ensureCursorVisible() {
+	if p.cursorNode == "" {
+		return
+	}
+	curLevel, ok := p.levels[p.cursorNode]
+	if !ok {
+		return
+	}
+	curIdx := 0
+	for i, id := range p.layerIDs[curLevel] {
+		if id == p.cursorNode {
+			curIdx = i
+			break
+		}
+	}
+
+	// Approximate row: each node takes 2 lines (1 node + 1 spacing).
+	// Add a small buffer for edges drawn above/below nodes.
+	approxRow := curIdx * 2
+
+	headerRows := 2
+	visibleRows := p.height - headerRows
+	if visibleRows < 3 {
+		visibleRows = 3
+	}
+
+	if approxRow < p.scrollOffset {
+		p.scrollOffset = approxRow
+	}
+	if approxRow >= p.scrollOffset+visibleRows {
+		p.scrollOffset = approxRow - visibleRows + 1
+	}
+	if p.scrollOffset < 0 {
+		p.scrollOffset = 0
 	}
 }
 
@@ -538,8 +584,27 @@ func (p *dagPane) View() string {
 		bodyH = minRows
 	}
 
-	dagStr := renderHorizontalDAG(p.nodes, p.edges, p.levels, p.layerIDs, p.maxLevel, p.cursorNode, w, bodyH)
-	lines = append(lines, dagStr)
+	// Render full DAG without height limit, then apply vertical scrolling.
+	dagStr := renderHorizontalDAG(p.nodes, p.edges, p.levels, p.layerIDs, p.maxLevel, p.cursorNode, w, 0)
+	dagLines := strings.Split(dagStr, "\n")
+
+	// Clamp scrollOffset in case DAG shrank (e.g. after refresh).
+	if p.scrollOffset >= len(dagLines) {
+		p.scrollOffset = max(0, len(dagLines)-bodyH)
+	}
+
+	end := p.scrollOffset + bodyH
+	if end > len(dagLines) {
+		end = len(dagLines)
+	}
+
+	if p.scrollOffset > 0 {
+		lines = append(lines, dagMutedStyle.Render("  ▲ ..."))
+	}
+	lines = append(lines, dagLines[p.scrollOffset:end]...)
+	if end < len(dagLines) {
+		lines = append(lines, dagMutedStyle.Render("  ▼ ..."))
+	}
 
 	if p.creating {
 		lines = append(lines, "")
