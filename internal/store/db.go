@@ -5,7 +5,9 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"focus/internal/events"
 	"focus/internal/store/pgconn"
@@ -172,6 +174,44 @@ func DefaultDBPath() (string, error) {
 		return "", err
 	}
 	return filepath.Join(home, ".local", "share", "focus", "focus.db"), nil
+}
+
+// ResolveProjectRoot returns the project root for the given cwd.
+// It uses git to detect repository root; if unavailable or not in a repo,
+// it falls back to cwd.
+func ResolveProjectRoot(cwd string) (string, error) {
+	if cwd == "" {
+		var err error
+		cwd, err = os.Getwd()
+		if err != nil {
+			return "", err
+		}
+	}
+	abs, err := filepath.Abs(cwd)
+	if err != nil {
+		return "", err
+	}
+
+	cmd := exec.Command("git", "rev-parse", "--show-toplevel")
+	cmd.Dir = abs
+	out, err := cmd.Output()
+	if err != nil {
+		return abs, nil
+	}
+	root := strings.TrimSpace(string(out))
+	if root == "" {
+		return abs, nil
+	}
+	return root, nil
+}
+
+// ProjectDBPath returns the project-local database path:
+// <project_root>/.focus/focus.db.
+func ProjectDBPath(projectRoot string) (string, error) {
+	if projectRoot == "" {
+		return "", fmt.Errorf("project root required")
+	}
+	return filepath.Join(projectRoot, ".focus", "focus.db"), nil
 }
 
 func (s *Store) migrate() error {

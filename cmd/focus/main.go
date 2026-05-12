@@ -15,7 +15,19 @@ import (
 func main() {
 	cfg := config.Load()
 
-	dbPath, err := store.DefaultDBPath()
+	cwd, err := os.Getwd()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	projectRoot, err := store.ResolveProjectRoot(cwd)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	dbPath, err := resolveDBPath(projectRoot)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
@@ -57,4 +69,11 @@ func main() {
 	if projBuilder != nil {
 		projBuilder.Stop()
 	}
+}
+
+func resolveDBPath(projectRoot string) (string, error) {
+	if override := os.Getenv("FOCUS_DB_PATH"); override != "" {
+		return override, nil
+	}
+	return store.ProjectDBPath(projectRoot)
 }
