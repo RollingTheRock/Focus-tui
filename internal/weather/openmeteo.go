@@ -16,8 +16,17 @@ type Coords struct {
 
 // Built-in city coordinates for major global cities.
 var cityCoords = map[string]Coords{
-	"Shanghai":      {Lat: 31.22, Lon: 121.46},
 	"Beijing":       {Lat: 39.90, Lon: 116.41},
+	"Shanghai":      {Lat: 31.22, Lon: 121.46},
+	"Hangzhou":      {Lat: 30.27, Lon: 120.15},
+	"Nanjing":       {Lat: 32.06, Lon: 118.78},
+	"Wuhan":         {Lat: 30.59, Lon: 114.31},
+	"Changsha":      {Lat: 28.23, Lon: 112.98},
+	"Zhengzhou":     {Lat: 34.75, Lon: 113.63},
+	"Hong Kong":     {Lat: 22.32, Lon: 114.17},
+	"Shenzhen":      {Lat: 22.54, Lon: 114.06},
+	"Chengdu":       {Lat: 30.57, Lon: 104.07},
+	"Xi'an":         {Lat: 34.34, Lon: 108.94},
 	"Tokyo":         {Lat: 35.68, Lon: 139.76},
 	"Seoul":         {Lat: 37.57, Lon: 126.98},
 	"Singapore":     {Lat: 1.35, Lon: 103.82},
@@ -33,7 +42,6 @@ var cityCoords = map[string]Coords{
 	"Dubai":         {Lat: 25.20, Lon: 55.27},
 	"Mumbai":        {Lat: 19.08, Lon: 72.88},
 	"Bangkok":       {Lat: 13.76, Lon: 100.50},
-	"Hong Kong":     {Lat: 22.32, Lon: 114.17},
 	"São Paulo":     {Lat: -23.55, Lon: -46.63},
 	"Mexico City":   {Lat: 19.43, Lon: -99.13},
 	"Moscow":        {Lat: 55.76, Lon: 37.62},
