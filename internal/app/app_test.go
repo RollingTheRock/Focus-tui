@@ -156,7 +156,7 @@ func TestRenderHelpLineForWorktreePaneIncludesRefreshShortcut(t *testing.T) {
 	m.activePage.focused = paneWorktree
 
 	help := m.renderHelpLine(120)
-	for _, want := range []string{"[j/k]nav", "[enter]select", "[o]shell", "[d]el"} {
+	for _, want := range []string{"[j/k]nav", "[enter]select", "[o]shell", "[e]edit", "[d]el"} {
 		if !strings.Contains(help, want) {
 			t.Fatalf("expected help line to contain %q, got %q", want, help)
 		}
@@ -2215,5 +2215,74 @@ func TestDagPaneQuickCreateTask(t *testing.T) {
 	pane = panel.(*dagPane)
 	if pane.creating {
 		t.Fatal("expected creating=false after esc")
+	}
+}
+
+func TestWorktreeDetailPaneTasksTabOpensTaskEditOnEnterAndE(t *testing.T) {
+	st, _ := store.New(":memory:")
+	worktreeID := "/repo/feature-a"
+	cfg := config.DefaultConfig()
+	m := New(cfg, st).(model)
+	repoID := m.gitRepoPath()
+	if repoID == "" {
+		repoID = "/repo/main"
+	}
+	if err := st.SaveTaskContext(models.TaskContextRecord{
+		ID:                  "task-1",
+		RepoID:              repoID,
+		Title:               "Fix DAG routing",
+		State:               "active",
+		Priority:            "high",
+		PreferredWorktreeID: worktreeID,
+	}); err != nil {
+		t.Fatalf("save task context: %v", err)
+	}
+	if err := st.SaveWorktreeContext(models.WorktreeContextRecord{
+		WorktreeID:   worktreeID,
+		RepoID:       repoID,
+		TaskName:     "feature-a",
+		TaskMode:     "single",
+		LastActiveAt: time.Now(),
+	}); err != nil {
+		t.Fatalf("save worktree context: %v", err)
+	}
+
+	m.switchToWorktreePage(worktreeID, string(paneWorktreeDetail))
+
+	detail, ok := m.activePage.pane(paneWorktreeDetail).(*worktreeDetailPane)
+	if !ok {
+		t.Fatalf("expected worktreeDetailPane, got %T", m.activePage.pane(paneWorktreeDetail))
+	}
+	detail.activeTab = tabTasks
+	detail.worktreeID = worktreeID
+	detail.loadTasks()
+
+	updatedAny, cmd := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}})
+	m = updatedAny.(model)
+	if cmd == nil {
+		t.Fatalf("expected open task edit command on e")
+	}
+	msg := cmd()
+	openMsg, ok := msg.(gitplugin.OpenTaskEditMsg)
+	if !ok {
+		t.Fatalf("expected OpenTaskEditMsg from e, got %T", msg)
+	}
+	if openMsg.WorktreeID != worktreeID || openMsg.TaskID != "task-1" || openMsg.RelationType != "primary" {
+		t.Fatalf("unexpected open msg from e: %+v", openMsg)
+	}
+
+	m.closePane(paneTaskEdit)
+	updatedAny, cmd = m.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updatedAny.(model)
+	if cmd == nil {
+		t.Fatalf("expected open task edit command on enter")
+	}
+	msg = cmd()
+	openMsg, ok = msg.(gitplugin.OpenTaskEditMsg)
+	if !ok {
+		t.Fatalf("expected OpenTaskEditMsg from enter, got %T", msg)
+	}
+	if openMsg.WorktreeID != worktreeID || openMsg.TaskID != "task-1" || openMsg.RelationType != "primary" {
+		t.Fatalf("unexpected open msg from enter: %+v", openMsg)
 	}
 }

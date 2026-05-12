@@ -2770,6 +2770,7 @@ func (m model) renderHelpLine(w int) string {
 			{Key: "j/k", Label: "nav"},
 			{Key: "enter", Label: "select"},
 			{Key: "n", Label: "new"},
+			{Key: "e", Label: "edit"},
 			{Key: "d", Label: "el"},
 			{Key: "o", Label: "shell"},
 			{Key: "tab", Label: "cycle focus"},
@@ -2778,6 +2779,7 @@ func (m model) renderHelpLine(w int) string {
 			{Key: "j/k", Label: "nav"},
 			{Key: "enter", Label: "select"},
 			{Key: "n", Label: "new"},
+			{Key: "e", Label: "edit"},
 			{Key: "d", Label: "del"},
 		}
 	case paneWorktreeDetail:

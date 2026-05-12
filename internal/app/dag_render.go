@@ -23,6 +23,9 @@ const (
 	minRows    = 6
 	leftMargin = 1
 	rowSpacing = 1 // rows between nodes in same column
+	// Keep skip-level routing compact so the visible viewport doesn't degrade
+	// into detached edge fragments when many long edges exist.
+	maxSkipChannels = 3
 )
 
 // ── layout ──────────────────────────────────────────────────
@@ -187,15 +190,20 @@ func buildLayout(
 		}
 	}
 
-	// Pre-allocate skip-level channel Ys at the bottom of the grid
-	// so they don't pierce intermediate nodes.
-	skipCount := 0
+	// Pre-allocate skip-level channel Ys near the bottom of the grid so
+	// they don't pierce intermediate nodes. Channels are pooled and reused
+	// to avoid unbounded height growth from many skip-level edges.
+	skipEdges := make([]dagEdge, 0, len(edges))
 	for _, e := range edges {
 		if levels[e.To] > levels[e.From]+1 {
-			skipCount++
+			skipEdges = append(skipEdges, e)
 		}
 	}
-	l.rows = maxNodeRow + 2 + skipCount
+	skipChannels := len(skipEdges)
+	if skipChannels > maxSkipChannels {
+		skipChannels = maxSkipChannels
+	}
+	l.rows = maxNodeRow + 2 + skipChannels
 	if l.rows < minRows {
 		l.rows = minRows
 	}
@@ -209,23 +217,40 @@ func buildLayout(
 		occupiedRows[row] = true
 	}
 
-	channelY := l.rows - 2
-	for _, e := range edges {
-		srcLv := levels[e.From]
-		dstLv := levels[e.To]
-		if dstLv > srcLv+1 {
-			for channelY >= 0 && occupiedRows[channelY] {
-				channelY--
-			}
-			if channelY < 0 {
-				channelY = l.rows - 2
-			}
-			l.skipChannels[key(e)] = channelY
-			channelY--
-			if channelY < 0 {
-				channelY = 0
-			}
+	if len(skipEdges) == 0 {
+		return l
+	}
+	sort.Slice(skipEdges, func(i, j int) bool {
+		iSrcRow := l.nodeRow[skipEdges[i].From]
+		jSrcRow := l.nodeRow[skipEdges[j].From]
+		if iSrcRow != jSrcRow {
+			return iSrcRow < jSrcRow
 		}
+		iDstRow := l.nodeRow[skipEdges[i].To]
+		jDstRow := l.nodeRow[skipEdges[j].To]
+		if iDstRow != jDstRow {
+			return iDstRow < jDstRow
+		}
+		return key(skipEdges[i]) < key(skipEdges[j])
+	})
+
+	channelYs := make([]int, 0, skipChannels)
+	nextY := l.rows - 2
+	for len(channelYs) < skipChannels && nextY >= 0 {
+		if !occupiedRows[nextY] {
+			channelYs = append(channelYs, nextY)
+		}
+		nextY--
+	}
+	for len(channelYs) < skipChannels {
+		fallback := l.rows - 2 - len(channelYs)
+		if fallback < 0 {
+			fallback = 0
+		}
+		channelYs = append(channelYs, fallback)
+	}
+	for i, e := range skipEdges {
+		l.skipChannels[key(e)] = channelYs[i%len(channelYs)]
 	}
 
 	return l
@@ -252,6 +277,8 @@ type dagGrid struct {
 	width  int
 	height int
 }
+
+const wideRuneCont = '\u200b'
 
 func newGrid(w, h int) *dagGrid {
 	g := &dagGrid{
@@ -285,10 +312,17 @@ func (g *dagGrid) mergePut(x, y int, ch rune) {
 }
 
 func (g *dagGrid) putStr(x, y int, s string) {
-	runeIdx := 0
+	cellX := x
 	for _, ch := range s {
-		g.put(x+runeIdx, y, ch)
-		runeIdx++
+		g.put(cellX, y, ch)
+		w := ansi.StringWidth(string(ch))
+		if w < 1 {
+			w = 1
+		}
+		for i := 1; i < w; i++ {
+			g.put(cellX+i, y, wideRuneCont)
+		}
+		cellX += w
 	}
 }
 
@@ -844,6 +878,9 @@ func classifyCell(x, y int, ch rune, g *dagGrid, nodeArea map[int]map[int]string
 }
 
 func isEdgeChar(ch rune) bool {
+	if ch == wideRuneCont {
+		return false
+	}
 	switch ch {
 	case '─', '│', '┐', '┘', '└', '┌', '├', '┤', '┬', '┴', '┼', '▶':
 		return true
