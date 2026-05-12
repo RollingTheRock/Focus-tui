@@ -46,6 +46,13 @@ func New(cfg config.Config, theme styles.Theme, st models.Store) models.Panel {
 	}
 }
 
+// SetCity updates the weather city and triggers a re-fetch.
+func (m *Model) SetCity(city string) tea.Cmd {
+	m.cfg.Weather.City = city
+	m.weather = "loading weather..."
+	return fetchWeatherCmd(city)
+}
+
 // Init starts the tick, weather fetch, and stats refresh commands.
 func (m *Model) Init() tea.Cmd {
 	return tea.Batch(

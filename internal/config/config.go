@@ -73,6 +73,27 @@ func DefaultConfig() Config {
 	return cfg
 }
 
+// Save writes configuration to ~/.config/focus/config.yaml.
+func Save(cfg Config) error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+
+	dir := filepath.Join(home, ".config", "focus")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+
+	path := filepath.Join(dir, "config.yaml")
+	data, err := yaml.Marshal(&cfg)
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(path, data, 0o644)
+}
+
 // Load reads configuration from ~/.config/focus/config.yaml.
 // If the file does not exist or is malformed, it returns defaults.
 func Load() Config {
