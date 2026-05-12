@@ -528,11 +528,14 @@ func (p *page) activeOverlayPane() models.PaneID {
 	if _, ok := p.paneMeta[paneADRDetail]; ok {
 		return paneADRDetail
 	}
+	if _, ok := p.paneMeta[paneCityPicker]; ok {
+		return paneCityPicker
+	}
 	return ""
 }
 
 func (p *page) isOverlayPane(id models.PaneID) bool {
-	if id == paneTodoOverlay || id == paneGitCommit || id == paneWorktreeCreate || id == paneTaskEdit || id == panePlanEdit || id == paneAgentSelect || id == paneProviderSelect || id == paneWorktreeHistory || id == paneWorktreeDeleteConfirm || id == paneADRDetail || id == paneGitDiff {
+	if id == paneTodoOverlay || id == paneGitCommit || id == paneWorktreeCreate || id == paneTaskEdit || id == panePlanEdit || id == paneAgentSelect || id == paneProviderSelect || id == paneWorktreeHistory || id == paneWorktreeDeleteConfirm || id == paneADRDetail || id == paneGitDiff || id == paneCityPicker {
 		return true
 	}
 	if meta, ok := p.paneMeta[id]; ok && meta.Type == models.PaneTypeEditor {
@@ -1074,6 +1077,32 @@ func (p *page) openADRDetailOverlay(filePath string) tea.Cmd {
 		Closable: true,
 	}
 	panel := newADRDetailOverlay(meta.ID, meta, *p.common, filePath)
+	p.registerPane(meta.ID, panel, meta)
+	if p.returnFocus == nil {
+		p.returnFocus = make(map[models.PaneID]models.PaneID)
+	}
+	p.returnFocus[meta.ID] = baseFocus
+	p.setFocus(meta.ID)
+	p.updateSizes(p.bodyBoundsSize())
+	return panel.Init()
+}
+
+func (p *page) openCityPickerOverlay() tea.Cmd {
+	p.closePane(paneCityPicker)
+
+	baseFocus := p.focused
+	if baseFocus == "" {
+		baseFocus = paneWorktree
+	}
+
+	meta := models.PaneMeta{
+		ID:       paneCityPicker,
+		Name:     "City Picker",
+		Type:     paneTypeCityPicker,
+		Status:   models.PaneStatusReady,
+		Closable: true,
+	}
+	panel := newCityPickerOverlay(p.common.Cfg)
 	p.registerPane(meta.ID, panel, meta)
 	if p.returnFocus == nil {
 		p.returnFocus = make(map[models.PaneID]models.PaneID)

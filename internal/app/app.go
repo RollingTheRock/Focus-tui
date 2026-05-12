@@ -59,6 +59,7 @@ const (
 	paneWorktreeDeleteConfirm models.PaneID = "worktree-delete-confirm-overlay"
 	paneADRDetail             models.PaneID = "adr-detail-overlay"
 	paneTodoOverlay           models.PaneID = "todo-overlay"
+	paneCityPicker            models.PaneID = "city-picker-overlay"
 	paneFooter                models.PaneID = "footer"
 
 	paneTypeGitCommit             models.PaneType = "git-commit"
@@ -71,6 +72,7 @@ const (
 	paneTypeWorktreeDeleteConfirm models.PaneType = "worktree-delete-confirm"
 	paneTypeADRDetail             models.PaneType = "adr-detail"
 	paneTypeTodoOverlay           models.PaneType = "todo-overlay"
+	paneTypeCityPicker            models.PaneType = "city-picker"
 	paneTypeOverviewSummary       models.PaneType = "overview-summary"
 	paneTypeOverviewDAG           models.PaneType = "overview-dag"
 	paneTypeOverviewDetail        models.PaneType = "overview-detail"
@@ -1554,6 +1556,23 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.closePane(paneADRDetail)
 		return m, nil
 
+	case cityPickedMsg:
+		m.common.Cfg.Weather.City = msg.city
+		if err := config.Save(m.common.Cfg); err != nil {
+			m.common.Notice = fmt.Sprintf("failed to save config: %v", err)
+		}
+		m.closePane(paneCityPicker)
+		if h, ok := m.activePage.pane(paneHeader).(*header.Model); ok {
+			return m, h.SetCity(msg.city)
+		}
+		m.invalidateView()
+		return m, nil
+
+	case closeCityPickerMsg:
+		m.closePane(paneCityPicker)
+		m.invalidateView()
+		return m, nil
+
 	case TaskEditorSavedMsg:
 		cmd := m.saveTaskEditor(msg)
 		m.closePane(msg.ID)
@@ -1947,6 +1966,14 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "q", "ctrl+c":
 		m.closeShellPanes()
 		return m, tea.Quit
+	case "w":
+		if _, ok := m.activePage.paneMeta[paneCityPicker]; ok {
+			m.closePane(paneCityPicker)
+		} else {
+			m.activePage.openCityPickerOverlay()
+		}
+		m.invalidateView()
+		return m, nil
 	case "d":
 		// Non-shell panes (e.g. worktree pane) may use 'd' for their own actions.
 		// Route to focused pane first; only consume for notification dismissal if
@@ -2861,7 +2888,7 @@ func (m model) renderHelpLine(w int) string {
 	if w < simplifiedHelpMaxWidth {
 		return renderCompactHelpLine(helpStyle, joinHelpActions(compact), w)
 	}
-	right := "[ctrl+r]refresh  [q]uit"
+	right := "[w]eather  [ctrl+r]refresh  [q]uit"
 	return renderHelpBar(helpStyle, joinHelpActions(left), right, w)
 }
 func renderHelpBar(helpStyle lipgloss.Style, left, right string, w int) string {
