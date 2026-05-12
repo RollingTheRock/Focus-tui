@@ -214,6 +214,10 @@ func (p *worktreeDetailPane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 			}
 		case "s":
 			return p, p.openAgentSelectCmd()
+		case "e", "enter":
+			if p.activeTab == tabTasks {
+				return p, p.openTaskEditCmd()
+			}
 		case "tab":
 			return p, nil // let app route to next pane
 		}
@@ -266,6 +270,27 @@ func (p *worktreeDetailPane) openAgentSelectCmd() tea.Cmd {
 	}
 }
 
+func (p *worktreeDetailPane) openTaskEditCmd() tea.Cmd {
+	if p.worktreeID == "" || len(p.tasks) == 0 {
+		return nil
+	}
+	if p.taskCursor < 0 {
+		p.taskCursor = 0
+	}
+	if p.taskCursor >= len(p.tasks) {
+		p.taskCursor = len(p.tasks) - 1
+	}
+	task := p.tasks[p.taskCursor]
+	return func() tea.Msg {
+		return gitplugin.OpenTaskEditMsg{
+			TaskID:       task.ID,
+			WorktreeID:   p.worktreeID,
+			RepoID:       p.repoID,
+			RelationType: "primary",
+		}
+	}
+}
+
 func (p *worktreeDetailPane) refreshSessions() {
 	// Sessions will be refreshed by the app layer pushing them in.
 }
@@ -302,8 +327,8 @@ func (p *worktreeDetailPane) helpText() (wide, compact string) {
 		wide = "[j/k]nav  [o/v]open  [enter]open/dir  [space]fold  [←/→]fold  [1-3]tabs  [tab]cycle focus"
 		compact = "[j/k]nav  [o]open  [enter]dir  [space]fold"
 	default:
-		wide = "[j/k]nav  [enter]open  [s]tart agent  [1-3]tabs  [tab]cycle focus"
-		compact = "[j/k]nav  [s]agent"
+		wide = "[j/k]nav  [enter/e]edit task  [s]tart agent  [1-3]tabs  [tab]cycle focus"
+		compact = "[j/k]nav  [enter/e]edit  [s]agent"
 	}
 	return
 }

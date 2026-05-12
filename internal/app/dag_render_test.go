@@ -5,6 +5,8 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/charmbracelet/x/ansi"
 )
 
 // stripANSI removes ANSI escape sequences from a string.
@@ -232,4 +234,86 @@ func TestRenderHorizontalDAG_SkipLevel(t *testing.T) {
 		}
 	}
 	t.Logf("\nSkipLevel:\n%s\n", plain)
+}
+
+func TestBuildLayout_LimitsSkipLevelChannels(t *testing.T) {
+	nodes := map[string]dagNode{
+		"A": {ID: "A", Title: "A-root"},
+		"B": {ID: "B", Title: "B-mid"},
+		"C": {ID: "C", Title: "C-leaf"},
+		"D": {ID: "D", Title: "D-leaf"},
+		"E": {ID: "E", Title: "E-leaf"},
+		"F": {ID: "F", Title: "F-leaf"},
+	}
+	levels := map[string]int{"A": 0, "B": 1, "C": 2, "D": 2, "E": 2, "F": 2}
+	layerIDs := map[int][]string{0: {"A"}, 1: {"B"}, 2: {"C", "D", "E", "F"}}
+	edges := []dagEdge{
+		{From: "A", To: "B", Type: "hard"},
+		{From: "A", To: "C", Type: "hard"},
+		{From: "A", To: "D", Type: "hard"},
+		{From: "A", To: "E", Type: "hard"},
+		{From: "A", To: "F", Type: "hard"},
+	}
+
+	l := buildLayout(nodes, edges, levels, layerIDs, 2, 120, 0)
+
+	channels := map[int]struct{}{}
+	for _, e := range edges {
+		if levels[e.To] > levels[e.From]+1 {
+			if y, ok := l.skipChannels[key(e)]; ok {
+				channels[y] = struct{}{}
+			}
+		}
+	}
+	if len(channels) > 3 {
+		t.Fatalf("expected pooled skip channels (<=3), got %d channels: %+v", len(channels), channels)
+	}
+}
+
+func TestRenderHorizontalDAG_CJKWidthAlignment(t *testing.T) {
+	nodes := map[string]dagNode{
+		"A": {ID: "A", Title: "设计协作流程"},
+		"B": {ID: "B", Title: "实现渲染修复"},
+		"C": {ID: "C", Title: "验证发布"},
+	}
+	edges := []dagEdge{
+		{From: "A", To: "B", Type: "hard"},
+		{From: "B", To: "C", Type: "hard"},
+	}
+	levels := map[string]int{"A": 0, "B": 1, "C": 2}
+	layerIDs := map[int][]string{0: {"A"}, 1: {"B"}, 2: {"C"}}
+
+	out := renderHorizontalDAG(nodes, edges, levels, layerIDs, 2, "", 80, 8)
+	plain := stripANSI(out)
+	plainText := strings.ReplaceAll(plain, string(wideRuneCont), "")
+
+	for _, title := range []string{"设计协作流程", "实现渲染修复", "验证发布"} {
+		if !strings.Contains(plainText, title) {
+			t.Fatalf("expected CJK title %q in output:\n%s", title, plain)
+		}
+	}
+
+	for _, line := range strings.Split(plain, "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		if strings.ContainsRune(line, '\x00') {
+			t.Fatalf("unexpected NUL rune in rendered line: %q", line)
+		}
+		if ansi.StringWidth(line) > 80 {
+			t.Fatalf("rendered line exceeds width 80: width=%d line=%q", ansi.StringWidth(line), line)
+		}
+	}
+}
+
+func TestDagGridPutStr_WideRuneOccupiesCells(t *testing.T) {
+	g := newGrid(8, 1)
+	g.putStr(0, 0, "设计")
+
+	// Each Han rune is 2 cells wide, so two runes should occupy 4 grid cells.
+	for x := 0; x < 4; x++ {
+		if g.get(x, 0) == 0 {
+			t.Fatalf("expected cell %d to be occupied for wide runes, grid=%v", x, g.cells[0])
+		}
+	}
 }
