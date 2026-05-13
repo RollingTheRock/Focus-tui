@@ -1,95 +1,184 @@
-# focus-tui
+# focus
 
-`focus-tui` is an ADR-driven, terminal-native developer workbench for human-sovereign, agent-native software execution.
+> Stop juggling terminals.  
+> Run parallel agent development across multiple worktrees without losing control.
 
-It is not meant to be a wrapper for a single coding agent or a chat-first coding surface. The goal is to provide one structured workspace where `ADR`, `plan`, `task`, and `session` layers stay explicit while `shell` sessions, coding agents, git workflows, and personal workflow components remain visible together.
+`focus` is a terminal-native execution workbench designed for one hard problem:
+**how to run multiple coding agents across multiple worktrees in parallel without losing control of context, dependencies, state, and handoff.**
 
-## Positioning
+---
 
-- ADR-driven, not session-driven
-- Human-sovereign, not agent-sovereign
-- Agent-native, not agent-incidental
-- Native shell integration, not a launcher for external TUIs
-- Personal workflow components such as `Todo` and `Pomodoro` remain first-class parts of the workspace instead of being treated as throwaway experiments
+## The Real Problem
 
-## Current Status
+Parallel development does not fail because people cannot open enough terminals.
+It fails because execution becomes invisible and brittle:
 
-The project is currently transitioning from an earlier productivity-oriented TUI into a more general terminal developer workspace.
+- multiple agents run at the same time, but ownership and progress are unclear
+- multiple worktrees evolve in parallel, but task-to-branch mapping drifts
+- upstream/downstream task dependencies break silently
+- session outputs exist, but handoff is not structured for reliable takeover
+- humans become manual schedulers across window chaos
 
-- `Phase 1` is largely complete: the embedded shell is now usable enough to support real terminal workflows
-- `Phase 2` is the current focus: building a true multi-pane layout system
-- Existing `Todo`, `Pomodoro`, header, footer, and local SQLite storage are still kept in the product and will continue to live alongside the shell-centric workflow
+`focus` is not built to replace coding agents.
+It is built to make parallel execution **observable, controllable, and auditable**.
 
-## What Exists Today
+---
 
-- Embedded shell powered by PTY + terminal emulation
-- Keyboard-driven full-screen TUI built with `Bubble Tea`
-- Header, footer, `Todo`, and `Pomodoro` components
-- SQLite-backed local state for personal workflow features
-- Overlay-based panel interactions that will be evolved into pane-based interactions
+## Agent Neutral, Operator Sovereign
 
-## Roadmap
+One core principle of `focus` is:
+**developers should not be locked into a single agent coding tool.**
 
-### Phase 1: Embedded Shell Reliability
+In practice, delivery stability is usually decided less by headline model differences and more by:
 
-Make the built-in shell feel trustworthy enough for real work:
+- runtime stability in your real workflow
+- response speed and predictability
+- provider-native integration quality
 
-- PTY-backed shell execution
-- Alternate screen handling
-- Terminal capability forwarding
-- Mouse forwarding and scrollback behavior
-- Resize synchronization between terminal UI and PTY
+That is why advanced users often run multiple tools side by side, for example:
 
-### Phase 2: Multi-Pane Layout System
+- `Kimi CLI`
+- `Codex`
+- `Claude Code`
+- `OpenCode` (for models without mature first-party agent tooling)
 
-Build the core layout infrastructure required by everything that comes next:
+`focus` does not ask you to switch preferences.
+It unifies your preferred agent stack into one execution system.
 
-- Multiple panes on screen at once
-- Horizontal and vertical splits
-- Pane focus routing
-- Pane metadata such as `name`, `type`, `cwd`, and `status`
-- Multi-instance shell panes
-- Reuse of existing `Todo` and `Pomodoro` modules as normal panes
+- plug in the agents you already trust
+- manage them under one workbench
+- coordinate multi-agent execution against shared task/worktree structure
+- use built-in `cc-switch` to launch and switch provider-specific `Claude Code` and `Codex`
 
-### Phase 3: Native Git and Worktree Workflow
+You choose the best agent for the moment.
+`focus` keeps the system coherent.
 
-Make daily git operations possible without leaving `focus-tui`:
+---
 
-- Repository status summary
-- Worktree list and state
-- Worktree create / switch / remove
-- Worktree as the primary task container for shell, editor, review, and future agent workflows
-- Overview page for orchestration plus full-screen worktree workspace pages for active development
-- Diff views and staging workflow
-- Commit flow inside the workspace
+## How focus Handles Parallel Multi-Agent Work
 
-### Phase 4: Agent Session Visibility
+`focus` uses a structured execution model:
 
-Add structured visibility into agent activity without coupling the product to one vendor:
+- **Worktree as execution container**
+  each worktree acts as an isolated execution unit for branch/task/session activity
+- **Task DAG as source of truth**
+  dependency flow is explicit rather than informal
+- **Session-to-worktree mapping**
+  agent sessions are anchored to worktree/task context
+- **Protocol-driven coordination (MCP)**
+  shared state is managed through explicit tools/resources
+- **Structured handoff**
+  session completion is captured as takeover-ready context
 
-- Session history panes for supported agent tools
-- Mapping sessions to `cwd`, branch, and worktree
-- Surfacing which agent is active in which workspace
-- Building toward multi-agent orchestration in one terminal-native environment
+This is not “chat-first coding.”
+This is execution-system design for real parallel delivery.
 
-## Design Principles
+---
 
-- Native over glued-together integrations
-- Structure over terminal window chaos
-- Agent support without vendor lock-in
-- Keep useful workflow tools instead of deleting them just because the product direction evolved
-- Build the shell and pane system first, then layer git and agent-aware workflows on top
+## Philosophy
 
-## Stack
+1. **Human Sovereign**  
+   humans own decisions and arbitration; agents execute
+2. **Agent Native**  
+   multi-agent parallelism is a default, not an afterthought
+3. **Structure First**  
+   `ADR -> Plan -> Task -> Session` is operational scaffolding, not decoration
+4. **Terminal Realism**  
+   real engineering happens in shell, git, worktree, and scripts
+5. **Auditable Execution**  
+   progress must be inspectable, reproducible, and reversible
 
-- Go
-- `Bubble Tea`
-- `Lip Gloss`
-- SQLite
-- PTY + terminal emulation for embedded shell support
+---
 
-## Development Notes
+## Quickstart
 
-- The current repository still contains code and docs from the earlier productivity-app phase
-- The product direction is now broader: a terminal workspace that can host both development workflows and personal focus tools
-- Near-term development is focused on the pane system rather than adding many new end-user features
+### Prerequisites
+
+- Go `1.25+`
+- Unix-like terminal environment recommended
+
+### Build
+
+```bash
+go build ./cmd/focus
+```
+
+### Run
+
+```bash
+./focus
+```
+
+### Test
+
+```bash
+go test ./...
+```
+
+Note: in restricted environments, some MCP HTTP/socket tests may fail due to OS permission constraints.
+
+---
+
+## Internal Release Policy (Current)
+
+`focus` currently uses an **internal testing release strategy**.
+It is not positioned as a public stable release pipeline yet.
+
+### Versioning
+
+- `v0.x.y-rc.N`
+- `v0.x.y-internal.N`
+
+### Release Gates
+
+1. `go build ./cmd/focus` passes
+2. core tests pass in a non-restricted environment
+3. parallel-critical smoke paths pass:
+   - worktree list/switch workflow
+   - task DAG transitions
+   - agent session mapping
+   - MCP baseline tool/resource interactions
+
+### Artifacts
+
+- multi-platform binaries
+- `checksums.txt`
+- internal release notes (changes, risks, rollback guidance)
+
+---
+
+## Repository Map
+
+```text
+cmd/                   # application entrypoints
+internal/app/          # top-level TUI runtime and page orchestration
+internal/plugins/git/  # worktree/git panes and interactions
+internal/agents/       # agent session model and drivers
+internal/mcp/          # MCP server and protocol layer
+internal/orchestrator/ # task-state orchestration
+internal/store/        # persistence for task/plan/session/worktree context
+docs/adr/              # architecture decision records
+docs/architecture/     # architecture specifications
+docs/plans/            # implementation and cleanup plans
+docs/research/         # analysis and audit artifacts
+docs/releases/         # release process docs
+docs/archive/          # historical archived documents
+```
+
+---
+
+## Documentation
+
+- `docs/architecture/`
+- `docs/adr/`
+- `docs/plans/`
+- `docs/research/`
+- `docs/releases/`
+- `docs/archive/`
+
+---
+
+## Who focus Is For
+
+If you only need a single-agent coding chat surface, `focus` may feel heavy.
+If you are running **multi-worktree, multi-agent, parallel software execution** and need control instead of terminal chaos, this is what `focus` is built for.
