@@ -3,6 +3,7 @@ package app
 import (
 	"testing"
 
+	gitplugin "focus/internal/plugins/git"
 	"focus/internal/config"
 	"focus/internal/store"
 )
@@ -317,5 +318,137 @@ func TestMCPDagGetStatusPhaseLevelDefault(t *testing.T) {
 	}
 	if resultFull["total_count"].(int) != 3 {
 		t.Fatalf("expected total_count=3 in full mode, got %d", resultFull["total_count"].(int))
+	}
+}
+
+func TestMCPStepAutoLinkedToParentWorktree(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Agent.MCPPort = ""
+	st, _ := store.New(":memory:")
+	defer st.Close()
+
+	m := New(cfg, st).(model)
+	defer m.closeShellPanes()
+
+	// Create Phase with preferred worktree
+	phaseResult, err := m.mcpTaskCreateTool(map[string]any{
+		"repo_id":               "/tmp/link-repo",
+		"title":                 "Phase With WT",
+		"preferred_worktree_id": "/tmp/link-repo/.worktrees/phase-wt",
+	})
+	if err != nil {
+		t.Fatalf("task.create phase failed: %v", err)
+	}
+	phaseID := phaseResult["task_id"].(string)
+
+	// Create Step under Phase
+	stepResult, err := m.mcpTaskCreateTool(map[string]any{
+		"repo_id":        "/tmp/link-repo",
+		"title":          "Step Under Phase",
+		"parent_task_id": phaseID,
+	})
+	if err != nil {
+		t.Fatalf("task.create step failed: %v", err)
+	}
+	stepID := stepResult["task_id"].(string)
+
+	// Verify secondary link was auto-created
+	links, err := st.ListTaskWorktreeLinks(stepID)
+	if err != nil {
+		t.Fatalf("list task worktree links failed: %v", err)
+	}
+	if len(links) != 1 {
+		t.Fatalf("expected 1 secondary link, got %d", len(links))
+	}
+	if links[0].WorktreeID != "/tmp/link-repo/.worktrees/phase-wt" {
+		t.Fatalf("expected worktree_id %q, got %q", "/tmp/link-repo/.worktrees/phase-wt", links[0].WorktreeID)
+	}
+	if links[0].RelationType != "secondary" {
+		t.Fatalf("expected relation_type 'secondary', got %q", links[0].RelationType)
+	}
+}
+
+func TestMCPStepNotLinkedWhenParentHasNoWorktree(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Agent.MCPPort = ""
+	st, _ := store.New(":memory:")
+	defer st.Close()
+
+	m := New(cfg, st).(model)
+	defer m.closeShellPanes()
+
+	// Create Phase WITHOUT preferred worktree
+	phaseResult, err := m.mcpTaskCreateTool(map[string]any{
+		"repo_id": "/tmp/no-link-repo",
+		"title":   "Phase No WT",
+	})
+	if err != nil {
+		t.Fatalf("task.create phase failed: %v", err)
+	}
+	phaseID := phaseResult["task_id"].(string)
+
+	// Create Step under Phase
+	stepResult, err := m.mcpTaskCreateTool(map[string]any{
+		"repo_id":        "/tmp/no-link-repo",
+		"title":          "Step Under Phase",
+		"parent_task_id": phaseID,
+	})
+	if err != nil {
+		t.Fatalf("task.create step failed: %v", err)
+	}
+	stepID := stepResult["task_id"].(string)
+
+	// Verify no links were created
+	links, err := st.ListTaskWorktreeLinks(stepID)
+	if err != nil {
+		t.Fatalf("list task worktree links failed: %v", err)
+	}
+	if len(links) != 0 {
+		t.Fatalf("expected 0 links, got %d", len(links))
+	}
+}
+
+func TestWorktreeContextFromDAGPaneIsMixedMode(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Agent.MCPPort = ""
+	st, _ := store.New(":memory:")
+	defer st.Close()
+
+	m := New(cfg, st).(model)
+	defer m.closeShellPanes()
+
+	// Create a Phase
+	phaseResult, err := m.mcpTaskCreateTool(map[string]any{
+		"repo_id": "/tmp/mixed-repo",
+		"title":   "Phase Mixed",
+	})
+	if err != nil {
+		t.Fatalf("task.create phase failed: %v", err)
+	}
+	phaseID := phaseResult["task_id"].(string)
+
+	// Simulate worktree creation from DAG pane (IsPhase: true)
+	updatedModel, _ := m.Update(gitplugin.WorktreeCreatedMsg{
+		ID:        paneWorktreeCreate,
+		Worktree:  gitplugin_testWorktree("/tmp/mixed-repo/.worktrees/phase-mixed", "phase-mixed"),
+		TaskTitle: "Phase Mixed",
+		TaskID:    phaseID,
+		IsPhase:   true,
+	})
+	m = updatedModel.(model)
+
+	// Verify worktree context has mixed mode
+	wc, err := st.GetWorktreeContext("/tmp/mixed-repo/.worktrees/phase-mixed")
+	if err != nil {
+		t.Fatalf("get worktree context failed: %v", err)
+	}
+	if wc == nil {
+		t.Fatal("expected worktree context to exist")
+	}
+	if wc.TaskMode != "mixed" {
+		t.Fatalf("expected task_mode='mixed', got %q", wc.TaskMode)
+	}
+	if wc.PrimaryTaskID == nil || *wc.PrimaryTaskID != phaseID {
+		t.Fatalf("expected primary_task_id=%q, got %v", phaseID, wc.PrimaryTaskID)
 	}
 }

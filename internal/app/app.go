@@ -767,6 +767,19 @@ func (m *model) mcpTaskCreateTool(params map[string]any) (map[string]any, error)
 	if err := m.cmdBus.Send(context.Background(), cmd); err != nil {
 		return nil, err
 	}
+	// Auto-link Step to parent Phase's preferred worktree
+	if parentTaskIDPtr != nil && m.common != nil && m.common.Store != nil {
+		parentTask, err := m.common.Store.GetTaskContext(*parentTaskIDPtr)
+		if err == nil && parentTask != nil && parentTask.PreferredWorktreeID != "" {
+			linkRecord := models.TaskWorktreeLinkRecord{
+				ID:           uuid.NewString(),
+				TaskID:       cmd.ID,
+				WorktreeID:   parentTask.PreferredWorktreeID,
+				RelationType: "secondary",
+			}
+			_ = m.common.Store.SaveTaskWorktreeLink(linkRecord)
+		}
+	}
 	// Refresh DAG if visible
 	if tc, ok := m.activePage.pane(paneDAG).(*tabContainer); ok {
 		tc.refreshDAG()
@@ -1475,6 +1488,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			TaskTitle: msg.TaskTitle,
 			TaskID:    msg.TaskID,
 			BaseRef:   "master",
+			IsPhase:   msg.IsPhase,
 		})
 		m.syncWorktreeActivities()
 		m.invalidateView()
@@ -1486,6 +1500,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			TaskTitle: msg.TaskTitle,
 			TaskID:    msg.TaskID,
 			BaseRef:   "master",
+			IsPhase:   msg.IsPhase,
 		})
 		m.syncWorktreeActivities()
 		m.invalidateView()
@@ -2348,12 +2363,16 @@ func (m *model) createTaskForWorktree(msg gitplugin.WorktreeCreatedMsg) tea.Cmd 
 			log.Printf("createTaskForWorktree: update task preferred worktree: %v", err)
 			return nil
 		}
+		taskMode := "single"
+		if msg.IsPhase {
+			taskMode = "mixed"
+		}
 		if err := m.cmdBus.Send(context.Background(), &commands.UpdateWorktreeContext{
 			Record: models.WorktreeContextRecord{
 				WorktreeID:    msg.Worktree.Path,
 				RepoID:        repoID,
 				PrimaryTaskID: &msg.TaskID,
-				TaskMode:      "single",
+				TaskMode:      taskMode,
 				TaskName:      msg.TaskTitle,
 				LastActiveAt:  now,
 			},
@@ -2387,12 +2406,16 @@ func (m *model) createTaskForWorktree(msg gitplugin.WorktreeCreatedMsg) tea.Cmd 
 		log.Printf("createTaskForWorktree: create task %q: %v", msg.TaskTitle, err)
 		return nil
 	}
+	taskMode := "single"
+	if msg.IsPhase {
+		taskMode = "mixed"
+	}
 	if err := m.cmdBus.Send(context.Background(), &commands.UpdateWorktreeContext{
 		Record: models.WorktreeContextRecord{
 			WorktreeID:    msg.Worktree.Path,
 			RepoID:        repoID,
 			PrimaryTaskID: &taskID,
-			TaskMode:      "single",
+			TaskMode:      taskMode,
 			TaskName:      msg.TaskTitle,
 			LastActiveAt:  now,
 		},

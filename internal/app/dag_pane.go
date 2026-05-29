@@ -429,6 +429,7 @@ func (p *dagPane) selectNodeCmd() tea.Cmd {
 			TaskTitle:           task.Title,
 			RepoID:              p.repoID,
 			PreferredWorktreeID: preferredWT,
+			IsPhase:             true,
 		}
 	}
 }
@@ -443,6 +444,7 @@ func (p *dagPane) createWorktreeCmd() tea.Cmd {
 			TaskID:    task.ID,
 			TaskTitle: task.Title,
 			RepoID:    p.repoID,
+			IsPhase:   true,
 		}
 	}
 }
@@ -551,6 +553,7 @@ type dagNodeSelectedMsg struct {
 	TaskTitle           string
 	RepoID              string
 	PreferredWorktreeID string
+	IsPhase             bool
 }
 
 type dagAddTaskToTodoMsg struct {
@@ -562,6 +565,7 @@ type dagCreateWorktreeMsg struct {
 	TaskID    string
 	TaskTitle string
 	RepoID    string
+	IsPhase   bool
 }
 
 type dagLaunchAgentMsg struct {

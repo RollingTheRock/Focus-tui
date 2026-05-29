@@ -21,6 +21,7 @@ type OpenCreateWorktreeMsg struct {
 	BaseRef   string
 	TaskTitle string
 	TaskID    string
+	IsPhase   bool
 }
 
 type WorktreeCreatedMsg struct {
@@ -29,6 +30,7 @@ type WorktreeCreatedMsg struct {
 	OpenExternal bool
 	TaskTitle    string
 	TaskID       string
+	IsPhase      bool
 }
 
 type CloseCreateWorktreeMsg struct {
@@ -59,6 +61,7 @@ type WorktreeCreatePane struct {
 	openExternal bool
 	taskName     string
 	taskID       string
+	isPhase      bool
 }
 
 const (
@@ -119,6 +122,7 @@ func NewWorktreeCreatePane(id models.PaneID, meta models.PaneMeta, common models
 		pathAuto:     true,
 		openExternal: true,
 		taskID:       msg.TaskID,
+		isPhase:      msg.IsPhase,
 	}
 }
 
@@ -140,7 +144,7 @@ func (p *WorktreeCreatePane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 		}
 		p.err = nil
 		return p, func() tea.Msg {
-			return WorktreeCreatedMsg{ID: p.id, Worktree: *msg.worktree, OpenExternal: p.openExternal, TaskTitle: p.taskName, TaskID: p.taskID}
+			return WorktreeCreatedMsg{ID: p.id, Worktree: *msg.worktree, OpenExternal: p.openExternal, TaskTitle: p.taskName, TaskID: p.taskID, IsPhase: p.isPhase}
 		}
 	case tea.KeyMsg:
 		switch msg.String() {
