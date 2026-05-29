@@ -58,6 +58,7 @@ const (
 	paneWorktreeHistory       models.PaneID = "worktree-history-overlay"
 	paneWorktreeDeleteConfirm models.PaneID = "worktree-delete-confirm-overlay"
 	paneTaskDeleteConfirm     models.PaneID = "task-delete-confirm-overlay"
+	paneDAGMiniOverlay        models.PaneID = "dag-mini-overlay"
 	paneADRDetail             models.PaneID = "adr-detail-overlay"
 	paneTodoOverlay           models.PaneID = "todo-overlay"
 	paneCityPicker            models.PaneID = "city-picker-overlay"
@@ -72,6 +73,7 @@ const (
 	paneTypeWorktreeHistory       models.PaneType = "worktree-history"
 	paneTypeWorktreeDeleteConfirm models.PaneType = "worktree-delete-confirm"
 	paneTypeTaskDeleteConfirm     models.PaneType = "task-delete-confirm"
+	paneTypeDAGMiniOverlay        models.PaneType = "dag-mini-overlay"
 	paneTypeADRDetail             models.PaneType = "adr-detail"
 	paneTypeTodoOverlay           models.PaneType = "todo-overlay"
 	paneTypeCityPicker            models.PaneType = "city-picker"
@@ -1430,6 +1432,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.invalidateView()
 		return m, cmd
 
+	case dagExpandPhaseMsg:
+		cmd := m.openDAGMiniOverlayPane(msg.PhaseID, msg.PhaseTitle)
+		m.invalidateView()
+		return m, cmd
+
 	case requestDeleteTaskMsg:
 		m.closePane(paneTaskDeleteConfirm)
 		if m.cmdBus != nil {
@@ -1454,6 +1461,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case CloseTaskDeleteConfirmMsg:
+		m.closePane(msg.ID)
+		m.invalidateView()
+		return m, nil
+
+	case CloseDAGMiniOverlayMsg:
 		m.closePane(msg.ID)
 		m.invalidateView()
 		return m, nil
@@ -3092,6 +3104,12 @@ func (m *model) openWorktreeDeleteConfirmPane(msg gitplugin.OpenWorktreeDeleteCo
 
 func (m *model) openTaskDeleteConfirmPane(taskID, taskTitle, repoID string, clearAll bool) tea.Cmd {
 	cmd := m.activePage.openTaskDeleteConfirmPane(taskID, taskTitle, repoID, clearAll)
+	m.updateSizes(m.common.Width, m.common.Height)
+	return cmd
+}
+
+func (m *model) openDAGMiniOverlayPane(phaseID, phaseTitle string) tea.Cmd {
+	cmd := m.activePage.openDAGMiniOverlayPane(phaseID, phaseTitle)
 	m.updateSizes(m.common.Width, m.common.Height)
 	return cmd
 }

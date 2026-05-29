@@ -87,6 +87,11 @@ type dagRefreshMsg struct {
 	repoID string
 }
 
+type dagExpandPhaseMsg struct {
+	PhaseID    string
+	PhaseTitle string
+}
+
 type dagTaskCreatedMsg struct {
 	Title  string
 	Goal   string
@@ -150,6 +155,8 @@ func (p *dagPane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 			return p, p.deleteTaskCmd()
 		case "D":
 			return p, p.clearAllTasksCmd()
+		case "z":
+			return p, p.expandPhaseCmd()
 		}
 	}
 	return p, nil
@@ -171,8 +178,22 @@ func (p *dagPane) buildDAG() {
 	}
 	p.tasks = tasks
 
+	// Build map from task ID → parent Phase ID (empty string if it's a Phase itself)
+	taskToPhase := make(map[string]string, len(tasks))
+	for _, t := range tasks {
+		if t.ParentTaskID == nil || *t.ParentTaskID == "" {
+			taskToPhase[t.ID] = t.ID
+		} else {
+			taskToPhase[t.ID] = *t.ParentTaskID
+		}
+	}
+
+	// Only include Phases (tasks with no parent) in the DAG nodes
 	p.nodes = make(map[string]dagNode, len(tasks))
 	for _, t := range tasks {
+		if t.ParentTaskID != nil && *t.ParentTaskID != "" {
+			continue // Skip steps
+		}
 		p.nodes[t.ID] = dagNode{
 			ID:       t.ID,
 			Title:    t.Title,
@@ -186,24 +207,33 @@ func (p *dagPane) buildDAG() {
 	indegree := make(map[string]int)
 	seen := make(map[string]struct{})
 
+	// Iterate over ALL tasks (including steps) to derive phase-level dependencies
 	for _, t := range tasks {
 		downstream, err := store.ListDownstreamTaskContexts(t.ID)
 		if err != nil {
 			continue
 		}
 		for _, d := range downstream {
-			if _, ok := p.nodes[d.ID]; !ok {
+			fromPhase := taskToPhase[t.ID]
+			toPhase := taskToPhase[d.ID]
+			if fromPhase == "" || toPhase == "" || fromPhase == toPhase {
 				continue
 			}
-			key := t.ID + "->" + d.ID
+			if _, ok := p.nodes[fromPhase]; !ok {
+				continue
+			}
+			if _, ok := p.nodes[toPhase]; !ok {
+				continue
+			}
+			key := fromPhase + "->" + toPhase
 			if _, dup := seen[key]; dup {
 				continue
 			}
 			seen[key] = struct{}{}
-			e := dagEdge{From: t.ID, To: d.ID, Type: "hard"}
+			e := dagEdge{From: fromPhase, To: toPhase, Type: "hard"}
 			p.edges = append(p.edges, e)
-			adjacency[t.ID] = append(adjacency[t.ID], e)
-			indegree[d.ID]++
+			adjacency[fromPhase] = append(adjacency[fromPhase], e)
+			indegree[toPhase]++
 		}
 	}
 
@@ -236,16 +266,25 @@ func (p *dagPane) buildDAG() {
 		})
 	}
 
-	// default cursor
+	// default cursor: only consider phases
 	if p.cursorNode == "" || p.nodes[p.cursorNode].ID == "" {
 		for _, t := range tasks {
+			if t.ParentTaskID != nil && *t.ParentTaskID != "" {
+				continue
+			}
 			if t.State == "ready" || t.State == "" {
 				p.cursorNode = t.ID
 				break
 			}
 		}
 		if p.cursorNode == "" && len(tasks) > 0 {
-			p.cursorNode = tasks[0].ID
+			for _, t := range tasks {
+				if t.ParentTaskID != nil && *t.ParentTaskID != "" {
+					continue
+				}
+				p.cursorNode = t.ID
+				break
+			}
 		}
 	}
 }
@@ -303,17 +342,24 @@ func (p *dagPane) moveCursor(dLevel, dIndex int) {
 
 func (p *dagPane) resetCursor() {
 	for _, t := range p.tasks {
+		if t.ParentTaskID != nil && *t.ParentTaskID != "" {
+			continue
+		}
 		if t.State == "ready" || t.State == "" {
 			p.cursorNode = t.ID
 			p.scrollOffset = 0
 			return
 		}
 	}
-	if len(p.tasks) > 0 {
-		p.cursorNode = p.tasks[0].ID
-	} else {
-		p.cursorNode = ""
+	for _, t := range p.tasks {
+		if t.ParentTaskID != nil && *t.ParentTaskID != "" {
+			continue
+		}
+		p.cursorNode = t.ID
+		p.scrollOffset = 0
+		return
 	}
+	p.cursorNode = ""
 	p.scrollOffset = 0
 }
 
@@ -479,6 +525,23 @@ func (p *dagPane) clearAllTasksCmd() tea.Cmd {
 	return func() tea.Msg {
 		return dagClearAllTasksMsg{
 			RepoID: p.repoID,
+		}
+	}
+}
+
+func (p *dagPane) expandPhaseCmd() tea.Cmd {
+	task, ok := p.selectedTask()
+	if !ok {
+		return nil
+	}
+	// Only phases can be expanded
+	if task.ParentTaskID != nil && *task.ParentTaskID != "" {
+		return nil
+	}
+	return func() tea.Msg {
+		return dagExpandPhaseMsg{
+			PhaseID:    task.ID,
+			PhaseTitle: task.Title,
 		}
 	}
 }
@@ -662,9 +725,9 @@ func dagHelpHint(width int, creating bool) string {
 		return "  [T]asks [A]DRs  [Enter/Ctrl+S]save  [Tab]switch field  [Esc]cancel"
 	}
 	if width < 100 {
-		return "  [j/k]move [h/l]level [enter/c]open/wt [s]state [t]todo [n]new [d]del [D]clear [R]refresh"
+		return "  [j/k]move [h/l]level [enter/c]open/wt [s]state [t]todo [n]new [d]del [D]clear [z]expand [R]refresh"
 	}
-	return "  [j/k]move  [h/l]level  [enter]open/create  [c]new-wt  [s]state  [t]todo  [n]new-task  [d]del-task  [D]clear-all  [r]research  [a]arch  [T]asks [A]DRs  [R]refresh"
+	return "  [j/k]move  [h/l]level  [enter]open/create  [c]new-wt  [s]state  [t]todo  [n]new-task  [d]del-task  [D]clear-all  [z]expand  [r]research  [a]arch  [T]asks [A]DRs  [R]refresh"
 }
 
 func (p *dagPane) clampAndJoin(lines []string, h, w int) string {
