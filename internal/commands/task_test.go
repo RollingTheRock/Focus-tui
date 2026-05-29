@@ -236,3 +236,51 @@ func TestBus_Send_Success(t *testing.T) {
 		t.Fatal("task not found after bus send")
 	}
 }
+
+func TestDeleteTask_Validate(t *testing.T) {
+	tests := []struct {
+		name    string
+		cmd     DeleteTask
+		wantErr string
+	}{
+		{"missing task id", DeleteTask{TaskID: ""}, "task id required"},
+		{"valid", DeleteTask{TaskID: "task-1"}, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.cmd.Validate()
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+			if err == nil || err.Error() != tt.wantErr {
+				t.Fatalf("expected error %q, got %v", tt.wantErr, err)
+			}
+		})
+	}
+}
+
+func TestDeleteTask_Execute(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	ctx := context.Background()
+	if err := s.SaveTaskContext(models.TaskContextRecord{ID: "task-1", RepoID: "repo-1", Title: "Task", State: "active"}); err != nil {
+		t.Fatalf("seed task: %v", err)
+	}
+
+	cmd := &DeleteTask{TaskID: "task-1"}
+	if err := cmd.Execute(ctx, s); err != nil {
+		t.Fatalf("execute delete: %v", err)
+	}
+
+	record, err := s.GetTaskContext("task-1")
+	if err != nil {
+		t.Fatalf("get task after delete: %v", err)
+	}
+	if record != nil {
+		t.Fatalf("expected task to be deleted, got %+v", record)
+	}
+}

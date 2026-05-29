@@ -293,6 +293,50 @@ VALUES ('/repo/feature-a', '/repo/main', 'single', 'Planning', CURRENT_TIMESTAMP
 	}
 }
 
+func TestDeleteTaskContext(t *testing.T) {
+	s, err := New(":memory:")
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer s.Close()
+
+	// Create a Phase with two Steps
+	parentID := "phase-1"
+	if err := s.SaveTaskContext(TaskContextRecord{ID: parentID, RepoID: "/repo/main", Title: "Phase", State: "active", Priority: "medium"}); err != nil {
+		t.Fatalf("save phase: %v", err)
+	}
+	if err := s.SaveTaskContext(TaskContextRecord{ID: "step-1", RepoID: "/repo/main", Title: "Step 1", State: "blocked", Priority: "medium", ParentTaskID: &parentID}); err != nil {
+		t.Fatalf("save step 1: %v", err)
+	}
+	if err := s.SaveTaskContext(TaskContextRecord{ID: "step-2", RepoID: "/repo/main", Title: "Step 2", State: "blocked", Priority: "medium", ParentTaskID: &parentID}); err != nil {
+		t.Fatalf("save step 2: %v", err)
+	}
+	// Add a dependency between steps
+	if err := s.SaveTaskDependency(TaskDependencyRecord{FromTaskID: "step-1", ToTaskID: "step-2", DependencyType: "hard"}); err != nil {
+		t.Fatalf("save dependency: %v", err)
+	}
+
+	// Delete the Phase — should cascade to Steps
+	if err := s.DeleteTaskContext(parentID); err != nil {
+		t.Fatalf("delete phase: %v", err)
+	}
+
+	// Verify Phase is gone
+	if _, err := s.GetTaskContext(parentID); err != nil {
+		t.Fatalf("get phase after delete: %v", err)
+	}
+	// Verify Steps are gone
+	for _, id := range []string{"step-1", "step-2"} {
+		record, err := s.GetTaskContext(id)
+		if err != nil {
+			t.Fatalf("get step after delete: %v", err)
+		}
+		if record != nil {
+			t.Fatalf("expected step %s to be deleted, got %+v", id, record)
+		}
+	}
+}
+
 func stringPtr(value string) *string {
 	return &value
 }

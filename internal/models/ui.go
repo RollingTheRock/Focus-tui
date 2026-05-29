@@ -39,6 +39,7 @@ type Store interface {
 	GetWorktreeContext(worktreeID string) (*WorktreeContextRecord, error)
 	ListWorktreeContexts(repoID string) ([]WorktreeContextRecord, error)
 	DeleteWorktreeContext(worktreeID string) error
+	DeleteTaskContext(id string) error
 	SaveTaskWorktreeLink(record TaskWorktreeLinkRecord) error
 	ListTaskWorktreeLinks(taskID string) ([]TaskWorktreeLinkRecord, error)
 	ListWorktreeTaskLinks(worktreeID string) ([]TaskWorktreeLinkRecord, error)

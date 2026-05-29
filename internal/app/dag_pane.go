@@ -146,6 +146,10 @@ func (p *dagPane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 		case "n":
 			p.enterCreateMode()
 			return p, textinput.Blink
+		case "d":
+			return p, p.deleteTaskCmd()
+		case "D":
+			return p, p.clearAllTasksCmd()
 		}
 	}
 	return p, nil
@@ -458,6 +462,27 @@ func (p *dagPane) addToTodayTodosCmd() tea.Cmd {
 	}
 }
 
+func (p *dagPane) deleteTaskCmd() tea.Cmd {
+	task, ok := p.selectedTask()
+	if !ok {
+		return nil
+	}
+	return func() tea.Msg {
+		return dagDeleteTaskMsg{
+			TaskID:    task.ID,
+			TaskTitle: task.Title,
+		}
+	}
+}
+
+func (p *dagPane) clearAllTasksCmd() tea.Cmd {
+	return func() tea.Msg {
+		return dagClearAllTasksMsg{
+			RepoID: p.repoID,
+		}
+	}
+}
+
 type dagNodeSelectedMsg struct {
 	TaskID              string
 	TaskTitle           string
@@ -483,6 +508,23 @@ type dagLaunchAgentMsg struct {
 	WorktreeID string
 	Provider   agents.Provider
 	ExtraArgs  []string
+}
+
+type dagDeleteTaskMsg struct {
+	TaskID    string
+	TaskTitle string
+}
+
+type dagClearAllTasksMsg struct {
+	RepoID string
+}
+
+type dagTaskDeletedMsg struct {
+	RepoID string
+}
+
+type dagTasksClearedMsg struct {
+	RepoID string
 }
 
 func (p *dagPane) enterCreateMode() {
@@ -619,10 +661,10 @@ func dagHelpHint(width int, creating bool) string {
 		}
 		return "  [T]asks [A]DRs  [Enter/Ctrl+S]save  [Tab]switch field  [Esc]cancel"
 	}
-	if width < 90 {
-		return "  [j/k]move [h/l]level [enter/c]open/wt [s]state [t]todo [n]new [R]refresh"
+	if width < 100 {
+		return "  [j/k]move [h/l]level [enter/c]open/wt [s]state [t]todo [n]new [d]del [D]clear [R]refresh"
 	}
-	return "  [j/k]move  [h/l]level  [enter]open/create  [c]new-wt  [s]state  [t]todo  [n]new-task  [r]research  [a]arch  [T]asks [A]DRs  [R]refresh"
+	return "  [j/k]move  [h/l]level  [enter]open/create  [c]new-wt  [s]state  [t]todo  [n]new-task  [d]del-task  [D]clear-all  [r]research  [a]arch  [T]asks [A]DRs  [R]refresh"
 }
 
 func (p *dagPane) clampAndJoin(lines []string, h, w int) string {

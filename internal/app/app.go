@@ -57,6 +57,7 @@ const (
 	paneProviderSelect        models.PaneID = "provider-select-overlay"
 	paneWorktreeHistory       models.PaneID = "worktree-history-overlay"
 	paneWorktreeDeleteConfirm models.PaneID = "worktree-delete-confirm-overlay"
+	paneTaskDeleteConfirm     models.PaneID = "task-delete-confirm-overlay"
 	paneADRDetail             models.PaneID = "adr-detail-overlay"
 	paneTodoOverlay           models.PaneID = "todo-overlay"
 	paneCityPicker            models.PaneID = "city-picker-overlay"
@@ -70,6 +71,7 @@ const (
 	paneTypeProviderSelect        models.PaneType = "provider-select"
 	paneTypeWorktreeHistory       models.PaneType = "worktree-history"
 	paneTypeWorktreeDeleteConfirm models.PaneType = "worktree-delete-confirm"
+	paneTypeTaskDeleteConfirm     models.PaneType = "task-delete-confirm"
 	paneTypeADRDetail             models.PaneType = "adr-detail"
 	paneTypeTodoOverlay           models.PaneType = "todo-overlay"
 	paneTypeCityPicker            models.PaneType = "city-picker"
@@ -1416,6 +1418,44 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.invalidateView()
 			}
 		}
+		return m, nil
+
+	case dagDeleteTaskMsg:
+		cmd := m.openTaskDeleteConfirmPane(msg.TaskID, msg.TaskTitle, "", false)
+		m.invalidateView()
+		return m, cmd
+
+	case dagClearAllTasksMsg:
+		cmd := m.openTaskDeleteConfirmPane("", "", msg.RepoID, true)
+		m.invalidateView()
+		return m, cmd
+
+	case requestDeleteTaskMsg:
+		m.closePane(paneTaskDeleteConfirm)
+		if m.cmdBus != nil {
+			_ = m.cmdBus.Send(context.Background(), &commands.DeleteTask{TaskID: msg.TaskID})
+		}
+		cmd := m.activePage.refreshDAGPane()
+		m.invalidateView()
+		return m, cmd
+
+	case requestClearAllTasksMsg:
+		m.closePane(paneTaskDeleteConfirm)
+		if m.common.Store != nil && msg.RepoID != "" {
+			tasks, _ := m.common.Store.ListTaskContexts(msg.RepoID)
+			for _, t := range tasks {
+				if t.ParentTaskID == nil || *t.ParentTaskID == "" {
+					_ = m.cmdBus.Send(context.Background(), &commands.DeleteTask{TaskID: t.ID})
+				}
+			}
+		}
+		cmd := m.activePage.refreshDAGPane()
+		m.invalidateView()
+		return m, cmd
+
+	case CloseTaskDeleteConfirmMsg:
+		m.closePane(msg.ID)
+		m.invalidateView()
 		return m, nil
 
 	case dagTaskCreatedMsg:
@@ -3046,6 +3086,12 @@ func (m *model) openWorktreeHistoryPane() tea.Cmd {
 
 func (m *model) openWorktreeDeleteConfirmPane(msg gitplugin.OpenWorktreeDeleteConfirmMsg) tea.Cmd {
 	cmd := m.activePage.openWorktreeDeleteConfirmPane(msg)
+	m.updateSizes(m.common.Width, m.common.Height)
+	return cmd
+}
+
+func (m *model) openTaskDeleteConfirmPane(taskID, taskTitle, repoID string, clearAll bool) tea.Cmd {
+	cmd := m.activePage.openTaskDeleteConfirmPane(taskID, taskTitle, repoID, clearAll)
 	m.updateSizes(m.common.Width, m.common.Height)
 	return cmd
 }

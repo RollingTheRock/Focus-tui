@@ -1059,6 +1059,41 @@ func (p *page) openWorktreeDeleteConfirmPane(msg gitplugin.OpenWorktreeDeleteCon
 	return panel.Init()
 }
 
+func (p *page) openTaskDeleteConfirmPane(taskID, taskTitle, repoID string, clearAll bool) tea.Cmd {
+	p.closePane(paneTaskDeleteConfirm)
+
+	baseFocus := p.focused
+	if baseFocus == "" {
+		baseFocus = paneDAG
+	}
+
+	meta := models.PaneMeta{
+		ID:       paneTaskDeleteConfirm,
+		Name:     "Delete Task",
+		Type:     paneTypeTaskDeleteConfirm,
+		CWD:      p.gitRepoPath(),
+		RepoID:   p.currentRepoID(),
+		Status:   models.PaneStatusReady,
+		Closable: true,
+	}
+	panel := newTaskDeleteConfirmPane(meta.ID, taskID, taskTitle, repoID, clearAll)
+	p.registerPane(meta.ID, panel, meta)
+	if p.returnFocus == nil {
+		p.returnFocus = make(map[models.PaneID]models.PaneID)
+	}
+	p.returnFocus[meta.ID] = baseFocus
+	p.setFocus(meta.ID)
+	p.updateSizes(p.bodyBoundsSize())
+	return panel.Init()
+}
+
+func (p *page) refreshDAGPane() tea.Cmd {
+	if tc, ok := p.pane(paneDAG).(*tabContainer); ok {
+		tc.refreshDAG()
+	}
+	return nil
+}
+
 func (p *page) openADRDetailOverlay(filePath string) tea.Cmd {
 	p.closePane(paneADRDetail)
 
