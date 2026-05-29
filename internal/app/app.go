@@ -251,8 +251,38 @@ func (m *model) registerMCPTools() {
 				"type":        "string",
 				"description": "偏好的工作树 ID",
 			},
+			"parent_task_id": map[string]any{
+				"type":        "string",
+				"description": "父任务ID，指定则为Step，不指定则为Phase",
+			},
 		},
 		"required": []string{"title"},
+	}
+	taskListSchema := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"repo_id": map[string]any{
+				"type":        "string",
+				"description": "仓库路径（可选，默认当前仓库）",
+			},
+			"include_subtasks": map[string]any{
+				"type":        "boolean",
+				"description": "是否包含子任务（Step），默认 false 只返回 Phase",
+			},
+		},
+	}
+	dagGetStatusSchema := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"repo_id": map[string]any{
+				"type":        "string",
+				"description": "仓库路径（可选，默认当前仓库）",
+			},
+			"detail": map[string]any{
+				"type":        "string",
+				"description": "detail=full 时返回完整 DAG（包含 Steps），默认只返回 Phase 级别",
+			},
+		},
 	}
 	planCreateSchema := map[string]any{
 		"type": "object",
@@ -315,7 +345,7 @@ func (m *model) registerMCPTools() {
 	_ = m.mcpServer.RegisterTool("session.request_intervention", "Request human intervention", nil, m.withPiggyback(m.mcpSessionRequestInterventionTool))
 	_ = m.mcpServer.RegisterTool("task.get", "Get task details by ID", nil, m.withPiggyback(m.mcpTaskGetTool))
 	_ = m.mcpServer.RegisterTool("task.create", "创建一个新任务。title 必须使用中文，简洁动宾结构", taskCreateSchema, m.withPiggyback(m.mcpTaskCreateTool))
-	_ = m.mcpServer.RegisterTool("task.list", "List tasks", nil, m.withPiggyback(m.mcpTaskListTool))
+	_ = m.mcpServer.RegisterTool("task.list", "列出任务，默认只返回 Phase（不含 Step）", taskListSchema, m.withPiggyback(m.mcpTaskListTool))
 	_ = m.mcpServer.RegisterTool("task.add_dependency", "Add dependency between tasks", nil, m.withPiggyback(m.mcpTaskAddDependencyTool))
 	_ = m.mcpServer.RegisterTool("task.create_output", "Create task output/artifact", nil, m.withPiggyback(m.mcpTaskCreateOutputTool))
 	_ = m.mcpServer.RegisterTool("task.update_status", "Update task status", nil, m.withPiggyback(m.mcpTaskUpdateStatusTool))
@@ -325,8 +355,8 @@ func (m *model) registerMCPTools() {
 	_ = m.mcpServer.RegisterTool("plan.get", "Get plan details with steps", nil, m.withPiggyback(m.mcpPlanGetTool))
 	_ = m.mcpServer.RegisterTool("plan.list", "List task plans", nil, m.withPiggyback(m.mcpPlanListTool))
 	_ = m.mcpServer.RegisterTool("plan.add_step", "为计划添加一个步骤。title 必须使用中文，简洁具体", planAddStepSchema, m.withPiggyback(m.mcpPlanAddStepTool))
-	_ = m.mcpServer.RegisterTool("plan.expand_to_tasks", "将计划步骤展开为任务和依赖关系", nil, m.withPiggyback(m.mcpPlanExpandToTasksTool))
-	_ = m.mcpServer.RegisterTool("dag.get_status", "获取完整 DAG 状态和拓扑结构", nil, m.withPiggyback(m.mcpDagGetStatusTool))
+	_ = m.mcpServer.RegisterTool("plan.expand_to_tasks", "将计划步骤展开为 Phase 级别任务和依赖关系（每个 step 变成一个 Phase）", nil, m.withPiggyback(m.mcpPlanExpandToTasksTool))
+	_ = m.mcpServer.RegisterTool("dag.get_status", "获取 DAG 状态和拓扑结构，默认只返回 Phase 级别", dagGetStatusSchema, m.withPiggyback(m.mcpDagGetStatusTool))
 }
 
 func (m *model) registerMCPResources() {
@@ -718,6 +748,11 @@ func (m *model) mcpTaskCreateTool(params map[string]any) (map[string]any, error)
 	if m.cmdBus == nil {
 		return nil, fmt.Errorf("command bus unavailable")
 	}
+	parentTaskID := strings.TrimSpace(toolStringParam(params, "parent_task_id"))
+	var parentTaskIDPtr *string
+	if parentTaskID != "" {
+		parentTaskIDPtr = &parentTaskID
+	}
 	cmd := &commands.CreateTask{
 		ID:                  uuid.NewString(),
 		RepoID:              repoID,
@@ -727,6 +762,7 @@ func (m *model) mcpTaskCreateTool(params map[string]any) (map[string]any, error)
 		State:               normalizeToolTaskState(toolStringParam(params, "state")),
 		Priority:            toolStringParam(params, "priority"),
 		PreferredWorktreeID: strings.TrimSpace(toolStringParam(params, "preferred_worktree_id")),
+		ParentTaskID:        parentTaskIDPtr,
 	}
 	if err := m.cmdBus.Send(context.Background(), cmd); err != nil {
 		return nil, err
@@ -789,16 +825,26 @@ func (m *model) mcpTaskListTool(params map[string]any) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
+	includeSubtasks := toolBoolParam(params, "include_subtasks")
 	tasks := make([]map[string]any, 0, len(records))
 	for _, t := range records {
-		tasks = append(tasks, map[string]any{
+		isSubtask := t.ParentTaskID != nil && *t.ParentTaskID != ""
+		if isSubtask && !includeSubtasks {
+			continue
+		}
+		taskObj := map[string]any{
 			"id":                    t.ID,
 			"repo_id":               t.RepoID,
 			"title":                 t.Title,
 			"state":                 t.State,
 			"priority":              t.Priority,
 			"preferred_worktree_id": t.PreferredWorktreeID,
-		})
+			"parent_task_id":        nil,
+		}
+		if t.ParentTaskID != nil && *t.ParentTaskID != "" {
+			taskObj["parent_task_id"] = *t.ParentTaskID
+		}
+		tasks = append(tasks, taskObj)
 	}
 	return map[string]any{
 		"success": true,
@@ -1075,14 +1121,34 @@ func (m *model) mcpDagGetStatusTool(params map[string]any) (map[string]any, erro
 		return nil, err
 	}
 
-	nodes := make([]map[string]any, 0, len(tasks))
+	fullDAG := toolStringParam(params, "detail") == "full"
+
+	// Build taskToPhase map: each task maps to its Phase (itself if no parent)
+	taskToPhase := make(map[string]string, len(tasks))
+	for _, t := range tasks {
+		if t.ParentTaskID == nil || *t.ParentTaskID == "" {
+			taskToPhase[t.ID] = t.ID
+		} else {
+			taskToPhase[t.ID] = *t.ParentTaskID
+		}
+	}
+
+	// Build nodes: default only Phase-level tasks
+	nodes := make([]map[string]any, 0)
 	nodeMap := make(map[string]map[string]any)
 	for _, t := range tasks {
+		if !fullDAG && t.ParentTaskID != nil && *t.ParentTaskID != "" {
+			continue // Skip steps in default mode
+		}
 		node := map[string]any{
-			"id":       t.ID,
-			"title":    t.Title,
-			"state":    t.State,
-			"priority": t.Priority,
+			"id":             t.ID,
+			"title":          t.Title,
+			"state":          t.State,
+			"priority":       t.Priority,
+			"parent_task_id": nil,
+		}
+		if t.ParentTaskID != nil && *t.ParentTaskID != "" {
+			node["parent_task_id"] = *t.ParentTaskID
 		}
 		nodes = append(nodes, node)
 		nodeMap[t.ID] = node
@@ -1099,31 +1165,48 @@ func (m *model) mcpDagGetStatusTool(params map[string]any) (map[string]any, erro
 			continue
 		}
 		for _, d := range downstream {
-			if _, ok := nodeMap[d.ID]; !ok {
-				continue
+			fromID := t.ID
+			toID := d.ID
+			if !fullDAG {
+				fromID = taskToPhase[t.ID]
+				toID = taskToPhase[d.ID]
+				if fromID == "" || toID == "" || fromID == toID {
+					continue
+				}
+				if _, ok := nodeMap[fromID]; !ok {
+					continue
+				}
+				if _, ok := nodeMap[toID]; !ok {
+					continue
+				}
+			} else {
+				if _, ok := nodeMap[d.ID]; !ok {
+					continue
+				}
 			}
-			key := t.ID + "->" + d.ID
+			key := fromID + "->" + toID
 			if _, dup := seen[key]; dup {
 				continue
 			}
 			seen[key] = struct{}{}
 			edges = append(edges, map[string]any{
-				"from": t.ID,
-				"to":   d.ID,
+				"from": fromID,
+				"to":   toID,
 				"type": "hard",
 			})
-			adjacency[t.ID] = append(adjacency[t.ID], d.ID)
-			indegree[d.ID]++
+			adjacency[fromID] = append(adjacency[fromID], toID)
+			indegree[toID]++
 		}
 	}
 
 	// Compute levels via topological BFS
 	levels := make(map[string]int)
 	queue := make([]string, 0)
-	for _, t := range tasks {
-		if indegree[t.ID] == 0 {
-			queue = append(queue, t.ID)
-			levels[t.ID] = 0
+	for _, n := range nodes {
+		id := n["id"].(string)
+		if indegree[id] == 0 {
+			queue = append(queue, id)
+			levels[id] = 0
 		}
 	}
 	for len(queue) > 0 {
@@ -1147,6 +1230,9 @@ func (m *model) mcpDagGetStatusTool(params map[string]any) (map[string]any, erro
 
 	readyCount, doneCount := 0, 0
 	for _, t := range tasks {
+		if !fullDAG && t.ParentTaskID != nil && *t.ParentTaskID != "" {
+			continue
+		}
 		switch t.State {
 		case "ready":
 			readyCount++
@@ -1160,10 +1246,10 @@ func (m *model) mcpDagGetStatusTool(params map[string]any) (map[string]any, erro
 		"repo_id":      repoID,
 		"nodes":        nodes,
 		"edges":        edges,
-		"total_count":  len(tasks),
+		"total_count":  len(nodes),
 		"ready_count":  readyCount,
 		"done_count":   doneCount,
-		"active_count": len(tasks) - readyCount - doneCount,
+		"active_count": len(nodes) - readyCount - doneCount,
 	}, nil
 }
 
@@ -1239,6 +1325,27 @@ func toolFloatParam(params map[string]any, key string, fallback float64) float64
 		}
 	}
 	return fallback
+}
+
+func toolBoolParam(params map[string]any, key string) bool {
+	if params == nil {
+		return false
+	}
+	value, exists := params[key]
+	if !exists || value == nil {
+		return false
+	}
+	switch typed := value.(type) {
+	case bool:
+		return typed
+	case string:
+		return strings.ToLower(strings.TrimSpace(typed)) == "true"
+	case int:
+		return typed != 0
+	case float64:
+		return typed != 0
+	}
+	return false
 }
 
 func toJSONString(payload map[string]any) string {
