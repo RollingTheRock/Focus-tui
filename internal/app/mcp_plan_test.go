@@ -201,6 +201,54 @@ func TestMCPTaskCreateWithParentTaskID(t *testing.T) {
 	}
 }
 
+func TestMCPTaskCreatePhaseDefaultState(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Agent.MCPPort = ""
+	st, _ := store.New(":memory:")
+	defer st.Close()
+
+	m := New(cfg, st).(model)
+	defer m.closeShellPanes()
+
+	// First Phase with no explicit state → defaults to active
+	r1, err := m.mcpTaskCreateTool(map[string]any{"repo_id": "/tmp/state-repo", "title": "First Phase"})
+	if err != nil {
+		t.Fatalf("create first phase: %v", err)
+	}
+	firstID := r1["task_id"].(string)
+	tc1, _ := st.GetTaskContext(firstID)
+	if tc1 == nil || tc1.State != "active" {
+		t.Fatalf("expected first phase active, got %v", tc1)
+	}
+
+	// Second Phase with no explicit state → defaults to blocked (repo already has active phase)
+	r2, err := m.mcpTaskCreateTool(map[string]any{"repo_id": "/tmp/state-repo", "title": "Second Phase"})
+	if err != nil {
+		t.Fatalf("create second phase: %v", err)
+	}
+	secondID := r2["task_id"].(string)
+	tc2, _ := st.GetTaskContext(secondID)
+	if tc2 == nil || tc2.State != "blocked" {
+		t.Fatalf("expected second phase blocked, got state=%q", tc2.State)
+	}
+
+	// Step with no explicit state → should remain whatever CreateTask defaults (active via command fallback)
+	// Note: Steps are NOT affected by the phase-default logic since they have parent_task_id
+	_, _ = m.mcpTaskCreateTool(map[string]any{
+		"repo_id":        "/tmp/state-repo",
+		"title":          "Step 1",
+		"parent_task_id": firstID,
+	})
+	records, _ := st.ListTaskContexts("/tmp/state-repo")
+	for _, r := range records {
+		if r.Title == "Step 1" {
+			if r.State != "active" {
+				t.Fatalf("expected step default active, got %q", r.State)
+			}
+		}
+	}
+}
+
 func TestMCPTaskListFiltersSubtasksByDefault(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.Agent.MCPPort = ""

@@ -764,6 +764,20 @@ func (m *model) mcpTaskCreateTool(params map[string]any) (map[string]any, error)
 		PreferredWorktreeID: strings.TrimSpace(toolStringParam(params, "preferred_worktree_id")),
 		ParentTaskID:        parentTaskIDPtr,
 	}
+	// Phase (no parent) with no explicit state: first Phase defaults to active,
+	// subsequent Phases default to blocked so humans control activation.
+	if parentTaskIDPtr == nil && cmd.State == "" && m.common != nil && m.common.Store != nil {
+		records, _ := m.common.Store.ListTaskContexts(repoID)
+		for _, t := range records {
+			if t.ParentTaskID == nil && (t.State == "active" || t.State == "paused" || t.State == "ready") {
+				cmd.State = "blocked"
+				break
+			}
+		}
+		if cmd.State == "" {
+			cmd.State = "active"
+		}
+	}
 	if err := m.cmdBus.Send(context.Background(), cmd); err != nil {
 		return nil, err
 	}
