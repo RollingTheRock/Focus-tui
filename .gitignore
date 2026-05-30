@@ -1,7 +1,17 @@
 # Binary
 /focus
 /focus-tui
+/focus-dev
 .todos/
+
+# Runtime
+.focus/*.db
+.focus/*.db-shm
+.focus/*.db-wal
+
+# Generated context
+AGENTS.md
+CLAUDE.md
 .sidecar/
 .sidecar-agent
 .sidecar-task

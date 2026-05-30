@@ -25,12 +25,15 @@ func ProviderCommand(provider Provider) (string, []string) {
 	case ProviderCodex:
 		return "codex", nil
 	default:
-		return string(provider), nil
+		return "", nil
 	}
 }
 
 func IsInstalled(provider Provider) bool {
 	bin, _ := ProviderCommand(provider)
+	if bin == "" {
+		return false
+	}
 	_, err := exec.LookPath(bin)
 	return err == nil
 }

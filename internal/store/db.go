@@ -488,6 +488,31 @@ CREATE TABLE IF NOT EXISTS worktree_history (
 
 CREATE INDEX IF NOT EXISTS idx_worktree_history_repo
     ON worktree_history(repo_id, removed_at DESC);
+
+CREATE TABLE IF NOT EXISTS agent_definitions (
+    id              TEXT PRIMARY KEY,
+    name            TEXT NOT NULL,
+    description     TEXT,
+    binary          TEXT NOT NULL,
+    args            TEXT DEFAULT '[]',
+    env_vars        TEXT DEFAULT '[]',
+    provider_type   TEXT NOT NULL DEFAULT 'generic',
+    tags            TEXT DEFAULT '[]',
+    category        TEXT NOT NULL DEFAULT 'registered'
+        CHECK(category IN ('built-in', 'registered', 'recommended')),
+    install_hint    TEXT,
+    capabilities    TEXT DEFAULT '{}',
+    is_installed    BOOLEAN NOT NULL DEFAULT 0,
+    is_enabled      BOOLEAN NOT NULL DEFAULT 1,
+    last_used_at    DATETIME,
+    created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_agent_definitions_category
+    ON agent_definitions(category);
+CREATE INDEX IF NOT EXISTS idx_agent_definitions_enabled
+    ON agent_definitions(is_enabled);
 `
 	_, err := s.db.Exec(schema)
 	if err != nil {
@@ -511,7 +536,16 @@ CREATE INDEX IF NOT EXISTS idx_worktree_history_repo
 	if err := s.migrateTodosTaskID(); err != nil {
 		return err
 	}
+	if err := s.migrateAgentDefinitionsInstalledColumn(); err != nil {
+		return err
+	}
 	return s.migrateFixTaskPlansForeignKeys()
+}
+
+func (s *Store) migrateAgentDefinitionsInstalledColumn() error {
+	return ensureColumns(s.db, "agent_definitions", map[string]string{
+		"is_installed": "BOOLEAN NOT NULL DEFAULT 0",
+	})
 }
 
 func (s *Store) migrateTodosTaskID() error {

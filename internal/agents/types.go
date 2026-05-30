@@ -52,6 +52,7 @@ ID               string
 	Summary          string
 	EnvSnapshot      string
 	ExtraArgs        []string
+	Binary           string // custom binary for generic providers (e.g. "gemini")
 	StartedAt        time.Time
 	EndedAt          *time.Time
 	LastActivityAt   *time.Time
