@@ -128,7 +128,8 @@ func TestProviderCommand(t *testing.T) {
 		{ProviderClaude, "claude"},
 		{ProviderKimi, "kimi"},
 		{ProviderCodex, "codex"},
-		{Provider("custom"), "custom"},
+		{ProviderGeneric, ""},
+		{Provider("custom"), ""},
 	}
 	for _, tt := range tests {
 		bin, args := ProviderCommand(tt.provider)
