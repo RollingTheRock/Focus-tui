@@ -286,6 +286,17 @@ func (l *SpecLoader) buildMCPToolsLayer() *SpecLayer {
 		"- `dag.get_status` — full DAG topology and dependencies",
 		"- `context.get_for_task` — full context for a task",
 		"- `kg.add_fact` — add a knowledge graph fact",
+		"",
+		"## DAG Hierarchy Convention",
+		"",
+		"Focus uses a two-layer task model:",
+		"- **Phase** (parent_task_id = null) = architectural phase, visible to humans in the DAG pane",
+		"- **Step** (parent_task_id set) = execution detail, invisible to humans",
+		"",
+		"When you create tasks:",
+		"1. Create 5-10 Phases first (no parent_task_id) representing architectural stages",
+		"2. Then create Steps under each Phase (set parent_task_id)",
+		"3. Any task without parent_task_id appears directly in the human's DAG pane",
 	}
 
 	return &SpecLayer{

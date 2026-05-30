@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"focus/internal/adapters"
@@ -534,6 +535,9 @@ func (p *page) activeOverlayPane() models.PaneID {
 	if _, ok := p.paneMeta[paneWorktreeDeleteConfirm]; ok {
 		return paneWorktreeDeleteConfirm
 	}
+	if _, ok := p.paneMeta[paneDAGMiniOverlay]; ok {
+		return paneDAGMiniOverlay
+	}
 	if _, ok := p.paneMeta[paneADRDetail]; ok {
 		return paneADRDetail
 	}
@@ -544,7 +548,7 @@ func (p *page) activeOverlayPane() models.PaneID {
 }
 
 func (p *page) isOverlayPane(id models.PaneID) bool {
-	if id == paneTodoOverlay || id == paneGitCommit || id == paneWorktreeCreate || id == paneTaskEdit || id == panePlanEdit || id == paneAgentSelect || id == paneProviderSelect || id == paneAgentStore || id == paneAgentInstallHint || id == paneAgentRegister || id == paneWorktreeHistory || id == paneWorktreeDeleteConfirm || id == paneADRDetail || id == paneGitDiff || id == paneCityPicker {
+	if id == paneTodoOverlay || id == paneGitCommit || id == paneWorktreeCreate || id == paneTaskEdit || id == panePlanEdit || id == paneAgentSelect || id == paneProviderSelect || id == paneAgentStore || id == paneAgentInstallHint || id == paneAgentRegister || id == paneWorktreeHistory || id == paneWorktreeDeleteConfirm || id == paneTaskDeleteConfirm || id == paneDAGMiniOverlay || id == paneADRDetail || id == paneGitDiff || id == paneCityPicker {
 		return true
 	}
 	if meta, ok := p.paneMeta[id]; ok && meta.Type == models.PaneTypeEditor {
@@ -1149,6 +1153,82 @@ func (p *page) openWorktreeDeleteConfirmPane(msg gitplugin.OpenWorktreeDeleteCon
 	p.setFocus(meta.ID)
 	p.updateSizes(p.bodyBoundsSize())
 	return panel.Init()
+}
+
+func (p *page) openTaskDeleteConfirmPane(taskID, taskTitle, repoID string, clearAll bool) tea.Cmd {
+	p.closePane(paneTaskDeleteConfirm)
+
+	baseFocus := p.focused
+	if baseFocus == "" {
+		baseFocus = paneDAG
+	}
+
+	meta := models.PaneMeta{
+		ID:       paneTaskDeleteConfirm,
+		Name:     "Delete Task",
+		Type:     paneTypeTaskDeleteConfirm,
+		CWD:      p.gitRepoPath(),
+		RepoID:   p.currentRepoID(),
+		Status:   models.PaneStatusReady,
+		Closable: true,
+	}
+	panel := newTaskDeleteConfirmPane(meta.ID, taskID, taskTitle, repoID, clearAll)
+	p.registerPane(meta.ID, panel, meta)
+	if p.returnFocus == nil {
+		p.returnFocus = make(map[models.PaneID]models.PaneID)
+	}
+	p.returnFocus[meta.ID] = baseFocus
+	p.setFocus(meta.ID)
+	p.updateSizes(p.bodyBoundsSize())
+	return panel.Init()
+}
+
+func (p *page) openDAGMiniOverlayPane(phaseID, phaseTitle string) tea.Cmd {
+	p.closePane(paneDAGMiniOverlay)
+
+	baseFocus := p.focused
+	if baseFocus == "" {
+		baseFocus = paneDAG
+	}
+
+	var steps []models.TaskContextRecord
+	if p.common.Store != nil {
+		allTasks, _ := p.common.Store.ListTaskContexts(p.currentRepoID())
+		for _, t := range allTasks {
+			if t.ParentTaskID != nil && *t.ParentTaskID == phaseID {
+				steps = append(steps, t)
+			}
+		}
+		sort.Slice(steps, func(i, j int) bool {
+			return steps[i].Title < steps[j].Title
+		})
+	}
+
+	meta := models.PaneMeta{
+		ID:       paneDAGMiniOverlay,
+		Name:     "Phase Steps",
+		Type:     paneTypeDAGMiniOverlay,
+		CWD:      p.gitRepoPath(),
+		RepoID:   p.currentRepoID(),
+		Status:   models.PaneStatusReady,
+		Closable: true,
+	}
+	panel := newDAGMiniOverlayPane(meta.ID, phaseID, phaseTitle, steps)
+	p.registerPane(meta.ID, panel, meta)
+	if p.returnFocus == nil {
+		p.returnFocus = make(map[models.PaneID]models.PaneID)
+	}
+	p.returnFocus[meta.ID] = baseFocus
+	p.setFocus(meta.ID)
+	p.updateSizes(p.bodyBoundsSize())
+	return panel.Init()
+}
+
+func (p *page) refreshDAGPane() tea.Cmd {
+	if tc, ok := p.pane(paneDAG).(*tabContainer); ok {
+		tc.refreshDAG()
+	}
+	return nil
 }
 
 func (p *page) openADRDetailOverlay(filePath string) tea.Cmd {

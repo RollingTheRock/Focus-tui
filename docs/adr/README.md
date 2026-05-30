@@ -15,3 +15,4 @@ Accepted ADRs are immutable. If a decision changes, it must be replaced by a new
 
 - [ADR-0000 — Constitution for ADR-Driven Execution](./0000-constitution-for-adr-driven-execution.md)
 - [ADR-0001 — Product Positioning: Human-Sovereign, Agent-Native Workbench](./0001-product-positioning-human-sovereign-agent-native-workbench.md)
+- [ADR-0006 — DAG Pane Phase-Step 分层与 Agent 粒度约束](./0006-dag-pane-phase-step-hierarchy.md)

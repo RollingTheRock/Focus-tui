@@ -200,6 +200,42 @@ func scanTaskContext(row rowScanner) (*TaskContextRecord, error) {
 	return &record, nil
 }
 
+func (s *Store) DeleteTaskContext(id string) error {
+	if id == "" {
+		return fmt.Errorf("task context id required")
+	}
+
+	// Recursively delete child tasks first. parent_task_id is ON DELETE SET NULL,
+	// so deleting a parent before its children would orphan them into new Phases.
+	q := fmt.Sprintf(`SELECT id FROM %s WHERE parent_task_id = ?`, s.tbl("task_contexts", "proj_tasks"))
+	rows, err := s.qRows(q, id)
+	if err != nil {
+		return err
+	}
+	var children []string
+	for rows.Next() {
+		var childID string
+		if err := rows.Scan(&childID); err != nil {
+			rows.Close()
+			return err
+		}
+		children = append(children, childID)
+	}
+	rows.Close()
+
+	for _, childID := range children {
+		if err := s.DeleteTaskContext(childID); err != nil {
+			return err
+		}
+	}
+
+	// Delete self. ON DELETE CASCADE handles task_briefs, task_outputs,
+	// task_dependencies, task_worktree_links automatically.
+	dq := fmt.Sprintf(`DELETE FROM %s WHERE id = ?`, s.tbl("task_contexts", "proj_tasks"))
+	_, err = s.exec(dq, id)
+	return err
+}
+
 func scanTaskContextRows(rows rowIter) (*TaskContextRecord, error) {
 	var record TaskContextRecord
 	var goal sql.NullString

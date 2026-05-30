@@ -149,3 +149,21 @@ func (c *UpdateTask) Validate() error {
 func (c *UpdateTask) Execute(ctx context.Context, s *store.Store) error {
 	return s.SaveTaskContext(c.Record)
 }
+
+// DeleteTask removes a task and all its children (Steps) from the store.
+type DeleteTask struct {
+	TaskID string
+}
+
+// Validate checks the task ID.
+func (c *DeleteTask) Validate() error {
+	if c.TaskID == "" {
+		return fmt.Errorf("task id required")
+	}
+	return nil
+}
+
+// Execute deletes the task via the store (children are handled recursively).
+func (c *DeleteTask) Execute(ctx context.Context, s *store.Store) error {
+	return s.DeleteTaskContext(c.TaskID)
+}
