@@ -512,6 +512,15 @@ func (p *page) activeOverlayPane() models.PaneID {
 	if _, ok := p.paneMeta[paneProviderSelect]; ok {
 		return paneProviderSelect
 	}
+	if _, ok := p.paneMeta[paneAgentInstallHint]; ok {
+		return paneAgentInstallHint
+	}
+	if _, ok := p.paneMeta[paneAgentRegister]; ok {
+		return paneAgentRegister
+	}
+	if _, ok := p.paneMeta[paneAgentStore]; ok {
+		return paneAgentStore
+	}
 	if _, ok := p.paneMeta[paneGitDiff]; ok {
 		return paneGitDiff
 	}
@@ -539,7 +548,7 @@ func (p *page) activeOverlayPane() models.PaneID {
 }
 
 func (p *page) isOverlayPane(id models.PaneID) bool {
-	if id == paneTodoOverlay || id == paneGitCommit || id == paneWorktreeCreate || id == paneTaskEdit || id == panePlanEdit || id == paneAgentSelect || id == paneProviderSelect || id == paneWorktreeHistory || id == paneWorktreeDeleteConfirm || id == paneTaskDeleteConfirm || id == paneDAGMiniOverlay || id == paneADRDetail || id == paneGitDiff || id == paneCityPicker {
+	if id == paneTodoOverlay || id == paneGitCommit || id == paneWorktreeCreate || id == paneTaskEdit || id == panePlanEdit || id == paneAgentSelect || id == paneProviderSelect || id == paneAgentStore || id == paneAgentInstallHint || id == paneAgentRegister || id == paneWorktreeHistory || id == paneWorktreeDeleteConfirm || id == paneTaskDeleteConfirm || id == paneDAGMiniOverlay || id == paneADRDetail || id == paneGitDiff || id == paneCityPicker {
 		return true
 	}
 	if meta, ok := p.paneMeta[id]; ok && meta.Type == models.PaneTypeEditor {
@@ -997,6 +1006,89 @@ func (p *page) openProviderSelectPane(worktreeID string, provider agents.Provide
 		Closable:   true,
 	}
 	panel := newProviderSelectPane(meta.ID, meta, *p.common, worktreeID, provider, resume)
+	p.registerPane(meta.ID, panel, meta)
+	if p.returnFocus == nil {
+		p.returnFocus = make(map[models.PaneID]models.PaneID)
+	}
+	p.returnFocus[meta.ID] = baseFocus
+	p.setFocus(meta.ID)
+	p.updateSizes(p.bodyBoundsSize())
+	return panel.Init()
+}
+
+func (p *page) openAgentStorePane() tea.Cmd {
+	p.closePane(paneAgentStore)
+	p.closePane(paneAgentInstallHint)
+	p.closePane(paneAgentRegister)
+
+	baseFocus := p.focused
+	if baseFocus == "" {
+		baseFocus = paneWorktree
+	}
+
+	meta := models.PaneMeta{
+		ID:         paneAgentStore,
+		Name:       "Agent Store",
+		Type:       paneTypeAgentStore,
+		RepoID:     p.currentRepoID(),
+		Status:     models.PaneStatusReady,
+		Closable:   true,
+	}
+	panel := newAgentStorePane(meta.ID, meta, *p.common)
+	p.registerPane(meta.ID, panel, meta)
+	if p.returnFocus == nil {
+		p.returnFocus = make(map[models.PaneID]models.PaneID)
+	}
+	p.returnFocus[meta.ID] = baseFocus
+	p.setFocus(meta.ID)
+	p.updateSizes(p.bodyBoundsSize())
+	return panel.Init()
+}
+
+func (p *page) openAgentInstallHintPane(agentID string) tea.Cmd {
+	p.closePane(paneAgentInstallHint)
+
+	baseFocus := p.focused
+	if baseFocus == "" {
+		baseFocus = paneWorktree
+	}
+
+	meta := models.PaneMeta{
+		ID:         paneAgentInstallHint,
+		Name:       "Install Hint",
+		Type:       paneTypeAgentInstallHint,
+		RepoID:     p.currentRepoID(),
+		Status:     models.PaneStatusReady,
+		Closable:   true,
+	}
+	panel := newAgentInstallHintPane(meta.ID, meta, *p.common, agentID)
+	p.registerPane(meta.ID, panel, meta)
+	if p.returnFocus == nil {
+		p.returnFocus = make(map[models.PaneID]models.PaneID)
+	}
+	p.returnFocus[meta.ID] = baseFocus
+	p.setFocus(meta.ID)
+	p.updateSizes(p.bodyBoundsSize())
+	return panel.Init()
+}
+
+func (p *page) openAgentRegisterPane() tea.Cmd {
+	p.closePane(paneAgentRegister)
+
+	baseFocus := p.focused
+	if baseFocus == "" {
+		baseFocus = paneWorktree
+	}
+
+	meta := models.PaneMeta{
+		ID:         paneAgentRegister,
+		Name:       "Register Agent",
+		Type:       paneTypeAgentRegister,
+		RepoID:     p.currentRepoID(),
+		Status:     models.PaneStatusReady,
+		Closable:   true,
+	}
+	panel := newAgentRegisterPane(meta.ID, meta, *p.common)
 	p.registerPane(meta.ID, panel, meta)
 	if p.returnFocus == nil {
 		p.returnFocus = make(map[models.PaneID]models.PaneID)

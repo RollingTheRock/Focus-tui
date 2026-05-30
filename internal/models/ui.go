@@ -74,6 +74,12 @@ type Store interface {
 	DeleteAgentSessionsByWorktreeID(worktreeID string) error
 	DeleteContextNotesByWorktreeID(worktreeID string) error
 	DeleteTaskWorktreeLinksByWorktreeID(worktreeID string) error
+	// AgentDefinition store methods.
+	ListAgentDefinitions() ([]AgentDefinition, error)
+	GetAgentDefinition(id string) (*AgentDefinition, error)
+	SaveAgentDefinition(def AgentDefinition) error
+	DeleteAgentDefinition(id string) error
+	ToggleAgentDefinitionEnabled(id string) error
 	// EventStore returns the event store (nil when not using PostgreSQL).
 	EventStore() any
 	// EventBus returns the in-memory event bus (nil when not using PostgreSQL).

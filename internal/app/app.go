@@ -37,6 +37,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/google/uuid"
@@ -55,6 +56,9 @@ const (
 	panePlanEdit              models.PaneID = "plan-edit-overlay"
 	paneAgentSelect           models.PaneID = "agent-select-overlay"
 	paneProviderSelect        models.PaneID = "provider-select-overlay"
+	paneAgentStore            models.PaneID = "agent-store-overlay"
+	paneAgentInstallHint      models.PaneID = "agent-install-hint-overlay"
+	paneAgentRegister         models.PaneID = "agent-register-overlay"
 	paneWorktreeHistory       models.PaneID = "worktree-history-overlay"
 	paneWorktreeDeleteConfirm models.PaneID = "worktree-delete-confirm-overlay"
 	paneTaskDeleteConfirm     models.PaneID = "task-delete-confirm-overlay"
@@ -70,6 +74,9 @@ const (
 	paneTypePlanEdit              models.PaneType = "plan-edit"
 	paneTypeAgentSelect           models.PaneType = "agent-select"
 	paneTypeProviderSelect        models.PaneType = "provider-select"
+	paneTypeAgentStore            models.PaneType = "agent-store"
+	paneTypeAgentInstallHint      models.PaneType = "agent-install-hint"
+	paneTypeAgentRegister         models.PaneType = "agent-register"
 	paneTypeWorktreeHistory       models.PaneType = "worktree-history"
 	paneTypeWorktreeDeleteConfirm models.PaneType = "worktree-delete-confirm"
 	paneTypeTaskDeleteConfirm     models.PaneType = "task-delete-confirm"
@@ -124,6 +131,7 @@ type model struct {
 	pluginRegistry     *plugins.Registry
 	adapterManager     *adapters.Manager
 	agentRegistry      *agents.Registry
+	discoveryRegistry  *agents.DiscoveryRegistry
 	resumeSummaryCache map[string]gitmodel.WorktreeResumeSummary
 	mcpServer          *mcp.Server
 
@@ -168,6 +176,7 @@ func New(cfg config.Config, store models.Store) tea.Model {
 		pluginRegistry:     plugins.NewRegistry(),
 		adapterManager:     adapters.NewManager(),
 		agentRegistry:      agents.NewRegistry(),
+		discoveryRegistry:  agents.NewDiscoveryRegistry(store),
 		pages:              make(map[string]*page),
 		resumeSummaryCache: make(map[string]gitmodel.WorktreeResumeSummary),
 		mcpServer:          mcp.NewServer(cfg.Agent.MCPSocket, cfg.Agent.MCPPort),
@@ -1928,6 +1937,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		session := m.newAgentSession(msg.WorktreeID, msg.Provider)
 		session.ProviderConfigID = msg.ProviderConfigID
+		session.Binary = msg.Binary
 		if msg.Resume {
 			session.ExtraArgs = append(session.ExtraArgs, "--continue")
 		}
@@ -1942,6 +1952,91 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.syncWorktreeActivities()
 		m.invalidateView()
 		return m, batchCmds(cmds)
+
+	case OpenAgentStoreMsg:
+		cmd := m.openAgentStorePane()
+		m.invalidateView()
+		return m, cmd
+
+	case CloseAgentStoreMsg:
+		m.closePane(paneAgentStore)
+		m.closePane(paneAgentInstallHint)
+		m.closePane(paneAgentRegister)
+		m.invalidateView()
+		return m, nil
+
+	case AgentStoreOpenHintMsg:
+		cmd := m.openAgentInstallHintPane(msg.AgentID)
+		m.invalidateView()
+		return m, cmd
+
+	case OpenAgentRegisterPaneMsg:
+		cmd := m.openAgentRegisterPane()
+		m.invalidateView()
+		return m, cmd
+
+	case CloseAgentInstallHintMsg:
+		m.closePane(paneAgentInstallHint)
+		m.invalidateView()
+		return m, nil
+
+	case AgentInstallShellMsg:
+		m.closePane(paneAgentInstallHint)
+		def, err := m.common.Store.GetAgentDefinition(msg.AgentID)
+		if err != nil || def == nil || def.InstallHint == "" {
+			m.invalidateView()
+			return m, nil
+		}
+		if sh, ok := m.activePage.pane(paneShell).(*shell.Model); ok && sh != nil {
+			sh.SendCommand(def.InstallHint)
+			m.setFocus(paneShell)
+		} else {
+			log.Printf("No shell pane available to run install for %s", msg.AgentID)
+		}
+		m.invalidateView()
+		return m, nil
+
+	case AgentInstallExternalMsg:
+		m.closePane(paneAgentInstallHint)
+		def, err := m.common.Store.GetAgentDefinition(msg.AgentID)
+		if err != nil || def == nil || def.InstallHint == "" {
+			m.invalidateView()
+			return m, nil
+		}
+		cmd := m.launchExternalInstall(def.InstallHint)
+		m.invalidateView()
+		return m, cmd
+
+	case AgentInstallCopiedMsg:
+		m.closePane(paneAgentInstallHint)
+		def, err := m.common.Store.GetAgentDefinition(msg.AgentID)
+		if err != nil || def == nil {
+			m.invalidateView()
+			return m, nil
+		}
+		text := def.InstallHint
+		if text == "" {
+			text = fmt.Sprintf("# %s\n# binary: %s", def.Name, def.Binary)
+		}
+		if err := clipboard.WriteAll(text); err != nil {
+			log.Printf("Failed to copy install command: %v", err)
+		}
+		m.invalidateView()
+		return m, nil
+
+	case CloseAgentRegisterMsg:
+		m.closePane(paneAgentRegister)
+		m.invalidateView()
+		return m, nil
+
+	case AgentRegisteredMsg:
+		m.closePane(paneAgentRegister)
+		// Refresh the store pane if open.
+		if panel, ok := m.activePage.pane(paneAgentStore).(*agentStorePane); ok {
+			panel.reload()
+		}
+		m.invalidateView()
+		return m, nil
 
 	case gitplugin.RequestRemoveWorktreeMsg:
 		m.closePane(paneWorktreeDeleteConfirm)
@@ -2231,6 +2326,10 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+g":
 		m.switchToOverviewPage()
 		return m, nil
+	case "S", "shift+s":
+		cmd := m.openAgentStorePane()
+		m.invalidateView()
+		return m, cmd
 	case "enter":
 		if m.activePage.paneMeta[m.activePage.focused].Type == models.PaneTypeShell {
 			m.mode = ModeShell
@@ -2551,6 +2650,9 @@ func (m *model) launchExternalAgent(session *agents.Session) tea.Cmd {
 	}
 
 	bin, args := agents.ProviderCommand(session.Provider)
+	if bin == "" && session.Binary != "" {
+		bin = session.Binary
+	}
 	if session.ProviderConfigID != "" {
 		if ccsBin, ccsArgs := ccswitch.LaunchCommand(session.Provider, session.ProviderConfigID); ccsBin != "" {
 			bin, args = ccsBin, ccsArgs
@@ -3232,6 +3334,70 @@ func (m *model) openProviderSelectPane(worktreeID string, provider agents.Provid
 	cmd := m.activePage.openProviderSelectPane(worktreeID, provider, resume)
 	m.updateSizes(m.common.Width, m.common.Height)
 	return cmd
+}
+
+func (m *model) openAgentStorePane() tea.Cmd {
+	if m.discoveryRegistry != nil {
+		_ = m.discoveryRegistry.BootstrapIfEmpty()
+		_ = m.discoveryRegistry.Scan()
+	}
+	cmd := m.activePage.openAgentStorePane()
+	m.updateSizes(m.common.Width, m.common.Height)
+	return cmd
+}
+
+func (m *model) openAgentInstallHintPane(agentID string) tea.Cmd {
+	cmd := m.activePage.openAgentInstallHintPane(agentID)
+	m.updateSizes(m.common.Width, m.common.Height)
+	return cmd
+}
+
+func (m *model) openAgentRegisterPane() tea.Cmd {
+	cmd := m.activePage.openAgentRegisterPane()
+	m.updateSizes(m.common.Width, m.common.Height)
+	return cmd
+}
+
+// launchExternalInstall opens the user's terminal emulator and runs the
+// install command, then drops into an interactive shell so the user can
+// inspect output.
+func (m *model) launchExternalInstall(installCmd string) tea.Cmd {
+	return func() tea.Msg {
+		emulator := agents.DetectTerminalEmulator()
+		if emulator == "" {
+			emulator = "kitty"
+		}
+		shell := os.Getenv("SHELL")
+		if shell == "" {
+			shell = "/bin/sh"
+		}
+		cwd := m.currentCWD()
+		if cwd == "" {
+			cwd = "."
+		}
+
+		// Run install, print a marker, source shell config, then stay in shell.
+		script := installCmd + "; echo ''; echo '[focus] Install finished. Starting shell...'; source ~/.zshrc 2>/dev/null || source ~/.bashrc 2>/dev/null || true; exec " + shell
+
+		var cmd *exec.Cmd
+		switch emulator {
+		case "kitty":
+			cmd = exec.Command("kitty", "--title", "Focus: Install Agent", "--directory", cwd, shell, "-ic", script)
+		case "alacritty":
+			cmd = exec.Command("alacritty", "--title", "Focus: Install Agent", "--working-directory", cwd, "-e", shell, "-ic", script)
+		case "wezterm":
+			cmd = exec.Command("wezterm", "cli", "spawn", "--cwd", cwd, "--", shell, "-ic", script)
+		case "gnome-terminal":
+			cmd = exec.Command("gnome-terminal", "--window", "--title", "Focus: Install Agent", "--working-directory", cwd, "--", shell, "-ic", script)
+		default:
+			cmd = exec.Command(emulator, "-e", shell, "-ic", script)
+		}
+
+		if err := cmd.Start(); err != nil {
+			log.Printf("Failed to launch external terminal for install: %v", err)
+		}
+		return nil
+	}
 }
 
 func (m *model) openWorktreeHistoryPane() tea.Cmd {

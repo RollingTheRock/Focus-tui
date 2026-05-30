@@ -22,6 +22,7 @@ const (
 	PaneTypeLogView      PaneType = "log-view"
 	PaneTypeEditor       PaneType = "editor"
 	PaneTypeAgentSession PaneType = "agent-session"
+	PaneTypeAgentStore   PaneType = "agent-store"
 )
 
 // PaneStatus is lightweight display metadata for a pane.

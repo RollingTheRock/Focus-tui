@@ -516,6 +516,20 @@ func (m *Model) SetCWD(cwd string) {
 	}
 }
 
+// SendCommand writes a command string directly to the shell's PTY followed by
+// Enter. Returns false if the PTY is not running.
+//
+// NOTE: If the shell is running a foreground process, the command may be
+// consumed by that process rather than interpreted by the shell. The caller
+// should ensure the shell is at a prompt before invoking this.
+func (m *Model) SendCommand(cmd string) bool {
+	if m.pty == nil || !m.running {
+		return false
+	}
+	m.pty.Write([]byte(cmd + "\r")) //nolint:errcheck
+	return true
+}
+
 // Close cleans up the PTY and emulator resources.
 func (m *Model) Close() error {
 	if m.ptyResizeTimer != nil {

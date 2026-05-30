@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"focus/internal/app"
@@ -39,6 +40,15 @@ func main() {
 		os.Exit(1)
 	}
 	defer st.Close()
+
+	// Derive per-project MCP addresses to avoid conflicts when running
+	// multiple focus instances across different projects.
+	if cfg.Agent.MCPSocket == "" {
+		cfg.Agent.MCPSocket = filepath.Join(projectRoot, ".focus", "mcp.sock")
+	}
+	if cfg.Agent.MCPPort == config.DefaultConfig().Agent.MCPPort {
+		cfg.Agent.MCPPort = "127.0.0.1:0"
+	}
 
 	// Mark overdue todos from previous days.
 	_ = st.MarkOverdue()
