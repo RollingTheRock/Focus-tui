@@ -3,7 +3,8 @@ package git
 import (
 	appstyles "focus/internal/styles"
 
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
+	"charm.land/lipgloss/v2/compat"
 )
 
 var (
@@ -32,11 +33,11 @@ var (
 	commitHintWarningStyle = lipgloss.NewStyle().Foreground(appstyles.Warning)
 
 	selectedRowStyle = lipgloss.NewStyle().
-				Background(lipgloss.AdaptiveColor{Light: "#E8F0FE", Dark: "#2B364B"}).
+				Background(compat.AdaptiveColor{Light: lipgloss.Color("#E8F0FE"), Dark: lipgloss.Color("#2B364B")}).
 				Foreground(appstyles.Text).
 				Bold(true)
 	selectedSecondaryRowStyle = lipgloss.NewStyle().
-					Background(lipgloss.AdaptiveColor{Light: "#E8F0FE", Dark: "#2B364B"}).
+					Background(compat.AdaptiveColor{Light: lipgloss.Color("#E8F0FE"), Dark: lipgloss.Color("#2B364B")}).
 					Foreground(appstyles.Subtle)
 	rowRailStyle          = lipgloss.NewStyle().Foreground(appstyles.Accent)
 	rowRailSecondaryStyle = lipgloss.NewStyle().Foreground(appstyles.AccentDim)
@@ -78,10 +79,4 @@ func renderStatusIcon(icon string) string {
 	}
 }
 
-func renderLoadingLine(width int) string {
-	line := "▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒"
-	if width > 0 {
-		return loadingStyle.Width(width).Render(line)
-	}
-	return loadingStyle.Render(line)
-}
+

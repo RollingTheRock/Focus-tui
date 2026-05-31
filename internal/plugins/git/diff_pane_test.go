@@ -8,7 +8,7 @@ import (
 	"focus/internal/models"
 	editorplugin "focus/internal/plugins/editor"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 func TestPluginCreatePaneReturnsDiffPane(t *testing.T) {
@@ -41,13 +41,7 @@ func TestDiffPaneInitLoadsAndRendersDiff(t *testing.T) {
 	pane := NewDiffPane("diff-1", models.PaneMeta{ID: "diff-1", Type: models.PaneTypeDiffView, CWD: "/repo"}, models.CommonModel{}, adapter, "main.go", true)
 	pane.SetSize(80, 10)
 
-	cmd := pane.Init()
-	if cmd == nil {
-		t.Fatalf("expected init command")
-	}
-
-	updated, _ := pane.Update(runCmd(t, cmd))
-	pane = updated.(*DiffPane)
+	pane = initPane(t, pane).(*DiffPane)
 
 	if pane.loading {
 		t.Fatalf("expected loading to be false after init")
@@ -55,8 +49,8 @@ func TestDiffPaneInitLoadsAndRendersDiff(t *testing.T) {
 
 	view := pane.View()
 	for _, want := range []string{"main.go", "staged", "File · main.go", "-old line", "+new line", "context line"} {
-		if !strings.Contains(view, want) {
-			t.Fatalf("expected view to contain %q, got:\n%s", want, view)
+		if !strings.Contains(view.Content, want) {
+			t.Fatalf("expected view to contain %q, got:\n%s", want, view.Content)
 		}
 	}
 
@@ -78,30 +72,29 @@ func TestDiffPaneKeyboardHandling(t *testing.T) {
 	pane := NewDiffPane("diff-1", models.PaneMeta{ID: "diff-1", Type: models.PaneTypeDiffView, CWD: "/repo"}, models.CommonModel{}, adapter, "main.go", false)
 	pane.SetSize(80, 3)
 
-	updated, _ := pane.Update(runCmd(t, pane.Init()))
-	pane = updated.(*DiffPane)
+	pane = initPane(t, pane).(*DiffPane)
 
-	updated, _ = pane.Update(tea.KeyMsg{Type: tea.KeyDown})
+	updated, _ := pane.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	pane = updated.(*DiffPane)
 	if pane.scroll != 1 {
 		t.Fatalf("expected scroll 1, got %d", pane.scroll)
 	}
 
-	updated, _ = pane.Update(tea.KeyMsg{Type: tea.KeyDown})
+	updated, _ = pane.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	pane = updated.(*DiffPane)
-	updated, _ = pane.Update(tea.KeyMsg{Type: tea.KeyDown})
+	updated, _ = pane.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	pane = updated.(*DiffPane)
 	if pane.scroll != 3 {
 		t.Fatalf("expected scroll to clamp at 3, got %d", pane.scroll)
 	}
 
-	updated, _ = pane.Update(tea.KeyMsg{Type: tea.KeyUp})
+	updated, _ = pane.Update(tea.KeyPressMsg{Code: tea.KeyUp})
 	pane = updated.(*DiffPane)
 	if pane.scroll != 2 {
 		t.Fatalf("expected scroll 2, got %d", pane.scroll)
 	}
 
-	_, cmd := pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
+	_, cmd := pane.Update(tea.KeyPressMsg{Code: 'q', Text: "q"})
 	msg := runCmd(t, cmd)
 	closeMsg, ok := msg.(CloseDiffMsg)
 	if !ok {
@@ -128,11 +121,10 @@ func TestDiffPaneEnterOpensCurrentReviewFileInEditor(t *testing.T) {
 	pane := NewDiffPane("diff-1", models.PaneMeta{ID: "diff-1", Type: models.PaneTypeDiffView, CWD: "/repo"}, models.CommonModel{}, adapter, "", false)
 	pane.SetSize(90, 4)
 
-	updated, _ := pane.Update(runCmd(t, pane.Init()))
-	pane = updated.(*DiffPane)
+	pane = initPane(t, pane).(*DiffPane)
 	pane.scroll = 5
 
-	_, cmd := pane.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	_, cmd := pane.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	msg := runCmd(t, cmd)
 	openMsg, ok := msg.(editorplugin.OpenEditorMsg)
 	if !ok {
@@ -165,16 +157,15 @@ func TestDiffPaneBracketNavigationMovesBetweenFileSections(t *testing.T) {
 	pane := NewDiffPane("diff-1", models.PaneMeta{ID: "diff-1", Type: models.PaneTypeDiffView, CWD: "/repo"}, models.CommonModel{}, adapter, "", false)
 	pane.SetSize(90, 4)
 
-	updated, _ := pane.Update(runCmd(t, pane.Init()))
-	pane = updated.(*DiffPane)
+	pane = initPane(t, pane).(*DiffPane)
 
-	updated, _ = pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{']'}})
+	updated, _ := pane.Update(tea.KeyPressMsg{Code: ']', Text: "]"})
 	pane = updated.(*DiffPane)
 	if pane.currentFilePath() != "b.go" {
 		t.Fatalf("expected to jump to b.go, got %q", pane.currentFilePath())
 	}
 
-	updated, _ = pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'['}})
+	updated, _ = pane.Update(tea.KeyPressMsg{Code: '[', Text: "["})
 	pane = updated.(*DiffPane)
 	if pane.currentFilePath() != "a.go" {
 		t.Fatalf("expected to jump back to a.go, got %q", pane.currentFilePath())
@@ -196,16 +187,15 @@ func TestDiffPaneMouseWheelScrollsReview(t *testing.T) {
 	pane := NewDiffPane("diff-1", models.PaneMeta{ID: "diff-1", Type: models.PaneTypeDiffView, CWD: "/repo"}, models.CommonModel{}, adapter, "", false)
 	pane.SetSize(80, 4)
 
-	updated, _ := pane.Update(runCmd(t, pane.Init()))
-	pane = updated.(*DiffPane)
+	pane = initPane(t, pane).(*DiffPane)
 
-	updated, _ = pane.Update(tea.MouseMsg{Button: tea.MouseButtonWheelDown})
+	updated, _ := pane.Update(tea.MouseWheelMsg{Button: tea.MouseWheelDown})
 	pane = updated.(*DiffPane)
 	if pane.scroll == 0 {
 		t.Fatalf("expected wheel down to increase scroll")
 	}
 	prev := pane.scroll
-	updated, _ = pane.Update(tea.MouseMsg{Button: tea.MouseButtonWheelUp})
+	updated, _ = pane.Update(tea.MouseWheelMsg{Button: tea.MouseWheelUp})
 	pane = updated.(*DiffPane)
 	if pane.scroll >= prev {
 		t.Fatalf("expected wheel up to reduce scroll, got %d from %d", pane.scroll, prev)
@@ -215,7 +205,7 @@ func TestDiffPaneMouseWheelScrollsReview(t *testing.T) {
 func TestDiffPaneEnterOpensSingleFileDiffTarget(t *testing.T) {
 	pane := NewDiffPane("diff-1", models.PaneMeta{ID: "diff-1", Type: models.PaneTypeDiffView, CWD: "/repo"}, models.CommonModel{}, &fakeGitAdapter{}, "pkg/main.go", false)
 
-	_, cmd := pane.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	_, cmd := pane.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	msg := runCmd(t, cmd)
 	openMsg, ok := msg.(editorplugin.OpenEditorMsg)
 	if !ok {
@@ -233,7 +223,7 @@ func TestDiffPaneToggleStagedReloadsDiff(t *testing.T) {
 	adapter := &fakeGitAdapter{diff: "diff --git a/a.go b/a.go\n@@ -1 +1 @@\n-old\n+new"}
 	pane := NewDiffPane("diff-1", models.PaneMeta{ID: "diff-1", Type: models.PaneTypeDiffView, CWD: "/repo"}, models.CommonModel{}, adapter, "", false)
 
-	updated, cmd := pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
+	updated, cmd := pane.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
 	pane = updated.(*DiffPane)
 	if !pane.staged {
 		t.Fatalf("expected staged flag to toggle on")
@@ -250,7 +240,7 @@ func TestStatusPaneEnterOpensDiff(t *testing.T) {
 		},
 	}
 
-	_, cmd := pane.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	_, cmd := pane.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	msg := runCmd(t, cmd)
 	openMsg, ok := msg.(OpenDiffMsg)
 	if !ok {
@@ -262,7 +252,7 @@ func TestStatusPaneEnterOpensDiff(t *testing.T) {
 	if openMsg.Staged {
 		t.Fatalf("expected review diff to default to unstaged view")
 	}
-	if _, cmd := pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}}); cmd == nil {
+	if _, cmd := pane.Update(tea.KeyPressMsg{Code: 'd', Text: "d"}); cmd == nil {
 		t.Fatalf("expected single-file diff command on d")
 	} else {
 		msg = runCmd(t, cmd)
@@ -295,13 +285,12 @@ func TestDiffPaneReviewModeLoadsFullWorktreeDiff(t *testing.T) {
 	pane := NewDiffPane("diff-1", models.PaneMeta{ID: "diff-1", Type: models.PaneTypeDiffView, CWD: "/repo"}, models.CommonModel{}, adapter, "", false)
 	pane.SetSize(90, 12)
 
-	updated, _ := pane.Update(runCmd(t, pane.Init()))
-	pane = updated.(*DiffPane)
+	pane = initPane(t, pane).(*DiffPane)
 
 	view := pane.View()
 	for _, want := range []string{"Review · unstaged", "File · a.go", "File · b.go", "+after"} {
-		if !strings.Contains(view, want) {
-			t.Fatalf("expected review view to contain %q, got:\n%s", want, view)
+		if !strings.Contains(view.Content, want) {
+			t.Fatalf("expected review view to contain %q, got:\n%s", want, view.Content)
 		}
 	}
 }
@@ -333,8 +322,7 @@ func TestDiffPaneRendersFileSectionsAndHunks(t *testing.T) {
 	pane := NewDiffPane("diff-1", models.PaneMeta{ID: "diff-1", Type: models.PaneTypeDiffView, CWD: "/repo"}, models.CommonModel{}, adapter, "", false)
 	pane.SetSize(100, 14)
 
-	updated, _ := pane.Update(runCmd(t, pane.Init()))
-	pane = updated.(*DiffPane)
+	pane = initPane(t, pane).(*DiffPane)
 
 	rendered := pane.renderedDiffLines()
 	joined := strings.Join(rendered, "\n")
@@ -346,6 +334,27 @@ func TestDiffPaneRendersFileSectionsAndHunks(t *testing.T) {
 	if len(rendered) < 6 || rendered[5] != "" {
 		t.Fatalf("expected blank separator line before second file section, got %#v", rendered)
 	}
+}
+
+func initPane(t *testing.T, pane models.Panel) models.Panel {
+	t.Helper()
+	cmd := pane.Init()
+	if cmd == nil {
+		t.Fatalf("expected init command")
+	}
+	msg := cmd()
+	batch, ok := msg.(tea.BatchMsg)
+	if !ok {
+		updated, _ := pane.Update(msg)
+		return updated
+	}
+	var final models.Panel = pane
+	for _, sub := range batch {
+		subMsg := sub()
+		updated, _ := final.Update(subMsg)
+		final = updated
+	}
+	return final
 }
 
 func TestParseNewHunkLineUsesTargetSide(t *testing.T) {

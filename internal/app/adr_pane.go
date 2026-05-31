@@ -10,8 +10,8 @@ import (
 	"focus/internal/models"
 	"focus/internal/styles"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 type adrPane struct {
@@ -81,8 +81,8 @@ func (p *adrPane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 		p.detailMode = !p.detailMode
 		return p, nil
 
-	case tea.KeyMsg:
-		switch msg.String() {
+	case tea.KeyPressMsg:
+		switch msg.Keystroke() {
 		case "R":
 			return p, p.refreshCmd()
 		case "j", "down":
@@ -92,8 +92,7 @@ func (p *adrPane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 		case "e":
 			return p, p.openDetailCmd()
 		case "enter":
-			return p, p.loadConstraintsCmd()
-		}
+			return p, p.loadConstraintsCmd()}
 	}
 	return p, nil
 }
@@ -177,7 +176,7 @@ func (p *adrPane) SetSize(width, height int) {
 	p.height = height
 }
 
-func (p *adrPane) View() string {
+func (p *adrPane) View() tea.View {
 	w := p.width
 	if w <= 0 {
 		w = 80
@@ -192,14 +191,14 @@ func (p *adrPane) View() string {
 	if p.detailMode && p.cursor >= 0 && p.cursor < len(p.adrs) {
 		lines = append(lines, adrHeaderStyle.Render("  ADR Detail ")+adrHintStyle.Render("[enter]back  [T]asks [A]DRs"))
 		lines = append(lines, p.renderDetail(p.adrs[p.cursor], h-1, w)...)
-		return clampLines(lines, h, w)
+		return tea.NewView(clampLines(lines, h, w))
 	}
 
 	lines = append(lines, adrHeaderStyle.Render("  ADRs  ")+adrHintStyle.Render("[j/k]move  [enter]preview  [e]open  [T]asks [A]DRs  [R]refresh"))
 
 	if len(p.adrs) == 0 {
 		lines = append(lines, adrMutedStyle.Render("  No ADRs found."))
-		return clampLines(lines, h, w)
+		return tea.NewView(clampLines(lines, h, w))
 	}
 
 	listH := h - 1
@@ -227,7 +226,7 @@ func (p *adrPane) View() string {
 		lines = append(lines, p.renderPreview(p.adrs[p.cursor], previewH, w)...)
 	}
 
-	return clampLines(lines, h, w)
+	return tea.NewView(clampLines(lines, h, w))
 }
 
 func (p *adrPane) renderAdrRow(adr models.ADRRecord, focused bool) string {

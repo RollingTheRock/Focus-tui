@@ -11,7 +11,10 @@ import (
 	editorplugin "focus/internal/plugins/editor"
 	"focus/internal/styles"
 
-	tea "github.com/charmbracelet/bubbletea"
+	"charm.land/bubbles/v2/spinner"
+	"charm.land/bubbles/v2/viewport"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 var _ models.Panel = (*DiffPane)(nil)
@@ -40,7 +43,10 @@ type DiffPane struct {
 	width    int
 	height   int
 	loading  bool
+	spinner  spinner.Model
 	err      error
+
+	vp viewport.Model
 }
 
 type diffLoadedMsg struct {
@@ -73,6 +79,7 @@ func NewDiffPane(id models.PaneID, meta models.PaneMeta, common models.CommonMod
 		filePath: filePath,
 		staged:   staged,
 		repoPath: repoPath,
+		vp:       viewport.New(),
 	}
 }
 
@@ -81,7 +88,12 @@ func (p *DiffPane) Init() tea.Cmd {
 	if !p.loading {
 		return nil
 	}
-	return p.loadDiffCmd()
+	p.spinner = spinner.New()
+	p.spinner.Spinner = spinner.Dot
+	p.spinner.Style = lipgloss.NewStyle().Foreground(styles.Accent)
+	p.vp.SetWidth(p.width)
+	p.vp.SetHeight(p.contentHeight())
+	return tea.Batch(p.loadDiffCmd(), p.spinner.Tick)
 }
 
 func (p *DiffPane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
@@ -92,19 +104,31 @@ func (p *DiffPane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 		if msg.err == nil {
 			p.diff = msg.diff
 		}
-		p.clampScroll()
+		p.refreshViewportContent()
 		return p, nil
 
-	case tea.KeyMsg:
+	case spinner.TickMsg:
+		var cmd tea.Cmd
+		p.spinner, cmd = p.spinner.Update(msg)
+		return p, cmd
+
+	case tea.KeyPressMsg:
 		return p.updateKey(msg)
-	case tea.MouseMsg:
+	case tea.MouseWheelMsg:
 		return p.updateMouse(msg)
 	}
 
 	return p, nil
 }
 
-func (p *DiffPane) View() string {
+func (p *DiffPane) refreshViewportContent() {
+	yOffset := p.scroll
+	p.vp.SetContent(strings.Join(p.renderedDiffLines(), "\n"))
+	p.vp.SetYOffset(yOffset)
+	p.scroll = p.vp.YOffset()
+}
+
+func (p *DiffPane) View() tea.View {
 	width := p.width
 	if width <= 0 {
 		width = 80
@@ -114,15 +138,18 @@ func (p *DiffPane) View() string {
 
 	switch {
 	case p.loading && p.err == nil && p.diff == "":
-		lines = append(lines, renderLoadingLine(width), renderLoadingLine(width), renderLoadingLine(width))
+		lines = append(lines, p.spinner.View())
 	case p.err != nil:
 		lines = append(lines, errorStyle.MaxWidth(width).Render("Unable to load diff: "+p.err.Error()))
 	default:
-		content := p.visibleContent()
-		if len(content) == 0 {
+		p.vp.SetWidth(width)
+		p.vp.SetHeight(p.contentHeight())
+		p.vp.SetYOffset(p.scroll)
+		content := p.vp.View()
+		if content == "" {
 			lines = append(lines, emptyStyle.Render("No diff available."))
 		} else {
-			lines = append(lines, content...)
+			lines = append(lines, strings.Split(content, "\n")...)
 		}
 	}
 
@@ -134,17 +161,23 @@ func (p *DiffPane) View() string {
 		lines[i] = styles.StyleCache.MaxWidth(width).Render(lines[i])
 	}
 
-	return strings.Join(lines, "\n")
+	return tea.NewView(strings.Join(lines, "\n"))
 }
 
 func (p *DiffPane) SetSize(width, height int) {
 	p.width = width
 	p.height = height
-	p.clampScroll()
+	p.vp.SetWidth(width)
+	p.vp.SetHeight(p.contentHeight())
+	if p.diff != "" {
+		p.refreshViewportContent()
+	} else {
+		p.scroll = p.vp.YOffset()
+	}
 }
 
-func (p *DiffPane) updateKey(msg tea.KeyMsg) (models.Panel, tea.Cmd) {
-	switch msg.String() {
+func (p *DiffPane) updateKey(msg tea.KeyPressMsg) (models.Panel, tea.Cmd) {
+	switch msg.Keystroke() {
 	case "q", "esc":
 		return p, closeDiffCmd(p.id)
 	case "enter":
@@ -154,6 +187,7 @@ func (p *DiffPane) updateKey(msg tea.KeyMsg) (models.Panel, tea.Cmd) {
 	case "s":
 		p.staged = !p.staged
 		p.scroll = 0
+		p.vp.SetYOffset(0)
 		p.loading = true
 		p.err = nil
 		p.diff = ""
@@ -162,29 +196,33 @@ func (p *DiffPane) updateKey(msg tea.KeyMsg) (models.Panel, tea.Cmd) {
 		p.jumpFileSection(1)
 	case "[":
 		p.jumpFileSection(-1)
-	case "j", "down":
-		if p.scroll < p.maxScroll() {
-			p.scroll++
-		}
-	case "k", "up":
-		if p.scroll > 0 {
-			p.scroll--
+	default:
+		if isScrollKey(msg) {
+			p.vp.SetYOffset(p.scroll)
+			var cmd tea.Cmd
+			p.vp, cmd = p.vp.Update(msg)
+			p.scroll = p.vp.YOffset()
+			return p, cmd
 		}
 	}
 
 	return p, nil
 }
 
-func (p *DiffPane) updateMouse(msg tea.MouseMsg) (models.Panel, tea.Cmd) {
-	switch msg.Button {
-	case tea.MouseButtonWheelUp:
-		p.scroll -= 3
-		p.clampScroll()
-	case tea.MouseButtonWheelDown:
-		p.scroll += 3
-		p.clampScroll()
+func isScrollKey(msg tea.KeyPressMsg) bool {
+	switch msg.Keystroke() {
+	case "j", "k", "up", "down", "pgup", "pgdown", "home", "end", "ctrl+d", "ctrl+u":
+		return true
 	}
-	return p, nil
+	return false
+}
+
+func (p *DiffPane) updateMouse(msg tea.MouseWheelMsg) (models.Panel, tea.Cmd) {
+	p.vp.SetYOffset(p.scroll)
+	var cmd tea.Cmd
+	p.vp, cmd = p.vp.Update(msg)
+	p.scroll = p.vp.YOffset()
+	return p, cmd
 }
 
 func (p *DiffPane) loadDiffCmd() tea.Cmd {
@@ -212,30 +250,6 @@ func (p *DiffPane) renderHeader() string {
 	}
 
 	return diffHeaderStyle.Render(label)
-}
-
-func (p *DiffPane) visibleContent() []string {
-	rendered := p.renderedDiffLines()
-	if len(rendered) == 0 {
-		return nil
-	}
-
-	start := p.scroll
-	if start > len(rendered) {
-		start = len(rendered)
-	}
-
-	if p.height <= 0 {
-		return rendered[start:]
-	}
-
-	visibleHeight := p.contentHeight()
-	end := start + visibleHeight
-	if end > len(rendered) {
-		end = len(rendered)
-	}
-
-	return rendered[start:end]
 }
 
 func (p *DiffPane) renderedDiffLines() []string {
@@ -309,32 +323,6 @@ func (p *DiffPane) contentHeight() int {
 		return 1
 	}
 	return p.height - 1
-}
-
-func (p *DiffPane) maxScroll() int {
-	count := len(p.diffLines())
-	if count == 0 {
-		return 0
-	}
-
-	if p.height <= 0 {
-		return count - 1
-	}
-
-	maxScroll := count - p.contentHeight()
-	if maxScroll < 0 {
-		return 0
-	}
-	return maxScroll
-}
-
-func (p *DiffPane) clampScroll() {
-	if p.scroll < 0 {
-		p.scroll = 0
-	}
-	if p.scroll > p.maxScroll() {
-		p.scroll = p.maxScroll()
-	}
 }
 
 func closeDiffCmd(id models.PaneID) tea.Cmd {
@@ -459,7 +447,7 @@ func (p *DiffPane) jumpFileSection(delta int) {
 		target = len(sections) - 1
 	}
 	p.scroll = sections[target].renderedLine
-	p.clampScroll()
+	p.vp.SetYOffset(p.scroll)
 }
 
 func (p *DiffPane) currentFilePath() string {

@@ -10,7 +10,9 @@ import (
 	"focus/internal/models"
 	"focus/internal/styles"
 
-	tea "github.com/charmbracelet/bubbletea"
+	"charm.land/bubbles/v2/spinner"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 type StatusPane struct {
@@ -22,6 +24,7 @@ type StatusPane struct {
 	status   *gitmodel.Status
 	cursor   int
 	loading  bool
+	spinner  spinner.Model
 	repoPath string
 
 	width  int
@@ -62,12 +65,15 @@ func NewStatusPane(id models.PaneID, meta models.PaneMeta, common models.CommonM
 
 func (p *StatusPane) Init() tea.Cmd {
 	p.loading = true
-	return tea.Batch(p.loadStatusCmd(), p.watchStatusCmd())
+	p.spinner = spinner.New()
+	p.spinner.Spinner = spinner.Dot
+	p.spinner.Style = lipgloss.NewStyle().Foreground(styles.Accent)
+	return tea.Batch(p.loadStatusCmd(), p.watchStatusCmd(), p.spinner.Tick)
 }
 
 func (p *StatusPane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 	if p.confirmDiscard {
-		if _, ok := msg.(tea.KeyMsg); ok {
+		if _, ok := msg.(tea.KeyPressMsg); ok {
 			return p.updateDiscardConfirm(msg)
 		}
 	}
@@ -79,6 +85,11 @@ func (p *StatusPane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 			return p, notifyStatsRefreshCmd()
 		}
 		return p, nil
+
+	case spinner.TickMsg:
+		var cmd tea.Cmd
+		p.spinner, cmd = p.spinner.Update(msg)
+		return p, cmd
 
 	case adapters.StatusEvent:
 		if msg.RepoPath != "" && msg.RepoPath != p.repoPath {
@@ -98,7 +109,7 @@ func (p *StatusPane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 		}
 		return p, p.refreshCmd()
 
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		return p.updateKey(msg)
 
 	case models.StatsRefreshMsg:
@@ -111,22 +122,22 @@ func (p *StatusPane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 	return p, nil
 }
 
-func (p *StatusPane) View() string {
+func (p *StatusPane) View() tea.View {
 	width := p.width
 	if width <= 0 {
 		width = 40
 	}
 
 	if p.loading && p.status == nil && p.err == nil {
-		return p.renderLoading(width)
+		return tea.NewView(p.spinner.View())
 	}
 
 	if p.err != nil && p.status == nil {
-		return errorStyle.MaxWidth(width).Render("Unable to load git status: " + p.err.Error())
+		return tea.NewView(errorStyle.MaxWidth(width).Render("Unable to load git status: " + p.err.Error()))
 	}
 
 	if p.status == nil {
-		return emptyStyle.Render("No git status available.")
+		return tea.NewView(emptyStyle.Render("No git status available."))
 	}
 
 	lines := []string{p.renderHeader()}
@@ -161,7 +172,7 @@ func (p *StatusPane) View() string {
 		lines[i] = styles.StyleCache.MaxWidth(width).Render(lines[i])
 	}
 
-	return strings.Join(lines, "\n")
+	return tea.NewView(strings.Join(lines, "\n"))
 }
 
 func (p *StatusPane) SetSize(width, height int) {
@@ -169,7 +180,7 @@ func (p *StatusPane) SetSize(width, height int) {
 	p.height = height
 }
 
-func (p *StatusPane) updateKey(msg tea.KeyMsg) (models.Panel, tea.Cmd) {
+func (p *StatusPane) updateKey(msg tea.KeyPressMsg) (models.Panel, tea.Cmd) {
 	if msg.String() == "c" {
 		if p.status == nil || len(p.status.StagedFiles) == 0 {
 			return p, nil
@@ -191,11 +202,10 @@ func (p *StatusPane) updateKey(msg tea.KeyMsg) (models.Panel, tea.Cmd) {
 		return p, nil
 	}
 
-	switch msg.String() {
+	switch msg.Keystroke() {
 	case "j", "down":
 		if p.cursor < count-1 {
-			p.cursor++
-		}
+			p.cursor++}
 	case "k", "up":
 		if p.cursor > 0 {
 			p.cursor--
@@ -208,7 +218,7 @@ func (p *StatusPane) updateKey(msg tea.KeyMsg) (models.Panel, tea.Cmd) {
 			return p, nil
 		}
 		return p, openDiffCmd(file.Path, staged)
-	case " ":
+	case "space":
 		return p.handleStageToggle()
 	case "a":
 		return p, p.handleStageAllToggle()
@@ -398,7 +408,7 @@ func (p *StatusPane) getSelectedPath() string {
 }
 
 func (p *StatusPane) updateDiscardConfirm(msg tea.Msg) (models.Panel, tea.Cmd) {
-	keyMsg, ok := msg.(tea.KeyMsg)
+	keyMsg, ok := msg.(tea.KeyPressMsg)
 	if !ok {
 		return p, nil
 	}
@@ -493,21 +503,6 @@ func (p *StatusPane) StopWatch() {
 
 func notifyStatsRefreshCmd() tea.Cmd {
 	return func() tea.Msg { return models.StatsRefreshMsg{} }
-}
-
-func (p *StatusPane) renderLoading(width int) string {
-	lines := []string{
-		renderLoadingLine(width),
-		renderLoadingLine(width),
-		"",
-		renderLoadingLine(width),
-		renderLoadingLine(width),
-		renderLoadingLine(width),
-	}
-	if p.height > 0 && len(lines) > p.height {
-		lines = lines[:p.height]
-	}
-	return strings.Join(lines, "\n")
 }
 
 func (p *StatusPane) renderHeader() string {

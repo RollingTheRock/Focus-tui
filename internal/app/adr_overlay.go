@@ -9,8 +9,10 @@ import (
 	"focus/internal/models"
 	"focus/internal/styles"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/textinput"
+	"charm.land/bubbles/v2/viewport"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 type adrDetailOverlay struct {
@@ -21,22 +23,29 @@ type adrDetailOverlay struct {
 
 	source      []byte // cached raw markdown
 	lines       []string
-	scroll      int
+	vp          viewport.Model
 	searchHits  []int
 	searchIdx   int
 	searching   bool
-	searchInput string
+	searchInput textinput.Model
 
 	width  int
 	height int
 }
 
 func newADRDetailOverlay(id models.PaneID, meta models.PaneMeta, common models.CommonModel, filePath string) *adrDetailOverlay {
+	ti := textinput.New()
+	ti.Prompt = "/"
+	ti.Placeholder = "search..."
+	ti.CharLimit = 120
+
 	return &adrDetailOverlay{
-		id:       id,
-		meta:     meta,
-		common:   common,
-		filePath: filePath,
+		id:          id,
+		meta:        meta,
+		common:      common,
+		filePath:    filePath,
+		searchInput: ti,
+		vp:          viewport.New(),
 	}
 }
 
@@ -66,112 +75,98 @@ func (p *adrDetailOverlay) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 	case adrContentLoadedMsg:
 		p.source = msg.source
 		p.lines = msg.lines
-		p.scroll = 0
+		p.syncViewportSize()
+		p.refreshViewportContent()
 		return p, nil
 
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		if p.searching {
-			return p.handleSearchKey(msg)
+			panel, cmd := p.handleSearchKey(msg)
+			p.syncViewportSize()
+			return panel, cmd
 		}
 		return p.handleNormalKey(msg)
 	}
 	return p, nil
 }
 
-func (p *adrDetailOverlay) handleNormalKey(msg tea.KeyMsg) (models.Panel, tea.Cmd) {
-	switch msg.String() {
+func (p *adrDetailOverlay) handleNormalKey(msg tea.KeyPressMsg) (models.Panel, tea.Cmd) {
+	switch msg.Keystroke() {
 	case "q", "esc", "enter":
 		return p, closeADRDetailCmd()
 
-	case "j", "down":
-		if p.scroll < len(p.lines)-1 {
-			p.scroll++
-		}
-
-	case "k", "up":
-		if p.scroll > 0 {
-			p.scroll--
-		}
-
-	case "g":
-		p.scroll = 0
-
-	case "G":
-		p.scroll = len(p.lines) - 1
-		if p.scroll < 0 {
-			p.scroll = 0
-		}
-
-	case "pgdown":
-		p.scroll += p.height - 2
-		if p.scroll >= len(p.lines) {
-			p.scroll = len(p.lines) - 1
-		}
-		if p.scroll < 0 {
-			p.scroll = 0
-		}
-
-	case "pgup":
-		p.scroll -= p.height - 2
-		if p.scroll < 0 {
-			p.scroll = 0
-		}
-
-	case "home":
-		p.scroll = 0
-
-	case "end":
-		p.scroll = len(p.lines) - 1
-		if p.scroll < 0 {
-			p.scroll = 0
-		}
-
-	case "ctrl+d":
-		p.scroll += p.height / 2
-		if p.scroll >= len(p.lines) {
-			p.scroll = len(p.lines) - 1
-		}
-		if p.scroll < 0 {
-			p.scroll = 0
-		}
-
-	case "ctrl+u":
-		p.scroll -= p.height / 2
-		if p.scroll < 0 {
-			p.scroll = 0
-		}
-
 	case "/":
 		p.searching = true
-		p.searchInput = ""
+		p.searchInput.SetValue("")
+		p.searchInput.Focus()
 		p.searchHits = nil
 		p.searchIdx = 0
-	}
-
-	return p, nil
-}
-
-func (p *adrDetailOverlay) handleSearchKey(msg tea.KeyMsg) (models.Panel, tea.Cmd) {
-	switch msg.String() {
-	case "esc":
-		p.searching = false
-		p.searchInput = ""
-		p.searchHits = nil
-
-	case "enter":
-		p.searching = false
-		if len(p.searchInput) > 0 {
-			p.searchHits = p.findHits(p.searchInput)
-			if len(p.searchHits) > 0 {
-				p.searchIdx = 0
-				p.scroll = p.searchHits[0]
-			}
-		}
+		p.syncViewportSize()
+		return p, textinput.Blink
 
 	case "n":
 		if len(p.searchHits) > 0 {
 			p.searchIdx = (p.searchIdx + 1) % len(p.searchHits)
-			p.scroll = p.searchHits[p.searchIdx]
+			p.refreshViewportContent()
+			p.vp.SetYOffset(p.searchHits[p.searchIdx])
+		}
+		return p, nil
+
+	case "N":
+		if len(p.searchHits) > 0 {
+			p.searchIdx--
+			if p.searchIdx < 0 {
+				p.searchIdx = len(p.searchHits) - 1
+			}
+			p.refreshViewportContent()
+			p.vp.SetYOffset(p.searchHits[p.searchIdx])
+		}
+		return p, nil
+
+	case "g", "home":
+		p.vp.GotoTop()
+		return p, nil
+
+	case "G", "end":
+		p.vp.GotoBottom()
+		return p, nil
+	}
+
+	var cmd tea.Cmd
+	p.vp, cmd = p.vp.Update(msg)
+	return p, cmd
+}
+
+func (p *adrDetailOverlay) handleSearchKey(msg tea.KeyPressMsg) (models.Panel, tea.Cmd) {
+	switch msg.Keystroke() {
+	case "esc":
+		p.searching = false
+		p.searchInput.SetValue("")
+		p.searchInput.Blur()
+		p.searchHits = nil
+		p.searchIdx = 0
+		p.refreshViewportContent()
+
+	case "enter":
+		p.searching = false
+		p.searchInput.Blur()
+		query := strings.TrimSpace(p.searchInput.Value())
+		p.searchHits = nil
+		p.searchIdx = 0
+		if len(query) > 0 {
+			p.searchHits = p.findHits(query)
+			if len(p.searchHits) > 0 {
+				p.searchIdx = 0
+				p.vp.SetYOffset(p.searchHits[0])
+			}
+		}
+		p.refreshViewportContent()
+
+	case "n":
+		if len(p.searchHits) > 0 {
+			p.searchIdx = (p.searchIdx + 1) % len(p.searchHits)
+			p.refreshViewportContent()
+			p.vp.SetYOffset(p.searchHits[p.searchIdx])
 		}
 
 	case "N":
@@ -180,18 +175,14 @@ func (p *adrDetailOverlay) handleSearchKey(msg tea.KeyMsg) (models.Panel, tea.Cm
 			if p.searchIdx < 0 {
 				p.searchIdx = len(p.searchHits) - 1
 			}
-			p.scroll = p.searchHits[p.searchIdx]
-		}
-
-	case "backspace":
-		if len(p.searchInput) > 0 {
-			p.searchInput = p.searchInput[:len(p.searchInput)-1]
+			p.refreshViewportContent()
+			p.vp.SetYOffset(p.searchHits[p.searchIdx])
 		}
 
 	default:
-		if len(msg.Runes) > 0 {
-			p.searchInput += string(msg.Runes)
-		}
+		var cmd tea.Cmd
+		p.searchInput, cmd = p.searchInput.Update(msg)
+		return p, cmd
 	}
 	return p, nil
 }
@@ -211,6 +202,37 @@ func (p *adrDetailOverlay) findHits(query string) []int {
 	return hits
 }
 
+func (p *adrDetailOverlay) refreshViewportContent() {
+	if len(p.lines) == 0 {
+		p.vp.SetContent("")
+		return
+	}
+	highlighted := make([]string, len(p.lines))
+	for i, line := range p.lines {
+		if len(p.searchHits) > 0 && p.searchIdx >= 0 && p.searchIdx < len(p.searchHits) && p.searchHits[p.searchIdx] == i {
+			highlighted[i] = adrFocusedStyle.Background(lipgloss.Color("#444444")).Render(line)
+		} else {
+			highlighted[i] = line
+		}
+	}
+	p.vp.SetContent(strings.Join(highlighted, "\n"))
+}
+
+func (p *adrDetailOverlay) syncViewportSize() {
+	if p.width <= 0 || p.height <= 0 {
+		return
+	}
+	p.vp.SetWidth(p.width)
+	h := p.height - 2 // header + percentage indicator
+	if p.searching {
+		h--
+	}
+	if h < 1 {
+		h = 1
+	}
+	p.vp.SetHeight(h)
+}
+
 func (p *adrDetailOverlay) SetSize(width, height int) {
 	if width <= 0 || height <= 0 {
 		return
@@ -222,10 +244,19 @@ func (p *adrDetailOverlay) SetSize(width, height int) {
 	// Re-render at new width if it changed and we have cached source
 	if width != prevWidth && len(p.source) > 0 {
 		p.lines = adr.RenderMarkdown(p.source, width)
+		p.refreshViewportContent()
 	}
+
+	p.syncViewportSize()
+
+	inputWidth := width - 6
+	if inputWidth < 20 {
+		inputWidth = 20
+	}
+	p.searchInput.SetWidth(inputWidth)
 }
 
-func (p *adrDetailOverlay) View() string {
+func (p *adrDetailOverlay) View() tea.View {
 	w := p.width
 	if w <= 0 {
 		w = 80
@@ -236,66 +267,28 @@ func (p *adrDetailOverlay) View() string {
 	}
 
 	header := adrOverlayTitleStyle.Render(" ADR Detail ") + adrHintStyle.Render("  [j/k]scroll  [/]search  [enter/esc/q]close")
-	var content []string
-	content = append(content, header)
-
-	bodyH := h - 1
-	if bodyH < 1 {
-		bodyH = 1
-	}
+	var b strings.Builder
+	b.WriteString(header)
 
 	if p.searching {
-		searchPrompt := adrConstraintStyle.Render("/") + p.searchInput + adrDimStyle.Render("█")
-		content = append(content, "  "+searchPrompt)
-		bodyH--
-	}
-
-	if bodyH < 1 {
-		return clampOverlayLines(content, h, w)
+		b.WriteByte('\n')
+		b.WriteString(lipgloss.NewStyle().MaxWidth(w).Render("  " + p.searchInput.View()))
 	}
 
 	if len(p.lines) == 0 {
-		content = append(content, adrMutedStyle.Render("  Loading..."))
-		return clampOverlayLines(content, h, w)
+		b.WriteByte('\n')
+		b.WriteString(lipgloss.NewStyle().MaxWidth(w).Render(adrMutedStyle.Render("  Loading...")))
+		return tea.NewView(b.String())
 	}
 
-	// Calculate visible range
-	start := p.scroll
-	end := start + bodyH
-	if end > len(p.lines) {
-		end = len(p.lines)
-		start = end - bodyH
-		if start < 0 {
-			start = 0
-		}
-	}
+	b.WriteByte('\n')
+	b.WriteString(p.vp.View())
 
-	if start > 0 {
-		content = append(content, adrDimStyle.Render(fmt.Sprintf("  ↑ %d more lines above", start)))
-	}
+	b.WriteByte('\n')
+	pct := int(p.vp.ScrollPercent() * 100)
+	b.WriteString(lipgloss.NewStyle().MaxWidth(w).Render(adrDimStyle.Render(fmt.Sprintf("  %d%%", pct))))
 
-	for i := start; i < end; i++ {
-		line := p.lines[i]
-		// Highlight current search match
-		if len(p.searchHits) > 0 && p.searchIdx >= 0 && p.searchIdx < len(p.searchHits) {
-			if p.searchHits[p.searchIdx] == i {
-				line = adrFocusedStyle.Background(lipgloss.Color("#444444")).Render(line)
-			}
-		}
-		content = append(content, lipgloss.NewStyle().MaxWidth(w).Render(line))
-	}
-
-	if end < len(p.lines) {
-		remaining := len(p.lines) - end
-		content = append(content, adrDimStyle.Render(fmt.Sprintf("  ↓ %d more lines below", remaining)))
-	}
-
-	if len(p.lines) > 0 {
-		pct := (p.scroll * 100) / len(p.lines)
-		content = append(content, adrDimStyle.Render(fmt.Sprintf("  %d%%", pct)))
-	}
-
-	return clampOverlayLines(content, h, w)
+	return tea.NewView(b.String())
 }
 
 func stripANSISequences(s string) string {
@@ -315,16 +308,6 @@ func stripANSISequences(s string) string {
 		result.WriteRune(r)
 	}
 	return result.String()
-}
-
-func clampOverlayLines(lines []string, h, w int) string {
-	if len(lines) > h {
-		lines = lines[:h]
-	}
-	for i, line := range lines {
-		lines[i] = lipgloss.NewStyle().MaxWidth(w).Render(line)
-	}
-	return strings.Join(lines, "\n")
 }
 
 type closeADRDetailMsg struct{}

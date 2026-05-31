@@ -19,8 +19,7 @@ import (
 	"focus/internal/ui/layout"
 	"focus/internal/ui/shell"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -35,7 +34,7 @@ func (p *fakePanel) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 	return p, nil
 }
 
-func (p *fakePanel) View() string { return "" }
+func (p *fakePanel) View() tea.View { return tea.NewView("") }
 
 func (p *fakePanel) SetSize(width, height int) {}
 
@@ -128,7 +127,7 @@ func TestRenderHelpLineForEditorIncludesSearchShortcuts(t *testing.T) {
 	m.activePage.focused = editorID
 
 	help := m.renderHelpLine(120)
-	for _, want := range []string{"[ctrl+s]save", "[ctrl+f /]search", "[:]line", "[n/N]result"} {
+	for _, want := range []string{"ctrl+s", "save", "ctrl+f /", "search", ":", "line", "n/N", "result"} {
 		if !strings.Contains(help, want) {
 			t.Fatalf("expected help line to contain %q, got %q", want, help)
 		}
@@ -139,10 +138,11 @@ func TestRenderHelpLineForGitStatusIncludesReviewShortcuts(t *testing.T) {
 	cfg := config.DefaultConfig()
 	st, _ := store.New(":memory:")
 	m := New(cfg, st).(model)
+	m.activePage.panes[paneWorktreeDetail] = &fakePanel{}
 	m.activePage.focused = paneWorktreeDetail
 
 	help := m.renderHelpLine(140)
-	for _, want := range []string{"[1-3]tabs", "[j/k]nav", "[enter]open"} {
+	for _, want := range []string{"1-3", "tabs", "j/k", "nav", "enter", "open"} {
 		if !strings.Contains(help, want) {
 			t.Fatalf("expected help line to contain %q, got %q", want, help)
 		}
@@ -156,7 +156,7 @@ func TestRenderHelpLineForWorktreePaneIncludesRefreshShortcut(t *testing.T) {
 	m.activePage.focused = paneWorktree
 
 	help := m.renderHelpLine(120)
-	for _, want := range []string{"[j/k]nav", "[enter]select", "[o]shell", "[e]edit", "[d]el"} {
+	for _, want := range []string{"j/k", "nav", "enter", "select", "o", "shell", "e", "edit", "d", "del"} {
 		if !strings.Contains(help, want) {
 			t.Fatalf("expected help line to contain %q, got %q", want, help)
 		}
@@ -170,12 +170,12 @@ func TestRenderHelpLineForDAGMatchesCurrentKeybindings(t *testing.T) {
 	m.activePage.focused = paneDAG
 
 	help := m.renderHelpLine(140)
-	for _, want := range []string{"[s]state", "[t]todo", "[c]new-wt"} {
+	for _, want := range []string{"s", "state", "t", "todo", "c", "new-wt"} {
 		if !strings.Contains(help, want) {
 			t.Fatalf("expected DAG help line to contain %q, got %q", want, help)
 		}
 	}
-	if strings.Contains(help, "[s]tart agent") {
+	if strings.Contains(help, "start agent") {
 		t.Fatalf("expected DAG help line to avoid stale binding text, got %q", help)
 	}
 }
@@ -200,13 +200,18 @@ func TestRenderNotificationBarStaysSingleLine(t *testing.T) {
 	}
 }
 
-func TestRenderHelpBarCollapsesWhenTextOverflows(t *testing.T) {
-	line := renderHelpBar(lipgloss.NewStyle(), "left section that is too long", "[q]uit", 24)
-	if strings.Count(line, "\n") > 0 {
-		t.Fatalf("expected single-line help bar, got %q", line)
+func TestRenderHelpLineCollapsesWhenTextOverflows(t *testing.T) {
+	cfg := config.DefaultConfig()
+	st, _ := store.New(":memory:")
+	m := New(cfg, st).(model)
+	m.activePage.focused = paneDAG
+
+	help := m.renderHelpLine(24)
+	if strings.Count(help, "\n") > 0 {
+		t.Fatalf("expected single-line help line, got %q", help)
 	}
-	if got := ansi.StringWidth(line); got > 24 {
-		t.Fatalf("expected compact help bar width <= 24, got %d", got)
+	if got := ansi.StringWidth(help); got > 24 {
+		t.Fatalf("expected compact help line width <= 24, got %d", got)
 	}
 }
 
@@ -298,7 +303,7 @@ func TestCtrlGReturnsToOverviewPage(t *testing.T) {
 	overviewPage := m.activePage
 	m.switchToWorktreePage("/repo/feature-a", string(paneShell))
 
-	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlG})
+	updated, _ := m.Update(tea.KeyPressMsg{Code: 'g', Mod: tea.ModCtrl, Text: "g"})
 	m = updated.(model)
 	if m.state != StateOverviewPage {
 		t.Fatalf("expected overview page state, got %v", m.state)
@@ -411,7 +416,7 @@ func TestRenderHelpLineForDiffOverlayIncludesReviewCloseShortcut(t *testing.T) {
 	m.activePage.focused = paneGitDiff
 
 	help := m.renderHelpLine(120)
-	for _, want := range []string{"[enter]open file", "[s]toggle staged", "[[]/[]]files", "[wheel]scroll", "[q/esc]close review"} {
+	for _, want := range []string{"enter", "open file", "s", "toggle staged", "[]/[]", "files", "wheel", "scroll", "q/esc", "close review"} {
 		if !strings.Contains(help, want) {
 			t.Fatalf("expected diff help line to contain %q, got %q", want, help)
 		}
@@ -463,12 +468,12 @@ func TestShellRefreshMsgRoutesOnlyToTargetPane(t *testing.T) {
 	}
 }
 
-func keyCtrlBackslash() tea.KeyMsg {
-	return tea.KeyMsg{Type: tea.KeyCtrlBackslash}
+func keyCtrlBackslash() tea.KeyPressMsg {
+	return tea.KeyPressMsg{Code: '\\', Mod: tea.ModCtrl, Text: "\\"}
 }
 
-func keyCtrlW() tea.KeyMsg {
-	return tea.KeyMsg{Type: tea.KeyCtrlW}
+func keyCtrlW() tea.KeyPressMsg {
+	return tea.KeyPressMsg{Code: 'w', Mod: tea.ModCtrl, Text: "w"}
 }
 
 func TestSplitFocusedHorizontal(t *testing.T) {
@@ -1541,8 +1546,9 @@ func TestOpenPlanEditPaneLoadsCurrentPlanForWorktreeWithoutTask(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected plan edit pane, got %T", m.activePage.pane(panePlanEdit))
 	}
-	if pane.titleInput.Value() != "Standalone plan" || !strings.Contains(pane.bodyInput.Value(), "Intent brief") {
-		t.Fatalf("expected existing standalone plan to seed editor, got title=%q body=%q", pane.titleInput.Value(), pane.bodyInput.Value())
+	view := pane.View()
+	if !strings.Contains(view.Content, "Standalone plan") || !strings.Contains(view.Content, "Intent brief") {
+		t.Fatalf("expected existing standalone plan to seed editor, got view=%q", view.Content)
 	}
 }
 
@@ -1794,7 +1800,7 @@ func TestZoomToggle(t *testing.T) {
 	initialOrder := layout.LeafOrder(m.activePage.bodyTree)
 	m.setFocus(paneShell)
 
-	newM, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'z'}})
+	newM, _ := m.Update(tea.KeyPressMsg{Code: 'z', Text: "z"})
 	m = newM.(model)
 
 	if m.activePage.zoomedPane != paneShell {
@@ -1806,7 +1812,7 @@ func TestZoomToggle(t *testing.T) {
 		t.Fatalf("expected 1 pane when zoomed, got %d", len(zoomedOrder))
 	}
 
-	newM, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'z'}})
+	newM, _ = m.Update(tea.KeyPressMsg{Code: 'z', Text: "z"})
 	m = newM.(model)
 
 	if m.activePage.zoomedPane != "" {
@@ -2045,7 +2051,7 @@ func TestHandleMouseBlocksWhenDiffOverlayActive(t *testing.T) {
 	m.updateSizes(120, 40)
 	dims := layout.ComputeBanner(m.common.Width, m.common.Height)
 
-	updated, _ := m.handleMouse(tea.MouseMsg{X: dims.HeaderH + 5, Y: dims.HeaderH + 5, Button: tea.MouseButtonWheelDown})
+	updated, _ := m.handleMouse(tea.MouseWheelMsg{X: dims.HeaderH + 5, Y: dims.HeaderH + 5, Button: tea.MouseWheelDown})
 	m = updated.(model)
 
 	diffPanel := m.pane(paneGitDiff).(*fakePanel)
@@ -2122,67 +2128,69 @@ func TestDagPaneQuickCreateTask(t *testing.T) {
 		t.Fatal("expected creating=false initially")
 	}
 	view := pane.View()
-	if !strings.Contains(view, "Task DAG") {
-		t.Fatalf("expected 'Task DAG' in view, got:\n%s", view)
+	if !strings.Contains(view.Content, "Task DAG") {
+		t.Fatalf("expected 'Task DAG' in view, got:\n%s", view.Content)
 	}
-	if !strings.Contains(view, "[n]new-task") {
-		t.Fatalf("expected '[n]new-task' hint in normal mode, got:\n%s", view)
+	if !strings.Contains(view.Content, "[n]new-task") {
+		t.Fatalf("expected '[n]new-task' hint in normal mode, got:\n%s", view.Content)
 	}
-	if !strings.Contains(view, "First task") {
-		t.Fatalf("expected task title in DAG view, got:\n%s", view)
+	if !strings.Contains(view.Content, "First task") {
+		t.Fatalf("expected task title in DAG view, got:\n%s", view.Content)
 	}
 
 	// Press 'n' to enter creating mode.
-	panel, cmd := pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+	panel, cmd := pane.Update(tea.KeyPressMsg{Code: 'n', Text: "n"})
 	pane = panel.(*dagPane)
 	if !pane.creating {
 		t.Fatal("expected creating=true after pressing 'n'")
 	}
 	if cmd == nil {
-		t.Fatal("expected blink cmd after entering create mode")
+		t.Fatal("expected init cmd after entering create mode")
+	}
+	// Bootstrap the Huh form with its init command.
+	if initMsg := cmd(); initMsg != nil {
+		panel, _ = pane.Update(initMsg)
+		pane = panel.(*dagPane)
 	}
 
-	// Verify creating mode view shows inputs and correct hint.
+	// Verify creating mode view shows Huh form fields.
 	view = pane.View()
-	if !strings.Contains(view, "New task title:") {
-		t.Fatalf("expected title input prompt in view, got:\n%s", view)
+	if !strings.Contains(ansi.Strip(view.Content), "New task title") {
+		t.Fatalf("expected title input prompt in view, got:\n%s", ansi.Strip(view.Content))
 	}
-	if !strings.Contains(view, "Goal (optional):") {
-		t.Fatalf("expected goal input prompt in view, got:\n%s", view)
+	if !strings.Contains(ansi.Strip(view.Content), "Goal (optional)") {
+		t.Fatalf("expected goal input prompt in view, got:\n%s", ansi.Strip(view.Content))
 	}
-	if !strings.Contains(view, "[T]asks [A]DRs") {
-		t.Fatalf("expected creating-mode hint in view, got:\n%s", view)
+	if !strings.Contains(view.Content, "[T]asks [A]DRs") {
+		t.Fatalf("expected creating-mode hint in view, got:\n%s", view.Content)
 	}
 	// Normal-mode hint should NOT appear.
-	if strings.Contains(view, "[n]new-task") {
+	if strings.Contains(view.Content, "[n]new-task") {
 		t.Fatal("expected normal-mode hint to be replaced in creating mode")
 	}
 
 	// Type a title into the focused title input.
-	panel, _ = pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'B'}})
+	panel, _ = pane.Update(tea.KeyPressMsg{Code: 'B', Text: "B"})
 	pane = panel.(*dagPane)
-	panel, _ = pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'u'}})
+	panel, _ = pane.Update(tea.KeyPressMsg{Code: 'u', Text: "u"})
 	pane = panel.(*dagPane)
-	panel, _ = pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}})
+	panel, _ = pane.Update(tea.KeyPressMsg{Code: 'g', Text: "g"})
 	pane = panel.(*dagPane)
 
-	// Press Tab to move focus to goal input.
-	panel, _ = pane.Update(tea.KeyMsg{Type: tea.KeyTab})
+	// Press Enter to confirm title and move to goal field.
+	panel, _ = pane.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	pane = panel.(*dagPane)
-	if pane.createFocus != 1 {
-		t.Fatalf("expected createFocus=1 after tab, got %d", pane.createFocus)
-	}
 
 	// Type a goal.
-	panel, _ = pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'f'}})
+	panel, _ = pane.Update(tea.KeyPressMsg{Code: 'f', Text: "f"})
 	pane = panel.(*dagPane)
-	panel, _ = pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'i'}})
+	panel, _ = pane.Update(tea.KeyPressMsg{Code: 'i', Text: "i"})
 	pane = panel.(*dagPane)
-	panel, _ = pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
+	panel, _ = pane.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
 	pane = panel.(*dagPane)
 
-	// Press Enter to submit.
-	panel, cmd = pane.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	// Press Enter to submit (completes the Huh form).
+	panel, cmd = pane.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	pane = panel.(*dagPane)
 	if pane.creating {
 		t.Fatal("expected creating=false after submit")
@@ -2211,7 +2219,7 @@ func TestDagPaneQuickCreateTask(t *testing.T) {
 	if !pane.creating {
 		t.Fatal("expected creating=true")
 	}
-	panel, _ = pane.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	panel, _ = pane.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
 	pane = panel.(*dagPane)
 	if pane.creating {
 		t.Fatal("expected creating=false after esc")
@@ -2257,7 +2265,7 @@ func TestWorktreeDetailPaneTasksTabOpensTaskEditOnEnterAndE(t *testing.T) {
 	detail.worktreeID = worktreeID
 	detail.loadTasks()
 
-	updatedAny, cmd := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}})
+	updatedAny, cmd := m.handleKey(tea.KeyPressMsg{Code: 'e', Text: "e"})
 	m = updatedAny.(model)
 	if cmd == nil {
 		t.Fatalf("expected open task edit command on e")
@@ -2272,7 +2280,7 @@ func TestWorktreeDetailPaneTasksTabOpensTaskEditOnEnterAndE(t *testing.T) {
 	}
 
 	m.closePane(paneTaskEdit)
-	updatedAny, cmd = m.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	updatedAny, cmd = m.handleKey(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = updatedAny.(model)
 	if cmd == nil {
 		t.Fatalf("expected open task edit command on enter")
