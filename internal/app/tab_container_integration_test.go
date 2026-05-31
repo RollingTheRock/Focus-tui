@@ -3,7 +3,7 @@ package app
 import (
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"focus/internal/models"
 )
 
@@ -22,7 +22,7 @@ func TestTabContainerViaRouteToPane(t *testing.T) {
 	}
 
 	// Simulate the full routeToPane flow for "A"
-	cmd := p.routeToPane(paneDAG, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'A'}})
+	cmd := p.routeToPane(paneDAG, tea.KeyPressMsg{Code: 'A', Text: "A"})
 	if cmd != nil {
 		t.Fatalf("expected nil cmd from routeToPane, got %v", cmd)
 	}
@@ -33,7 +33,7 @@ func TestTabContainerViaRouteToPane(t *testing.T) {
 	}
 
 	// Simulate the full routeToPane flow for "T"
-	cmd2 := p.routeToPane(paneDAG, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'T'}})
+	cmd2 := p.routeToPane(paneDAG, tea.KeyPressMsg{Code: 'T', Text: "T"})
 	if cmd2 != nil {
 		t.Fatalf("expected nil cmd from routeToPane, got %v", cmd2)
 	}

@@ -10,8 +10,8 @@ import (
 	"focus/internal/render"
 	"focus/internal/styles"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 var (
@@ -55,12 +55,11 @@ func (p *SessionPane) Init() tea.Cmd {
 
 func (p *SessionPane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		switch msg.String() {
+	case tea.KeyPressMsg:
+		switch msg.Keystroke() {
 		case "j", "down":
 			if p.cursor < len(p.sessions)-1 {
-				p.cursor++
-			}
+				p.cursor++}
 		case "k", "up":
 			if p.cursor > 0 {
 				p.cursor--
@@ -93,7 +92,7 @@ func (p *SessionPane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 	return p, nil
 }
 
-func (p *SessionPane) View() string {
+func (p *SessionPane) View() tea.View {
 	width := p.width
 	if width <= 0 {
 		width = 40
@@ -104,7 +103,7 @@ func (p *SessionPane) View() string {
 	}
 	canvas := render.NewCanvas(width, height)
 	p.Render(canvas, width, height)
-	return canvas.Render()
+	return tea.NewView(canvas.Render())
 }
 
 func (p *SessionPane) Render(canvas render.Surface, width, height int) {

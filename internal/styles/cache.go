@@ -3,7 +3,7 @@ package styles
 import (
 	"sync"
 
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
 )
 
 var StyleCache = &styleCache{

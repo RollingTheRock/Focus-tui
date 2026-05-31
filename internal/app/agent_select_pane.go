@@ -9,8 +9,8 @@ import (
 	"focus/internal/models"
 	appstyles "focus/internal/styles"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 // AgentSelectedMsg is emitted when the user chooses an agent provider.
@@ -132,13 +132,12 @@ func (p *agentSelectPane) Init() tea.Cmd {
 
 func (p *agentSelectPane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		switch msg.String() {
+	case tea.KeyPressMsg:
+		switch msg.Keystroke() {
 		case "esc":
 			if p.showResume {
 				p.showResume = false
-				return p, nil
-			}
+				return p, nil}
 			return p, func() tea.Msg {
 				return CloseAgentSelectMsg{ID: p.id}
 			}
@@ -220,7 +219,7 @@ func (p *agentSelectPane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 	return p, nil
 }
 
-func (p *agentSelectPane) View() string {
+func (p *agentSelectPane) View() tea.View {
 	width := p.width
 	if width <= 0 {
 		width = 56
@@ -292,7 +291,7 @@ func (p *agentSelectPane) View() string {
 	if p.height > 0 && len(lines) > p.height {
 		lines = lines[:p.height]
 	}
-	return strings.Join(lines, "\n")
+	return tea.NewView(strings.Join(lines, "\n"))
 }
 
 func (p *agentSelectPane) SetSize(width, height int) {

@@ -7,8 +7,8 @@ import (
 	"focus/internal/models"
 	appstyles "focus/internal/styles"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 // CloseWorktreeHistoryMsg closes the history overlay.
@@ -46,12 +46,11 @@ func (p *worktreeHistoryPane) Init() tea.Cmd {
 
 func (p *worktreeHistoryPane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		switch msg.String() {
+	case tea.KeyPressMsg:
+		switch msg.Keystroke() {
 		case "esc", "q":
 			return p, func() tea.Msg {
-				return CloseWorktreeHistoryMsg{ID: p.id}
-			}
+				return CloseWorktreeHistoryMsg{ID: p.id}}
 		case "j", "down":
 			if p.cursor < len(p.records)-1 {
 				p.cursor++
@@ -65,7 +64,7 @@ func (p *worktreeHistoryPane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 	return p, nil
 }
 
-func (p *worktreeHistoryPane) View() string {
+func (p *worktreeHistoryPane) View() tea.View {
 	width := p.width
 	if width <= 0 {
 		width = 64
@@ -129,7 +128,7 @@ func (p *worktreeHistoryPane) View() string {
 	if p.height > 0 && len(lines) > p.height {
 		lines = lines[:p.height]
 	}
-	return strings.Join(lines, "\n")
+	return tea.NewView(strings.Join(lines, "\n"))
 }
 
 func (p *worktreeHistoryPane) SetSize(width, height int) {

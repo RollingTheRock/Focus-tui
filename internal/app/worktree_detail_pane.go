@@ -13,8 +13,8 @@ import (
 	gitplugin "focus/internal/plugins/git"
 	"focus/internal/styles"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -187,8 +187,8 @@ func (p *worktreeDetailPane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 			}
 		}
 		return p, tea.Batch(cmds...)
-	case tea.KeyMsg:
-		switch msg.String() {
+	case tea.KeyPressMsg:
+		switch msg.Keystroke() {
 		case "1":
 			p.activeTab = tabTasks
 			return p, nil
@@ -201,8 +201,7 @@ func (p *worktreeDetailPane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 		case "j", "down":
 			if p.activeTab == tabTasks {
 				if p.taskCursor < len(p.tasks)-1 {
-					p.taskCursor++
-				}
+					p.taskCursor++}
 				return p, nil
 			}
 		case "k", "up":
@@ -226,7 +225,7 @@ func (p *worktreeDetailPane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 	// Route to sub-panes. Data messages always reach both sub-panes
 	// regardless of active tab so git and file tree stay up to date.
 	// Key events only go to the active tab to avoid double-handling.
-	_, isKey := msg.(tea.KeyMsg)
+	_, isKey := msg.(tea.KeyPressMsg)
 
 	var cmds []tea.Cmd
 
@@ -333,11 +332,11 @@ func (p *worktreeDetailPane) helpText() (wide, compact string) {
 	return
 }
 
-func (p *worktreeDetailPane) View() string {
+func (p *worktreeDetailPane) View() tea.View {
 	w := p.width
 	h := p.height
 	if w <= 0 || h <= 0 {
-		return ""
+		return tea.NewView("")
 	}
 
 	var parts []string
@@ -348,14 +347,14 @@ func (p *worktreeDetailPane) View() string {
 	case tabGit:
 		if p.gitPane != nil {
 			p.gitPane.SetSize(w, ch)
-			parts = append(parts, p.gitPane.View())
+			parts = append(parts, p.gitPane.View().Content)
 		} else {
 			parts = append(parts, emptyLine(w, ch))
 		}
 	case tabFiles:
 		if p.filesPane != nil {
 			p.filesPane.SetSize(w, ch)
-			parts = append(parts, p.filesPane.View())
+			parts = append(parts, p.filesPane.View().Content)
 		} else {
 			parts = append(parts, emptyLine(w, ch))
 		}
@@ -364,7 +363,7 @@ func (p *worktreeDetailPane) View() string {
 	}
 
 	parts = append(parts, p.renderAgentCards(w))
-	return strings.Join(parts, "\n")
+	return tea.NewView(strings.Join(parts, "\n"))
 }
 
 func (p *worktreeDetailPane) renderTabs(w int) string {

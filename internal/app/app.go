@@ -36,9 +36,11 @@ import (
 	"strings"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	"charm.land/bubbles/v2/help"
+	bubblesKey "charm.land/bubbles/v2/key"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/atotto/clipboard"
-	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/google/uuid"
 )
@@ -144,6 +146,8 @@ type model struct {
 
 	// cmdBus is the command-layer bus for structured domain writes.
 	cmdBus *commands.Bus
+
+	helpModel help.Model
 }
 
 type editorMetaProvider interface {
@@ -181,6 +185,19 @@ func New(cfg config.Config, store models.Store) tea.Model {
 		resumeSummaryCache: make(map[string]gitmodel.WorktreeResumeSummary),
 		mcpServer:          mcp.NewServer(cfg.Agent.MCPSocket, cfg.Agent.MCPPort),
 		disablePiggyback:   os.Getenv("FOCUS_DISABLE_PIGGYBACK") == "1",
+		helpModel: func() help.Model {
+			h := help.New()
+			h.Styles = help.Styles{
+				ShortKey:       lipgloss.NewStyle().Foreground(styles.Subtle),
+				ShortDesc:      lipgloss.NewStyle().Foreground(styles.Subtle),
+				ShortSeparator: lipgloss.NewStyle().Foreground(styles.Subtle),
+				Ellipsis:       lipgloss.NewStyle().Foreground(styles.Subtle),
+				FullKey:        lipgloss.NewStyle().Foreground(styles.Subtle),
+				FullDesc:       lipgloss.NewStyle().Foreground(styles.Subtle),
+				FullSeparator:  lipgloss.NewStyle().Foreground(styles.Subtle),
+			}
+			return h
+		}(),
 	}
 	m.registerMCPTools()
 	m.registerMCPResources()
@@ -1491,7 +1508,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Re-subscribe to the next notification.
 		return m, m.orchestratorCmd()
 
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		return m.handleKey(msg)
 
 	case tea.MouseMsg:
@@ -2170,16 +2187,24 @@ func batchCmds(cmds []tea.Cmd) tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
+// adjustedMouse wraps a tea.Mouse to implement tea.MouseMsg with modified coordinates.
+type adjustedMouse struct {
+	m tea.Mouse
+}
+
+func (a adjustedMouse) Mouse() tea.Mouse { return a.m }
+
 func (m model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	m.invalidateView()
 	if m.activeOverlayPane() != "" {
 		return m, nil
 	}
+	mouse := msg.Mouse()
 	dims := layout.ComputeBanner(m.common.Width, m.common.Height)
-	bodyY := msg.Y - dims.HeaderH
-	bodyX := msg.X
+	bodyY := mouse.Y - dims.HeaderH
+	bodyX := mouse.X
 	clicked := m.paneAt(bodyX, bodyY)
-	if clicked != "" && msg.Button != tea.MouseButtonWheelUp && msg.Button != tea.MouseButtonWheelDown && msg.Button != tea.MouseButtonWheelLeft && msg.Button != tea.MouseButtonWheelRight {
+	if clicked != "" && mouse.Button != tea.MouseWheelUp && mouse.Button != tea.MouseWheelDown && mouse.Button != tea.MouseWheelLeft && mouse.Button != tea.MouseWheelRight {
 		m.setFocus(clicked)
 	}
 	if clicked == "" {
@@ -2195,19 +2220,18 @@ func (m model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	if !ok {
 		return m, nil
 	}
-	adjusted := msg
-	adjusted.X = msg.X - frame.X - 2
-	adjusted.Y = bodyY - frame.Y - 1
+	adjX := mouse.X - frame.X - 2
+	adjY := bodyY - frame.Y - 1
 	contentW := frame.W - 4
 	contentH := frame.H - 2
-	if adjusted.X < 0 || adjusted.X >= contentW || adjusted.Y < 0 || adjusted.Y >= contentH {
+	if adjX < 0 || adjX >= contentW || adjY < 0 || adjY >= contentH {
 		return m, nil
 	}
-	return m, m.routeToPane(clicked, tea.Msg(adjusted))
+	return m, m.routeToPane(clicked, adjustedMouse{m: tea.Mouse{X: adjX, Y: adjY, Button: mouse.Button, Mod: mouse.Mod}})
 }
 
 // handleKey routes keyboard input based on overlay, mode, and focused pane.
-func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	m.invalidateView()
 
 	if overlayID := m.activeOverlayPane(); overlayID != "" {
@@ -2215,7 +2239,7 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	if m.mode == ModeInput {
-		if msg.String() == "ctrl+c" {
+		if msg.Keystroke() == "ctrl+c" {
 			m.closeShellPanes()
 			return m, tea.Quit
 		}
@@ -2223,7 +2247,7 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	if m.mode == ModeShell {
-		switch msg.String() {
+		switch msg.Keystroke() {
 		case "esc":
 			m.mode = ModeNormal
 			m.refreshPaneStatuses()
@@ -2237,13 +2261,12 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		default:
 			if m.activePage.paneMeta[m.activePage.focused].Type == models.PaneTypeShell {
-				return m, m.routeToPane(m.activePage.focused, msg)
-			}
+				return m, m.routeToPane(m.activePage.focused, msg)}
 			m.mode = ModeNormal
 		}
 	}
 
-	switch msg.String() {
+	switch msg.Keystroke() {
 	case "ctrl+r":
 		return m, m.globalRefreshCmd()
 	case "q", "ctrl+c":
@@ -2251,8 +2274,7 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	case "w":
 		if _, ok := m.activePage.paneMeta[paneCityPicker]; ok {
-			m.closePane(paneCityPicker)
-		} else {
+			m.closePane(paneCityPicker)} else {
 			m.activePage.openCityPickerOverlay()
 		}
 		m.invalidateView()
@@ -2913,7 +2935,7 @@ func (m model) bodyBounds() models.PaneFrame {
 	return m.activePage.bodyBounds(m.common.Width, m.common.Height)
 }
 
-func (m model) View() string {
+func (m model) View() tea.View {
 	w := m.common.Width
 	h := m.common.Height
 	if w <= 0 {
@@ -2933,19 +2955,23 @@ func (m model) View() string {
 		m.vc.gen = m.viewGen
 	}
 
+	v := tea.NewView(result)
+	v.AltScreen = true
+	v.MouseMode = tea.MouseModeCellMotion
+
 	if m.mode == ModeShell && m.activePage.paneMeta[m.activePage.focused].Type == models.PaneTypeShell {
 		if sh, ok := m.pane(m.activePage.focused).(*shell.Model); ok {
 			if frame, exists := m.activePage.frames[m.activePage.focused]; exists {
 				if cx, cy, vis := sh.CursorPos(); vis {
-					termRow := dims.HeaderH + frame.Y + 1 + cy + 1
-					termCol := frame.X + 2 + cx + 1
-					result += fmt.Sprintf("\033[?25h\033[%d;%dH", termRow, termCol)
+					cursorY := dims.HeaderH + frame.Y + 1 + cy
+					cursorX := frame.X + 2 + cx
+					v.Cursor = tea.NewCursor(cursorX, cursorY)
 				}
 			}
 		}
 	}
 
-	return result
+	return v
 }
 
 func (m model) buildView(dims layout.Dimensions, w, h int) string {
@@ -2987,7 +3013,7 @@ func (m model) buildView(dims layout.Dimensions, w, h int) string {
 	}
 	sections = append(sections, bodyView)
 	if footerVisible(h) {
-		sections = append(sections, m.pane(paneFooter).View())
+		sections = append(sections, m.pane(paneFooter).View().Content)
 	}
 	sections = append(sections, helpLine)
 	return lipgloss.JoinVertical(lipgloss.Left, sections...)
@@ -3031,182 +3057,294 @@ func (m model) renderPaneTitle(id models.PaneID, contentWidth int) string {
 	return m.activePage.renderPaneTitle(id, m.activePage.focused, m.mode, contentWidth)
 }
 
-func (m model) renderHelpLine(w int) string {
-	if w <= 0 {
-		return ""
-	}
-	helpStyle := lipgloss.NewStyle().Foreground(styles.Subtle)
-	focusedType := m.activePage.paneMeta[m.activePage.focused].Type
+// staticKeyMap adapts a slice of bubblesKey.Binding to the help.KeyMap interface.
+type staticKeyMap []bubblesKey.Binding
+
+func (k staticKeyMap) ShortHelp() []bubblesKey.Binding { return k }
+func (k staticKeyMap) FullHelp() [][]bubblesKey.Binding { return [][]bubblesKey.Binding{k} }
+
+func helpBindingsForState(m model, compact bool) []bubblesKey.Binding {
 	if overlayID := m.activeOverlayPane(); overlayID != "" {
 		switch m.activePage.paneMeta[overlayID].Type {
 		case paneTypeGitCommit:
-			return renderCompactHelpLine(helpStyle, "[ctrl+s]commit  [ctrl+j]fallback  [esc]cancel", w)
+			return []bubblesKey.Binding{
+				bubblesKey.NewBinding(bubblesKey.WithKeys("ctrl+s"), bubblesKey.WithHelp("ctrl+s", "commit")),
+				bubblesKey.NewBinding(bubblesKey.WithKeys("ctrl+j"), bubblesKey.WithHelp("ctrl+j", "fallback")),
+				bubblesKey.NewBinding(bubblesKey.WithKeys("esc"), bubblesKey.WithHelp("esc", "cancel")),
+			}
 		case paneTypeWorktreeCreate:
-			return renderCompactHelpLine(helpStyle, "[tab]next  [enter]next/create  [ctrl+s]create  [esc]cancel", w)
+			return []bubblesKey.Binding{
+				bubblesKey.NewBinding(bubblesKey.WithKeys("tab"), bubblesKey.WithHelp("tab", "next")),
+				bubblesKey.NewBinding(bubblesKey.WithKeys("enter"), bubblesKey.WithHelp("enter", "next/create")),
+				bubblesKey.NewBinding(bubblesKey.WithKeys("ctrl+s"), bubblesKey.WithHelp("ctrl+s", "create")),
+				bubblesKey.NewBinding(bubblesKey.WithKeys("esc"), bubblesKey.WithHelp("esc", "cancel")),
+			}
 		case paneTypeTaskEdit:
-			return renderCompactHelpLine(helpStyle, "[tab]next  [enter]next/save  [ctrl+s]save  [esc]cancel", w)
+			return []bubblesKey.Binding{
+				bubblesKey.NewBinding(bubblesKey.WithKeys("tab"), bubblesKey.WithHelp("tab", "next")),
+				bubblesKey.NewBinding(bubblesKey.WithKeys("enter"), bubblesKey.WithHelp("enter", "next/save")),
+				bubblesKey.NewBinding(bubblesKey.WithKeys("ctrl+s"), bubblesKey.WithHelp("ctrl+s", "save")),
+				bubblesKey.NewBinding(bubblesKey.WithKeys("esc"), bubblesKey.WithHelp("esc", "cancel")),
+			}
 		case paneTypePlanEdit:
-			return renderCompactHelpLine(helpStyle, "[tab]switch  [enter]into body  [ctrl+s]save  [esc]cancel", w)
+			return []bubblesKey.Binding{
+				bubblesKey.NewBinding(bubblesKey.WithKeys("tab"), bubblesKey.WithHelp("tab", "switch")),
+				bubblesKey.NewBinding(bubblesKey.WithKeys("enter"), bubblesKey.WithHelp("enter", "into body")),
+				bubblesKey.NewBinding(bubblesKey.WithKeys("ctrl+s"), bubblesKey.WithHelp("ctrl+s", "save")),
+				bubblesKey.NewBinding(bubblesKey.WithKeys("esc"), bubblesKey.WithHelp("esc", "cancel")),
+			}
 		}
 	}
 	if m.mode == ModeInput {
-		return renderCompactHelpLine(helpStyle, "[enter]confirm  [esc]cancel", w)
+		return []bubblesKey.Binding{
+			bubblesKey.NewBinding(bubblesKey.WithKeys("enter"), bubblesKey.WithHelp("enter", "confirm")),
+			bubblesKey.NewBinding(bubblesKey.WithKeys("esc"), bubblesKey.WithHelp("esc", "cancel")),
+		}
 	}
 	if m.mode == ModeShell {
-		text := "[esc]normal  [ctrl+t]shell  [alt+z]ext  [shell input active]"
-		if w < simplifiedHelpMaxWidth {
-			text = "[esc]normal  [ctrl+t]shell  [alt+z]ext"
+		bindings := []bubblesKey.Binding{
+			bubblesKey.NewBinding(bubblesKey.WithKeys("esc"), bubblesKey.WithHelp("esc", "normal")),
+			bubblesKey.NewBinding(bubblesKey.WithKeys("ctrl+t"), bubblesKey.WithHelp("ctrl+t", "shell")),
+			bubblesKey.NewBinding(bubblesKey.WithKeys("alt+z"), bubblesKey.WithHelp("alt+z", "external")),
 		}
-		return renderCompactHelpLine(helpStyle, text, w)
+		if !compact {
+			bindings = append(bindings, bubblesKey.NewBinding(bubblesKey.WithKeys(""), bubblesKey.WithHelp("", "shell input active")))
+		}
+		return bindings
 	}
 
-	left := []helpAction{
-		{Key: "tab", Label: "cycle focus"},
-		{Key: "enter", Label: "activate"},
-	}
-	compact := []helpAction{
-		{Key: "tab", Label: "cycle"},
-		{Key: "enter", Label: "open"},
-		{Key: "q", Label: "quit"},
-	}
+	var bindings []bubblesKey.Binding
 	switch m.activePage.focused {
 	case paneDAG:
-		left = []helpAction{
-			{Key: "j/k", Label: "move"},
-			{Key: "h/l", Label: "level"},
-			{Key: "enter", Label: "open/create"},
-			{Key: "c", Label: "new-wt"},
-			{Key: "s", Label: "state"},
-			{Key: "t", Label: "todo"},
-			{Key: "n", Label: "new-task"},
-			{Key: "r", Label: "research"},
-			{Key: "a", Label: "arch"},
-			{Key: "R", Label: "refresh"},
-		}
-		compact = []helpAction{
-			{Key: "j/k", Label: "move"},
-			{Key: "h/l", Label: "level"},
-			{Key: "enter/c", Label: "open/wt"},
-			{Key: "s", Label: "state"},
-			{Key: "t", Label: "todo"},
+		if compact {
+			bindings = []bubblesKey.Binding{
+				bubblesKey.NewBinding(bubblesKey.WithKeys("j", "k"), bubblesKey.WithHelp("j/k", "move")),
+				bubblesKey.NewBinding(bubblesKey.WithKeys("h", "l"), bubblesKey.WithHelp("h/l", "level")),
+				bubblesKey.NewBinding(bubblesKey.WithKeys("enter", "c"), bubblesKey.WithHelp("enter/c", "open/wt")),
+				bubblesKey.NewBinding(bubblesKey.WithKeys("s"), bubblesKey.WithHelp("s", "state")),
+				bubblesKey.NewBinding(bubblesKey.WithKeys("t"), bubblesKey.WithHelp("t", "todo")),
+			}
+		} else {
+			bindings = []bubblesKey.Binding{
+				bubblesKey.NewBinding(bubblesKey.WithKeys("j", "k"), bubblesKey.WithHelp("j/k", "move")),
+				bubblesKey.NewBinding(bubblesKey.WithKeys("h", "l"), bubblesKey.WithHelp("h/l", "level")),
+				bubblesKey.NewBinding(bubblesKey.WithKeys("enter"), bubblesKey.WithHelp("enter", "open/create")),
+				bubblesKey.NewBinding(bubblesKey.WithKeys("c"), bubblesKey.WithHelp("c", "new-wt")),
+				bubblesKey.NewBinding(bubblesKey.WithKeys("s"), bubblesKey.WithHelp("s", "state")),
+				bubblesKey.NewBinding(bubblesKey.WithKeys("t"), bubblesKey.WithHelp("t", "todo")),
+				bubblesKey.NewBinding(bubblesKey.WithKeys("n"), bubblesKey.WithHelp("n", "new-task")),
+				bubblesKey.NewBinding(bubblesKey.WithKeys("r"), bubblesKey.WithHelp("r", "research")),
+				bubblesKey.NewBinding(bubblesKey.WithKeys("a"), bubblesKey.WithHelp("a", "arch")),
+				bubblesKey.NewBinding(bubblesKey.WithKeys("R"), bubblesKey.WithHelp("R", "refresh")),
+			}
 		}
 	case paneWorktree:
-		left = []helpAction{
-			{Key: "j/k", Label: "nav"},
-			{Key: "enter", Label: "select"},
-			{Key: "n", Label: "new"},
-			{Key: "e", Label: "edit"},
-			{Key: "d", Label: "el"},
-			{Key: "o", Label: "shell"},
-			{Key: "tab", Label: "cycle focus"},
-		}
-		compact = []helpAction{
-			{Key: "j/k", Label: "nav"},
-			{Key: "enter", Label: "select"},
-			{Key: "n", Label: "new"},
-			{Key: "e", Label: "edit"},
-			{Key: "d", Label: "del"},
+		if compact {
+			bindings = []bubblesKey.Binding{
+				bubblesKey.NewBinding(bubblesKey.WithKeys("j", "k"), bubblesKey.WithHelp("j/k", "nav")),
+				bubblesKey.NewBinding(bubblesKey.WithKeys("enter"), bubblesKey.WithHelp("enter", "select")),
+				bubblesKey.NewBinding(bubblesKey.WithKeys("n"), bubblesKey.WithHelp("n", "new")),
+				bubblesKey.NewBinding(bubblesKey.WithKeys("e"), bubblesKey.WithHelp("e", "edit")),
+				bubblesKey.NewBinding(bubblesKey.WithKeys("d"), bubblesKey.WithHelp("d", "del")),
+			}
+		} else {
+			bindings = []bubblesKey.Binding{
+				bubblesKey.NewBinding(bubblesKey.WithKeys("j", "k"), bubblesKey.WithHelp("j/k", "nav")),
+				bubblesKey.NewBinding(bubblesKey.WithKeys("enter"), bubblesKey.WithHelp("enter", "select")),
+				bubblesKey.NewBinding(bubblesKey.WithKeys("n"), bubblesKey.WithHelp("n", "new")),
+				bubblesKey.NewBinding(bubblesKey.WithKeys("e"), bubblesKey.WithHelp("e", "edit")),
+				bubblesKey.NewBinding(bubblesKey.WithKeys("d"), bubblesKey.WithHelp("d", "del")),
+				bubblesKey.NewBinding(bubblesKey.WithKeys("o"), bubblesKey.WithHelp("o", "shell")),
+				bubblesKey.NewBinding(bubblesKey.WithKeys("tab"), bubblesKey.WithHelp("tab", "cycle focus")),
+			}
 		}
 	case paneWorktreeDetail:
 		if dp, ok := m.activePage.pane(paneWorktreeDetail).(*worktreeDetailPane); ok {
-			leftText, compactText := dp.helpText()
-			left = []helpAction{{Key: leftText, Label: ""}}
-			compact = []helpAction{{Key: compactText, Label: ""}}
-		} else {
-			left = []helpAction{
-				{Key: "1-3", Label: "tabs"},
-				{Key: "j/k", Label: "nav"},
-				{Key: "enter", Label: "open"},
-				{Key: "tab", Label: "cycle focus"},
+			switch dp.activeTab {
+			case tabGit:
+				if compact {
+					bindings = []bubblesKey.Binding{
+						bubblesKey.NewBinding(bubblesKey.WithKeys("j", "k"), bubblesKey.WithHelp("j/k", "nav")),
+						bubblesKey.NewBinding(bubblesKey.WithKeys("space"), bubblesKey.WithHelp("space", "stage")),
+						bubblesKey.NewBinding(bubblesKey.WithKeys("d"), bubblesKey.WithHelp("d", "diff")),
+						bubblesKey.NewBinding(bubblesKey.WithKeys("c"), bubblesKey.WithHelp("c", "commit")),
+						bubblesKey.NewBinding(bubblesKey.WithKeys("f"), bubblesKey.WithHelp("f", "fetch")),
+					}
+				} else {
+					bindings = []bubblesKey.Binding{
+						bubblesKey.NewBinding(bubblesKey.WithKeys("j", "k"), bubblesKey.WithHelp("j/k", "nav")),
+						bubblesKey.NewBinding(bubblesKey.WithKeys("space"), bubblesKey.WithHelp("space", "stage")),
+						bubblesKey.NewBinding(bubblesKey.WithKeys("a"), bubblesKey.WithHelp("a", "all")),
+						bubblesKey.NewBinding(bubblesKey.WithKeys("d"), bubblesKey.WithHelp("d", "diff")),
+						bubblesKey.NewBinding(bubblesKey.WithKeys("enter"), bubblesKey.WithHelp("enter", "diff all")),
+						bubblesKey.NewBinding(bubblesKey.WithKeys("c"), bubblesKey.WithHelp("c", "commit")),
+						bubblesKey.NewBinding(bubblesKey.WithKeys("f"), bubblesKey.WithHelp("f", "fetch")),
+						bubblesKey.NewBinding(bubblesKey.WithKeys("p"), bubblesKey.WithHelp("p", "pull")),
+						bubblesKey.NewBinding(bubblesKey.WithKeys("P"), bubblesKey.WithHelp("P", "push")),
+						bubblesKey.NewBinding(bubblesKey.WithKeys("ctrl+d"), bubblesKey.WithHelp("ctrl+d", "discard")),
+						bubblesKey.NewBinding(bubblesKey.WithKeys("1", "2", "3"), bubblesKey.WithHelp("1-3", "tabs")),
+						bubblesKey.NewBinding(bubblesKey.WithKeys("tab"), bubblesKey.WithHelp("tab", "cycle focus")),
+					}
+				}
+			case tabFiles:
+				if compact {
+					bindings = []bubblesKey.Binding{
+						bubblesKey.NewBinding(bubblesKey.WithKeys("j", "k"), bubblesKey.WithHelp("j/k", "nav")),
+						bubblesKey.NewBinding(bubblesKey.WithKeys("o"), bubblesKey.WithHelp("o", "open")),
+						bubblesKey.NewBinding(bubblesKey.WithKeys("enter"), bubblesKey.WithHelp("enter", "dir")),
+						bubblesKey.NewBinding(bubblesKey.WithKeys("space"), bubblesKey.WithHelp("space", "fold")),
+					}
+				} else {
+					bindings = []bubblesKey.Binding{
+						bubblesKey.NewBinding(bubblesKey.WithKeys("j", "k"), bubblesKey.WithHelp("j/k", "nav")),
+						bubblesKey.NewBinding(bubblesKey.WithKeys("o", "v"), bubblesKey.WithHelp("o/v", "open")),
+						bubblesKey.NewBinding(bubblesKey.WithKeys("enter"), bubblesKey.WithHelp("enter", "open/dir")),
+						bubblesKey.NewBinding(bubblesKey.WithKeys("space"), bubblesKey.WithHelp("space", "fold")),
+						bubblesKey.NewBinding(bubblesKey.WithKeys("left", "right"), bubblesKey.WithHelp("←/→", "fold")),
+						bubblesKey.NewBinding(bubblesKey.WithKeys("1", "2", "3"), bubblesKey.WithHelp("1-3", "tabs")),
+						bubblesKey.NewBinding(bubblesKey.WithKeys("tab"), bubblesKey.WithHelp("tab", "cycle focus")),
+					}
+				}
+			default: // tabTasks
+				if compact {
+					bindings = []bubblesKey.Binding{
+						bubblesKey.NewBinding(bubblesKey.WithKeys("j", "k"), bubblesKey.WithHelp("j/k", "nav")),
+						bubblesKey.NewBinding(bubblesKey.WithKeys("enter", "e"), bubblesKey.WithHelp("enter/e", "edit")),
+						bubblesKey.NewBinding(bubblesKey.WithKeys("s"), bubblesKey.WithHelp("s", "agent")),
+					}
+				} else {
+					bindings = []bubblesKey.Binding{
+						bubblesKey.NewBinding(bubblesKey.WithKeys("j", "k"), bubblesKey.WithHelp("j/k", "nav")),
+						bubblesKey.NewBinding(bubblesKey.WithKeys("enter", "e"), bubblesKey.WithHelp("enter/e", "edit task")),
+						bubblesKey.NewBinding(bubblesKey.WithKeys("s"), bubblesKey.WithHelp("s", "start agent")),
+						bubblesKey.NewBinding(bubblesKey.WithKeys("1", "2", "3"), bubblesKey.WithHelp("1-3", "tabs")),
+						bubblesKey.NewBinding(bubblesKey.WithKeys("tab"), bubblesKey.WithHelp("tab", "cycle focus")),
+					}
+				}
 			}
-			compact = []helpAction{
-				{Key: "1-3", Label: "tabs"},
-				{Key: "j/k", Label: "nav"},
-				{Key: "enter", Label: "open"},
+		} else {
+			if compact {
+				bindings = []bubblesKey.Binding{
+					bubblesKey.NewBinding(bubblesKey.WithKeys("1", "2", "3"), bubblesKey.WithHelp("1-3", "tabs")),
+					bubblesKey.NewBinding(bubblesKey.WithKeys("j", "k"), bubblesKey.WithHelp("j/k", "nav")),
+					bubblesKey.NewBinding(bubblesKey.WithKeys("enter"), bubblesKey.WithHelp("enter", "open")),
+				}
+			} else {
+				bindings = []bubblesKey.Binding{
+					bubblesKey.NewBinding(bubblesKey.WithKeys("1", "2", "3"), bubblesKey.WithHelp("1-3", "tabs")),
+					bubblesKey.NewBinding(bubblesKey.WithKeys("j", "k"), bubblesKey.WithHelp("j/k", "nav")),
+					bubblesKey.NewBinding(bubblesKey.WithKeys("enter"), bubblesKey.WithHelp("enter", "open")),
+					bubblesKey.NewBinding(bubblesKey.WithKeys("tab"), bubblesKey.WithHelp("tab", "cycle focus")),
+				}
 			}
 		}
 	case paneShell:
 		switch m.activePage.paneMeta[m.activePage.focused].Status {
 		case models.PaneStatusExited:
-			left = []helpAction{
-				{Key: "tab", Label: "cycle focus"},
-				{Key: "enter", Label: "restart shell"},
-			}
-			compact = []helpAction{
-				{Key: "enter", Label: "restart"},
-				{Key: "q", Label: "quit"},
+			if compact {
+				bindings = []bubblesKey.Binding{
+					bubblesKey.NewBinding(bubblesKey.WithKeys("enter"), bubblesKey.WithHelp("enter", "restart")),
+					bubblesKey.NewBinding(bubblesKey.WithKeys("q"), bubblesKey.WithHelp("q", "quit")),
+				}
+			} else {
+				bindings = []bubblesKey.Binding{
+					bubblesKey.NewBinding(bubblesKey.WithKeys("tab"), bubblesKey.WithHelp("tab", "cycle focus")),
+					bubblesKey.NewBinding(bubblesKey.WithKeys("enter"), bubblesKey.WithHelp("enter", "restart shell")),
+				}
 			}
 		case models.PaneStatusStarting:
-			left = []helpAction{{Key: "shell starting", Label: ""}}
-			compact = []helpAction{{Key: "shell starting", Label: ""}}
-		default:
-			left = []helpAction{
-				{Key: "tab", Label: "cycle focus"},
-				{Key: "enter", Label: "shell"},
-				{Key: "alt+z", Label: "external"},
-				{Key: "ctrl+g", Label: "overview"},
+			return []bubblesKey.Binding{
+				bubblesKey.NewBinding(bubblesKey.WithKeys(""), bubblesKey.WithHelp("", "shell starting")),
 			}
-			compact = []helpAction{
-				{Key: "enter", Label: "shell"},
-				{Key: "alt+z", Label: "ext"},
-				{Key: "ctrl+g", Label: "overview"},
+		default:
+			if compact {
+				bindings = []bubblesKey.Binding{
+					bubblesKey.NewBinding(bubblesKey.WithKeys("enter"), bubblesKey.WithHelp("enter", "shell")),
+					bubblesKey.NewBinding(bubblesKey.WithKeys("alt+z"), bubblesKey.WithHelp("alt+z", "ext")),
+					bubblesKey.NewBinding(bubblesKey.WithKeys("ctrl+g"), bubblesKey.WithHelp("ctrl+g", "overview")),
+				}
+			} else {
+				bindings = []bubblesKey.Binding{
+					bubblesKey.NewBinding(bubblesKey.WithKeys("tab"), bubblesKey.WithHelp("tab", "cycle focus")),
+					bubblesKey.NewBinding(bubblesKey.WithKeys("enter"), bubblesKey.WithHelp("enter", "shell")),
+					bubblesKey.NewBinding(bubblesKey.WithKeys("alt+z"), bubblesKey.WithHelp("alt+z", "external")),
+					bubblesKey.NewBinding(bubblesKey.WithKeys("ctrl+g"), bubblesKey.WithHelp("ctrl+g", "overview")),
+				}
 			}
 		}
 	default:
+		focusedType := m.activePage.paneMeta[m.activePage.focused].Type
 		switch focusedType {
 		case models.PaneTypeEditor:
-			left = []helpAction{
-				{Key: "ctrl+s", Label: "save"},
-				{Key: "ctrl+f /", Label: "search"},
-				{Key: ":", Label: "line"},
-				{Key: "n/N", Label: "result"},
-				{Key: "esc", Label: "close"},
-			}
-			compact = []helpAction{
-				{Key: "ctrl+s", Label: "save"},
-				{Key: "/", Label: "search"},
-				{Key: ":", Label: "line"},
+			if compact {
+				bindings = []bubblesKey.Binding{
+					bubblesKey.NewBinding(bubblesKey.WithKeys("ctrl+s"), bubblesKey.WithHelp("ctrl+s", "save")),
+					bubblesKey.NewBinding(bubblesKey.WithKeys("/"), bubblesKey.WithHelp("/", "search")),
+					bubblesKey.NewBinding(bubblesKey.WithKeys(":"), bubblesKey.WithHelp(":", "line")),
+				}
+			} else {
+				bindings = []bubblesKey.Binding{
+					bubblesKey.NewBinding(bubblesKey.WithKeys("ctrl+s"), bubblesKey.WithHelp("ctrl+s", "save")),
+					bubblesKey.NewBinding(bubblesKey.WithKeys("ctrl+f", "/"), bubblesKey.WithHelp("ctrl+f /", "search")),
+					bubblesKey.NewBinding(bubblesKey.WithKeys(":"), bubblesKey.WithHelp(":", "line")),
+					bubblesKey.NewBinding(bubblesKey.WithKeys("n", "N"), bubblesKey.WithHelp("n/N", "result")),
+					bubblesKey.NewBinding(bubblesKey.WithKeys("esc"), bubblesKey.WithHelp("esc", "close")),
+				}
 			}
 		case models.PaneTypeDiffView:
-			left = []helpAction{
-				{Key: "enter", Label: "open file"},
-				{Key: "s", Label: "toggle staged"},
-				{Key: "[]/[]", Label: "files"},
-				{Key: "j/k", Label: "scroll"},
-				{Key: "wheel", Label: "scroll"},
-				{Key: "q/esc", Label: "close review"},
+			if compact {
+				bindings = []bubblesKey.Binding{
+					bubblesKey.NewBinding(bubblesKey.WithKeys("enter"), bubblesKey.WithHelp("enter", "open")),
+					bubblesKey.NewBinding(bubblesKey.WithKeys("s"), bubblesKey.WithHelp("s", "toggle")),
+					bubblesKey.NewBinding(bubblesKey.WithKeys("wheel"), bubblesKey.WithHelp("wheel", "scroll")),
+				}
+			} else {
+				bindings = []bubblesKey.Binding{
+					bubblesKey.NewBinding(bubblesKey.WithKeys("enter"), bubblesKey.WithHelp("enter", "open file")),
+					bubblesKey.NewBinding(bubblesKey.WithKeys("s"), bubblesKey.WithHelp("s", "toggle staged")),
+					bubblesKey.NewBinding(bubblesKey.WithKeys("[", "]"), bubblesKey.WithHelp("[]/[]", "files")),
+					bubblesKey.NewBinding(bubblesKey.WithKeys("j", "k"), bubblesKey.WithHelp("j/k", "scroll")),
+					bubblesKey.NewBinding(bubblesKey.WithKeys("wheel"), bubblesKey.WithHelp("wheel", "scroll")),
+					bubblesKey.NewBinding(bubblesKey.WithKeys("q", "esc"), bubblesKey.WithHelp("q/esc", "close review")),
+				}
 			}
-			compact = []helpAction{
-				{Key: "enter", Label: "open"},
-				{Key: "s", Label: "toggle"},
-				{Key: "wheel", Label: "scroll"},
+		default:
+			if compact {
+				bindings = []bubblesKey.Binding{
+					bubblesKey.NewBinding(bubblesKey.WithKeys("tab"), bubblesKey.WithHelp("tab", "cycle")),
+					bubblesKey.NewBinding(bubblesKey.WithKeys("enter"), bubblesKey.WithHelp("enter", "open")),
+					bubblesKey.NewBinding(bubblesKey.WithKeys("q"), bubblesKey.WithHelp("q", "quit")),
+				}
+			} else {
+				bindings = []bubblesKey.Binding{
+					bubblesKey.NewBinding(bubblesKey.WithKeys("tab"), bubblesKey.WithHelp("tab", "cycle focus")),
+					bubblesKey.NewBinding(bubblesKey.WithKeys("enter"), bubblesKey.WithHelp("enter", "activate")),
+				}
 			}
 		}
 	}
-	if w < simplifiedHelpMaxWidth {
-		return renderCompactHelpLine(helpStyle, joinHelpActions(compact), w)
+
+	if !compact {
+		bindings = append(bindings,
+			bubblesKey.NewBinding(bubblesKey.WithKeys("w"), bubblesKey.WithHelp("w", "weather")),
+			bubblesKey.NewBinding(bubblesKey.WithKeys("ctrl+r"), bubblesKey.WithHelp("ctrl+r", "refresh")),
+			bubblesKey.NewBinding(bubblesKey.WithKeys("q"), bubblesKey.WithHelp("q", "quit")),
+		)
 	}
-	right := "[w]eather  [ctrl+r]refresh  [q]uit"
-	return renderHelpBar(helpStyle, joinHelpActions(left), right, w)
+	return bindings
 }
-func renderHelpBar(helpStyle lipgloss.Style, left, right string, w int) string {
+
+func (m model) renderHelpLine(w int) string {
 	if w <= 0 {
 		return ""
 	}
-	if w <= 2 {
-		return helpStyle.Render(strings.Repeat(" ", w))
+	compact := w < simplifiedHelpMaxWidth
+	bindings := helpBindingsForState(m, compact)
+	if len(bindings) == 0 {
+		return ""
 	}
-	leftRendered := helpStyle.Render("  " + left)
-	rightRendered := helpStyle.Render(right + "  ")
-	if lipgloss.Width(leftRendered)+lipgloss.Width(rightRendered) >= w {
-		compact := truncateToWidth(left+"  "+right, w-2)
-		return helpStyle.Render("  " + compact)
-	}
-	gap := w - lipgloss.Width(leftRendered) - lipgloss.Width(rightRendered)
-	if gap < 1 {
-		gap = 1
-	}
-	return leftRendered + strings.Repeat(" ", gap) + rightRendered
+	m.helpModel.SetWidth(w)
+	return m.helpModel.View(staticKeyMap(bindings))
 }
 
 func truncateToWidth(text string, width int) string {
@@ -3220,49 +3358,6 @@ func truncateToWidth(text string, width int) string {
 		return "…"
 	}
 	return ansi.Truncate(text, width, "…")
-}
-
-type helpAction struct {
-	Key   string
-	Label string
-}
-
-func joinHelpActions(actions []helpAction) string {
-	if len(actions) == 0 {
-		return ""
-	}
-	parts := make([]string, 0, len(actions))
-	for _, a := range actions {
-		key := strings.TrimSpace(a.Key)
-		label := strings.TrimSpace(a.Label)
-		if key == "" && label == "" {
-			continue
-		}
-		if label == "" {
-			if strings.Contains(key, "[") {
-				parts = append(parts, key)
-				continue
-			}
-			parts = append(parts, "["+key+"]")
-			continue
-		}
-		parts = append(parts, "["+key+"]"+label)
-	}
-	return strings.Join(parts, "  ")
-}
-
-func renderCompactHelpLine(helpStyle lipgloss.Style, text string, w int) string {
-	if w <= 0 {
-		return ""
-	}
-	if w <= 2 {
-		return helpStyle.Render(strings.Repeat(" ", w))
-	}
-	content := text
-	if ansi.StringWidth(content) > w-2 {
-		content = ansi.Truncate(content, w-2, "")
-	}
-	return helpStyle.Render("  " + content)
 }
 
 func footerVisible(h int) bool {

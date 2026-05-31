@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -12,7 +13,7 @@ import (
 
 	"focus/internal/x/vt"
 	"focus/internal/x/xpty"
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 const shellRefreshInterval = 100 * time.Millisecond
@@ -202,7 +203,7 @@ func (m *Model) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 		m.viewDirty = true
 		return m, nil
 
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		if m.exited {
 			m.exited = false
 			m.running = false
@@ -212,12 +213,18 @@ func (m *Model) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 		}
 		// Alt+z opens an external terminal for the current worktree so TUI tests
 		// can run with a full-size terminal instead of the small embedded pane.
-		if msg.Type == tea.KeyRunes && msg.Alt && len(msg.Runes) == 1 && msg.Runes[0] == 'z' {
+		if msg.Keystroke() == "alt+z" {
 			return m, func() tea.Msg {
 				return OpenExternalShellMsg{PaneID: m.id, CWD: m.cwd}
 			}
 		}
 		m.forwardKey(msg)
+		return m, nil
+
+	case tea.PasteMsg:
+		if m.pty != nil {
+			m.pty.Write([]byte("\x1b[200~" + msg.Content + "\x1b[201~")) //nolint:errcheck
+		}
 		return m, nil
 
 	case tea.MouseMsg:
@@ -231,117 +238,116 @@ func (m *Model) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 }
 
 // forwardKey writes raw bytes directly to the PTY, bypassing the vt emulator's
-// internal pipe. We translate tea.KeyMsg → raw ANSI escape sequences and write
+// internal pipe. We translate tea.KeyPressMsg → raw ANSI escape sequences and write
 // them straight to the PTY master fd.
-func (m *Model) forwardKey(msg tea.KeyMsg) {
+func (m *Model) forwardKey(msg tea.KeyPressMsg) {
 	if m.pty == nil {
 		return
 	}
 
 	var seq string
+	ks := msg.String()
+	isAlt := strings.HasPrefix(ks, "alt+")
+	if isAlt {
+		ks = strings.TrimPrefix(ks, "alt+")
+	}
 
-	switch msg.Type {
-	case tea.KeyRunes:
-		s := string(msg.Runes)
-		if msg.Paste {
-			seq = "\x1b[200~" + s + "\x1b[201~"
-		} else if msg.Alt {
-			seq = "\x1b" + s
-		} else {
-			seq = s
-		}
-
-	case tea.KeyEnter:
+	switch ks {
+	case "enter":
 		seq = "\r"
-	case tea.KeyTab:
+	case "tab":
 		seq = "\t"
-	case tea.KeyBackspace:
+	case "backspace":
 		seq = "\x7f"
-	case tea.KeyEscape:
+	case "esc":
 		seq = "\x1b"
-	case tea.KeySpace:
-		if msg.Alt {
+	case "space":
+		if isAlt {
 			seq = "\x1b "
 		} else {
 			seq = " "
 		}
 
-	case tea.KeyUp:
-		if msg.Alt {
+	case "up":
+		if isAlt {
 			seq = "\x1b[1;3A"
 		} else {
 			seq = "\x1b[A"
 		}
-	case tea.KeyDown:
-		if msg.Alt {
+	case "down":
+		if isAlt {
 			seq = "\x1b[1;3B"
 		} else {
 			seq = "\x1b[B"
 		}
-	case tea.KeyRight:
-		if msg.Alt {
+	case "right":
+		if isAlt {
 			seq = "\x1b[1;3C"
 		} else {
 			seq = "\x1b[C"
 		}
-	case tea.KeyLeft:
-		if msg.Alt {
+	case "left":
+		if isAlt {
 			seq = "\x1b[1;3D"
 		} else {
 			seq = "\x1b[D"
 		}
-	case tea.KeyHome:
-		if msg.Alt {
+	case "home":
+		if isAlt {
 			seq = "\x1b[1;3H"
 		} else {
 			seq = "\x1b[H"
 		}
-	case tea.KeyEnd:
-		if msg.Alt {
+	case "end":
+		if isAlt {
 			seq = "\x1b[1;3F"
 		} else {
 			seq = "\x1b[F"
 		}
-	case tea.KeyPgUp:
+	case "pgup":
 		seq = "\x1b[5~"
-	case tea.KeyPgDown:
+	case "pgdown":
 		seq = "\x1b[6~"
-	case tea.KeyDelete:
+	case "delete":
 		seq = "\x1b[3~"
-	case tea.KeyInsert:
+	case "insert":
 		seq = "\x1b[2~"
-	case tea.KeyShiftTab:
+	case "shift+tab":
 		seq = "\x1b[Z"
 
-	case tea.KeyF1:
+	case "f1":
 		seq = "\x1bOP"
-	case tea.KeyF2:
+	case "f2":
 		seq = "\x1bOQ"
-	case tea.KeyF3:
+	case "f3":
 		seq = "\x1bOR"
-	case tea.KeyF4:
+	case "f4":
 		seq = "\x1bOS"
-	case tea.KeyF5:
+	case "f5":
 		seq = "\x1b[15~"
-	case tea.KeyF6:
+	case "f6":
 		seq = "\x1b[17~"
-	case tea.KeyF7:
+	case "f7":
 		seq = "\x1b[18~"
-	case tea.KeyF8:
+	case "f8":
 		seq = "\x1b[19~"
-	case tea.KeyF9:
+	case "f9":
 		seq = "\x1b[20~"
-	case tea.KeyF10:
+	case "f10":
 		seq = "\x1b[21~"
-	case tea.KeyF11:
+	case "f11":
 		seq = "\x1b[23~"
-	case tea.KeyF12:
+	case "f12":
 		seq = "\x1b[24~"
 
 	default:
-		// Ctrl+letter keys: tea.KeyCtrlA (=1) through tea.KeyCtrlZ (=26).
-		if msg.Type >= tea.KeyCtrlA && msg.Type <= tea.KeyCtrlZ {
-			seq = string(rune(msg.Type))
+		// Ctrl+letter keys.
+		if len(ks) == 6 && strings.HasPrefix(ks, "ctrl+") && ks[5] >= 'a' && ks[5] <= 'z' {
+			seq = string(rune(ks[5]-'a'+1))
+		} else if isAlt && len(ks) == 1 {
+			seq = "\x1b" + ks
+		} else if len(ks) == 1 {
+			seq = ks
 		}
 	}
 
@@ -359,19 +365,19 @@ func (m *Model) forwardMouse(msg tea.MouseMsg) {
 		return
 	}
 
-	e := tea.MouseEvent(msg)
+	e := msg.Mouse()
 
 	// When the inner app has NOT enabled mouse reporting, use wheel events for
 	// scrollback navigation rather than forwarding them as garbage bytes.
 	if !m.vterm.IsMouseReporting() {
 		switch e.Button {
-		case tea.MouseButtonWheelUp:
+		case tea.MouseWheelUp:
 			m.scrollOffset += 3
 			if max := m.vterm.ScrollbackLen(); m.scrollOffset > max {
 				m.scrollOffset = max
 			}
 			m.viewDirty = true
-		case tea.MouseButtonWheelDown:
+		case tea.MouseWheelDown:
 			m.scrollOffset -= 3
 			if m.scrollOffset < 0 {
 				m.scrollOffset = 0
@@ -385,45 +391,43 @@ func (m *Model) forwardMouse(msg tea.MouseMsg) {
 	// Format: ESC [ < Cb ; Cx ; Cy M/m
 	var cb int
 	switch e.Button {
-	case tea.MouseButtonLeft:
+	case tea.MouseLeft:
 		cb = 0
-	case tea.MouseButtonMiddle:
+	case tea.MouseMiddle:
 		cb = 1
-	case tea.MouseButtonRight:
+	case tea.MouseRight:
 		cb = 2
-	case tea.MouseButtonWheelUp:
+	case tea.MouseWheelUp:
 		cb = 64
-	case tea.MouseButtonWheelDown:
+	case tea.MouseWheelDown:
 		cb = 65
-	case tea.MouseButtonWheelLeft:
+	case tea.MouseWheelLeft:
 		cb = 66
-	case tea.MouseButtonWheelRight:
+	case tea.MouseWheelRight:
 		cb = 67
-	case tea.MouseButtonBackward:
+	case 8:
 		cb = 128
-	case tea.MouseButtonForward:
+	case 9:
 		cb = 129
-	case tea.MouseButtonNone:
-		cb = 3
 	default:
 		return
 	}
 
-	if e.Shift {
+	if e.Mod.Contains(tea.ModShift) {
 		cb |= 4
 	}
-	if e.Alt {
+	if e.Mod.Contains(tea.ModAlt) {
 		cb |= 8
 	}
-	if e.Ctrl {
+	if e.Mod.Contains(tea.ModCtrl) {
 		cb |= 16
 	}
-	if e.Action == tea.MouseActionMotion {
+	if _, ok := msg.(tea.MouseMotionMsg); ok {
 		cb |= 32
 	}
 
 	suffix := "M"
-	if e.Action == tea.MouseActionRelease {
+	if _, ok := msg.(tea.MouseReleaseMsg); ok {
 		suffix = "m"
 	}
 	seq := fmt.Sprintf("\x1b[<%d;%d;%d%s", cb, e.X+1, e.Y+1, suffix)
@@ -460,12 +464,12 @@ func (m *Model) SessionStatus() models.PaneStatus {
 }
 
 // View implements models.Panel.
-func (m *Model) View() string {
+func (m *Model) View() tea.View {
 	if m.vterm == nil {
-		return "Starting shell..."
+		return tea.NewView("Starting shell...")
 	}
 	if m.exited {
-		return "Shell exited. Press any key to restart."
+		return tea.NewView("Shell exited. Press any key to restart.")
 	}
 	if m.viewDirty || m.cachedView == "" {
 		if m.scrollOffset > 0 {
@@ -475,7 +479,7 @@ func (m *Model) View() string {
 		}
 		m.viewDirty = false
 	}
-	return m.cachedView
+	return tea.NewView(m.cachedView)
 }
 
 // SetSize implements models.Panel.

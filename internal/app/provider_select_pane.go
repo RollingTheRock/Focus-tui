@@ -9,8 +9,8 @@ import (
 	"focus/internal/models"
 	appstyles "focus/internal/styles"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 // CloseProviderSelectMsg closes the provider selection overlay.
@@ -67,12 +67,11 @@ func (p *providerSelectPane) Init() tea.Cmd {
 
 func (p *providerSelectPane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		switch msg.String() {
+	case tea.KeyPressMsg:
+		switch msg.Keystroke() {
 		case "esc":
 			return p, func() tea.Msg {
-				return CloseProviderSelectMsg{ID: p.id}
-			}
+				return CloseProviderSelectMsg{ID: p.id}}
 		case "j", "down":
 			if p.cursor < len(p.options)-1 {
 				p.cursor++
@@ -100,7 +99,7 @@ func (p *providerSelectPane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 	return p, nil
 }
 
-func (p *providerSelectPane) View() string {
+func (p *providerSelectPane) View() tea.View {
 	width := p.width
 	if width <= 0 {
 		width = 56
@@ -166,7 +165,7 @@ func (p *providerSelectPane) View() string {
 	if p.height > 0 && len(lines) > p.height {
 		lines = lines[:p.height]
 	}
-	return strings.Join(lines, "\n")
+	return tea.NewView(strings.Join(lines, "\n"))
 }
 
 func (p *providerSelectPane) SetSize(width, height int) {

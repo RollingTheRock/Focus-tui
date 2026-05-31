@@ -11,9 +11,8 @@ import (
 	"focus/internal/models"
 	appstyles "focus/internal/styles"
 
-	"github.com/charmbracelet/bubbles/textinput"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/huh/v2"
+	tea "charm.land/bubbletea/v2"
 )
 
 type OpenCreateWorktreeMsg struct {
@@ -53,23 +52,17 @@ type WorktreeCreatePane struct {
 	repoPath     string
 	width        int
 	height       int
-	inputs       []textinput.Model
-	focus        int
+	editForm     *huh.Form
+	formValues   struct {
+		task, branch, baseRef, path string
+	}
 	err          error
 	creating     bool
-	pathAuto     bool
 	openExternal bool
 	taskName     string
 	taskID       string
 	isPhase      bool
 }
-
-const (
-	createWorktreeFieldTask = iota
-	createWorktreeFieldBranch
-	createWorktreeFieldBaseRef
-	createWorktreeFieldPath
-)
 
 var worktreeSlugRE = regexp.MustCompile(`[^a-zA-Z0-9._-]+`)
 
@@ -86,48 +79,56 @@ func NewWorktreeCreatePane(id models.PaneID, meta models.PaneMeta, common models
 		baseRef = "HEAD"
 	}
 
-	taskInput := textinput.New()
-	taskInput.Prompt = "Task (optional): "
-	taskInput.Placeholder = "What are you working on?"
-	if msg.TaskTitle != "" {
-		taskInput.SetValue(msg.TaskTitle)
-	}
-
-	branchInput := textinput.New()
-	branchInput.Prompt = "Branch: "
-	branchInput.Placeholder = "feature/worktree-pane"
-
-	baseRefInput := textinput.New()
-	baseRefInput.Prompt = "Base ref: "
-	baseRefInput.Placeholder = "HEAD"
-	baseRefInput.SetValue(baseRef)
-
-	pathInput := textinput.New()
-	pathInput.Prompt = "Path: "
-	defaultPath := defaultWorktreePath(repoPath, branchInput.Value())
-	pathInput.Placeholder = defaultPath
-	pathInput.SetValue(defaultPath)
-
-	inputs := []textinput.Model{taskInput, branchInput, baseRefInput, pathInput}
-	applyCreateInputStyles(inputs)
-	inputs[0].Focus()
-
-	return &WorktreeCreatePane{
+	p := &WorktreeCreatePane{
 		id:           id,
 		meta:         meta,
 		common:       common,
 		adapter:      adapter,
 		repoPath:     repoPath,
-		inputs:       inputs,
-		pathAuto:     true,
 		openExternal: true,
 		taskID:       msg.TaskID,
 		isPhase:      msg.IsPhase,
 	}
+	p.formValues.task = msg.TaskTitle
+	p.formValues.branch = ""
+	p.formValues.baseRef = baseRef
+	p.formValues.path = defaultWorktreePath(repoPath, "")
+
+	km := huh.NewDefaultKeyMap()
+	km.Quit.SetEnabled(false)
+
+	p.editForm = huh.NewForm(
+		huh.NewGroup(
+			huh.NewInput().
+				Key("task").
+				Title("Task (optional)").
+				Placeholder("What are you working on?").
+				Value(&p.formValues.task),
+			huh.NewInput().
+				Key("branch").
+				Title("Branch").
+				Placeholder("feature/worktree-pane").
+				Value(&p.formValues.branch).
+				Validate(huh.ValidateNotEmpty()),
+			huh.NewInput().
+				Key("baseRef").
+				Title("Base ref").
+				Placeholder("HEAD").
+				Value(&p.formValues.baseRef),
+			huh.NewInput().
+				Key("path").
+				Title("Path").
+				Placeholder(defaultWorktreePath(repoPath, "")).
+				Value(&p.formValues.path).
+				Validate(huh.ValidateNotEmpty()),
+		),
+	).WithKeyMap(km)
+
+	return p
 }
 
 func (p *WorktreeCreatePane) Init() tea.Cmd {
-	return textinput.Blink
+	return p.editForm.Init()
 }
 
 func (p *WorktreeCreatePane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
@@ -146,25 +147,13 @@ func (p *WorktreeCreatePane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 		return p, func() tea.Msg {
 			return WorktreeCreatedMsg{ID: p.id, Worktree: *msg.worktree, OpenExternal: p.openExternal, TaskTitle: p.taskName, TaskID: p.taskID, IsPhase: p.isPhase}
 		}
-	case tea.KeyMsg:
-		switch msg.String() {
+	case tea.KeyPressMsg:
+		switch msg.Keystroke() {
 		case "esc":
 			if p.creating {
 				return p, nil
 			}
 			return p, closeCreateWorktreeCmd(p.id)
-		case "tab":
-			p.moveFocus(1)
-			return p, nil
-		case "shift+tab":
-			p.moveFocus(-1)
-			return p, nil
-		case "enter":
-			if p.focus == createWorktreeFieldPath {
-				return p.submit()
-			}
-			p.moveFocus(1)
-			return p, nil
 		case "ctrl+s":
 			return p.submit()
 		case "ctrl+t":
@@ -173,21 +162,21 @@ func (p *WorktreeCreatePane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 		}
 	}
 
-	var cmd tea.Cmd
-	for i := range p.inputs {
-		p.inputs[i], cmd = p.inputs[i].Update(msg)
+	if p.editForm == nil {
+		return p, nil
 	}
-	if p.pathAuto {
-		defaultPath := defaultWorktreePath(p.repoPath, p.inputs[createWorktreeFieldBranch].Value())
-		p.inputs[createWorktreeFieldPath].SetValue(defaultPath)
+
+	m, cmd := p.editForm.Update(msg)
+	if f, ok := m.(*huh.Form); ok {
+		p.editForm = f
 	}
-	pathValue := strings.TrimSpace(p.inputs[createWorktreeFieldPath].Value())
-	defaultPath := defaultWorktreePath(p.repoPath, p.inputs[createWorktreeFieldBranch].Value())
-	p.pathAuto = pathValue == "" || pathValue == defaultPath
+	if p.editForm.State == huh.StateCompleted {
+		return p.submit()
+	}
 	return p, cmd
 }
 
-func (p *WorktreeCreatePane) View() string {
+func (p *WorktreeCreatePane) View() tea.View {
 	width := p.width
 	if width <= 0 {
 		width = 72
@@ -201,13 +190,12 @@ func (p *WorktreeCreatePane) View() string {
 		commitHeaderStyle.Render("Create Worktree"),
 		upstreamStyle.Render("Create a branch-backed worktree from the current repository."),
 		"",
-		p.inputs[createWorktreeFieldTask].View(),
-		p.inputs[createWorktreeFieldBranch].View(),
-		p.inputs[createWorktreeFieldBaseRef].View(),
-		p.inputs[createWorktreeFieldPath].View(),
-		"",
-		commitHintStyle.Render("Tab move · Enter next/submit · Ctrl+S create · Ctrl+T " + modeHint + " · Esc cancel"),
 	}
+	if p.editForm != nil {
+		lines = append(lines, p.editForm.View())
+	}
+	lines = append(lines, "")
+	lines = append(lines, commitHintStyle.Render("Tab move · Enter next/submit · Ctrl+S create · Ctrl+T "+modeHint+" · Esc cancel"))
 	if p.creating {
 		lines = append(lines, upstreamStyle.Render("Creating worktree..."))
 	}
@@ -221,29 +209,14 @@ func (p *WorktreeCreatePane) View() string {
 	for i := range lines {
 		lines[i] = appstyles.StyleCache.MaxWidth(width).Render(lines[i])
 	}
-	return strings.Join(lines, "\n")
+	return tea.NewView(strings.Join(lines, "\n"))
 }
 
 func (p *WorktreeCreatePane) SetSize(width, height int) {
 	p.width = width
 	p.height = height
-	inputWidth := width - 6
-	if inputWidth < 24 {
-		inputWidth = 24
-	}
-	for i := range p.inputs {
-		p.inputs[i].Width = inputWidth
-	}
-}
-
-func (p *WorktreeCreatePane) moveFocus(delta int) {
-	p.focus = (p.focus + delta + len(p.inputs)) % len(p.inputs)
-	for i := range p.inputs {
-		if i == p.focus {
-			p.inputs[i].Focus()
-		} else {
-			p.inputs[i].Blur()
-		}
+	if p.editForm != nil {
+		p.editForm.WithWidth(width)
 	}
 }
 
@@ -251,17 +224,16 @@ func (p *WorktreeCreatePane) submit() (models.Panel, tea.Cmd) {
 	if p.creating {
 		return p, nil
 	}
-	p.taskName = strings.TrimSpace(p.inputs[createWorktreeFieldTask].Value())
-	branch := strings.TrimSpace(p.inputs[createWorktreeFieldBranch].Value())
-	baseRef := strings.TrimSpace(p.inputs[createWorktreeFieldBaseRef].Value())
-	path := strings.TrimSpace(p.inputs[createWorktreeFieldPath].Value())
+	p.taskName = strings.TrimSpace(p.formValues.task)
+	branch := strings.TrimSpace(p.formValues.branch)
+	baseRef := strings.TrimSpace(p.formValues.baseRef)
+	path := strings.TrimSpace(p.formValues.path)
 	if branch == "" {
 		p.err = errors.New("branch name cannot be empty")
 		return p, nil
 	}
 	if path == "" {
-		p.err = errors.New("worktree path cannot be empty")
-		return p, nil
+		path = defaultWorktreePath(p.repoPath, branch)
 	}
 	if baseRef == "" {
 		baseRef = "HEAD"
@@ -297,12 +269,4 @@ func slugifyWorktreeBranch(branch string) string {
 	branch = worktreeSlugRE.ReplaceAllString(branch, "-")
 	branch = strings.Trim(branch, "-._")
 	return branch
-}
-
-func applyCreateInputStyles(inputs []textinput.Model) {
-	for i := range inputs {
-		inputs[i].PromptStyle = lipgloss.NewStyle().Foreground(appstyles.Accent)
-		inputs[i].TextStyle = lipgloss.NewStyle().Foreground(appstyles.Text)
-		inputs[i].PlaceholderStyle = lipgloss.NewStyle().Foreground(appstyles.Subtle)
-	}
 }

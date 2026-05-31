@@ -9,7 +9,8 @@ import (
 
 	"focus/internal/models"
 
-	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
+	tea "charm.land/bubbletea/v2"
 )
 
 func TestPluginCreatePaneReturnsEditorPane(t *testing.T) {
@@ -37,7 +38,7 @@ func TestEditorPaneLoadsAndSavesFile(t *testing.T) {
 
 	pane.input.SetValue("package main\n\nfunc main() {}\n")
 	pane.dirty = true
-	updated, cmd := pane.Update(tea.KeyMsg{Type: tea.KeyCtrlS})
+	updated, cmd := pane.Update(tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl, Text: "s"})
 	pane = updated.(*EditorPane)
 	if cmd == nil {
 		t.Fatalf("expected save command")
@@ -65,7 +66,7 @@ func TestEditorPaneEscRequiresConfirmationWhenDirty(t *testing.T) {
 	pane.input.SetValue("package main\n\nfunc main() {}\n")
 	pane.dirty = true
 
-	updated, cmd := pane.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	updated, cmd := pane.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
 	pane = updated.(*EditorPane)
 	if cmd != nil {
 		t.Fatalf("expected no close command before confirmation")
@@ -74,7 +75,7 @@ func TestEditorPaneEscRequiresConfirmationWhenDirty(t *testing.T) {
 		t.Fatalf("expected confirmClose to be enabled")
 	}
 
-	updated, cmd = pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+	updated, cmd = pane.Update(tea.KeyPressMsg{Code: 'n', Text: "n"})
 	pane = updated.(*EditorPane)
 	if cmd != nil {
 		t.Fatalf("expected no close command when declining close")
@@ -89,8 +90,8 @@ func TestEditorPaneViewShowsShortcutHint(t *testing.T) {
 	pane.SetSize(80, 16)
 	view := pane.View()
 	for _, want := range []string{"main.go", "Ctrl+S save", "Esc close"} {
-		if !strings.Contains(view, want) {
-			t.Fatalf("expected view to contain %q, got:\n%s", want, view)
+		if !strings.Contains(ansi.Strip(view.Content), want) {
+			t.Fatalf("expected view to contain %q, got:\n%s", want, view.Content)
 		}
 	}
 }
@@ -190,7 +191,7 @@ func TestEditorPaneUsesReadOnlyPreviewForLargeFiles(t *testing.T) {
 	if !strings.Contains(pane.previewContent, "[preview truncated]") {
 		t.Fatalf("expected preview truncation marker, got %q", pane.previewContent)
 	}
-	updated, cmd := pane.Update(tea.KeyMsg{Type: tea.KeyCtrlS})
+	updated, cmd := pane.Update(tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl, Text: "s"})
 	pane = updated.(*EditorPane)
 	if cmd != nil {
 		t.Fatalf("expected no save command for read-only preview")
@@ -198,8 +199,8 @@ func TestEditorPaneUsesReadOnlyPreviewForLargeFiles(t *testing.T) {
 	if pane.notice != "preview mode is read-only" {
 		t.Fatalf("expected read-only notice, got %q", pane.notice)
 	}
-	if view := pane.View(); !strings.Contains(view, "read-only preview") {
-		t.Fatalf("expected view to show read-only status, got:\n%s", view)
+	if view := pane.View(); !strings.Contains(ansi.Strip(view.Content), "read-only preview") {
+		t.Fatalf("expected view to show read-only status, got:\n%s", view.Content)
 	}
 }
 
@@ -223,8 +224,8 @@ func TestEditorPaneUsesBinaryPreviewForBinaryFiles(t *testing.T) {
 	if !strings.Contains(pane.previewContent, "0000:") {
 		t.Fatalf("expected hex preview output, got %q", pane.previewContent)
 	}
-	if view := pane.View(); !strings.Contains(view, "Binary file preview") {
-		t.Fatalf("expected binary preview text in view, got:\n%s", view)
+	if view := pane.View(); !strings.Contains(ansi.Strip(view.Content), "Binary file preview") {
+		t.Fatalf("expected binary preview text in view, got:\n%s", view.Content)
 	}
 }
 
@@ -237,16 +238,16 @@ func TestEditorPanePreviewScrollsWithJK(t *testing.T) {
 	pane.previewLines = splitPreviewLines(pane.previewContent)
 	pane.SetSize(80, 8)
 
-	updated, _ := pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	updated, _ := pane.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
 	pane = updated.(*EditorPane)
 	if pane.previewScroll != 1 {
 		t.Fatalf("expected preview scroll 1, got %d", pane.previewScroll)
 	}
-	if view := pane.View(); !strings.Contains(view, "line2") {
-		t.Fatalf("expected scrolled view to contain line2, got:\n%s", view)
+	if view := pane.View(); !strings.Contains(ansi.Strip(view.Content), "line2") {
+		t.Fatalf("expected scrolled view to contain line2, got:\n%s", view.Content)
 	}
 
-	updated, _ = pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'k'}})
+	updated, _ = pane.Update(tea.KeyPressMsg{Code: 'k', Text: "k"})
 	pane = updated.(*EditorPane)
 	if pane.previewScroll != 0 {
 		t.Fatalf("expected preview scroll 0 after scrolling back, got %d", pane.previewScroll)
@@ -259,14 +260,14 @@ func TestEditorPaneSearchFindsNextMatch(t *testing.T) {
 	updated, _ := pane.Update(editorLoadedMsg{content: "alpha\nbeta\nalpha again\n"})
 	pane = updated.(*EditorPane)
 
-	updated, cmd := pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	updated, cmd := pane.Update(tea.KeyPressMsg{Code: '/', Text: "/"})
 	pane = updated.(*EditorPane)
 	if cmd == nil {
 		t.Fatalf("expected focus command for search mode")
 	}
-	updated, _ = pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a', 'l', 'p', 'h', 'a'}})
+	updated, _ = pane.Update(tea.KeyPressMsg{Code: 'a', Text: "alpha"})
 	pane = updated.(*EditorPane)
-	updated, _ = pane.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ = pane.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	pane = updated.(*EditorPane)
 
 	if !strings.Contains(pane.notice, "match 1/2") {
@@ -276,7 +277,7 @@ func TestEditorPaneSearchFindsNextMatch(t *testing.T) {
 		t.Fatalf("expected first match on line 0, got %d", pane.input.Line())
 	}
 
-	updated, _ = pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+	updated, _ = pane.Update(tea.KeyPressMsg{Code: 'n', Text: "n"})
 	pane = updated.(*EditorPane)
 	if !strings.Contains(pane.notice, "match 2/2") {
 		t.Fatalf("expected second match notice, got %q", pane.notice)
@@ -284,8 +285,8 @@ func TestEditorPaneSearchFindsNextMatch(t *testing.T) {
 	if pane.input.Line() != 2 {
 		t.Fatalf("expected second match on line 2, got %d", pane.input.Line())
 	}
-	if view := pane.View(); !strings.Contains(view, "search \"alpha\" · 2/2") {
-		t.Fatalf("expected persistent search status in view, got:\n%s", view)
+	if view := pane.View(); !strings.Contains(ansi.Strip(view.Content), "search \"alpha\" · 2/2") {
+		t.Fatalf("expected persistent search status in view, got:\n%s", view.Content)
 	}
 }
 
@@ -295,14 +296,14 @@ func TestEditorPaneJumpToLineMovesCursor(t *testing.T) {
 	updated, _ := pane.Update(editorLoadedMsg{content: "one\ntwo\nthree\nfour\n"})
 	pane = updated.(*EditorPane)
 
-	updated, cmd := pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{':'}})
+	updated, cmd := pane.Update(tea.KeyPressMsg{Code: ':', Text: ":"})
 	pane = updated.(*EditorPane)
 	if cmd == nil {
 		t.Fatalf("expected focus command for jump mode")
 	}
-	updated, _ = pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'3'}})
+	updated, _ = pane.Update(tea.KeyPressMsg{Code: '3', Text: "3"})
 	pane = updated.(*EditorPane)
-	updated, _ = pane.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ = pane.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	pane = updated.(*EditorPane)
 
 	if pane.input.Line() != 2 {
@@ -322,11 +323,11 @@ func TestEditorPanePreviewSearchMovesScrollToMatch(t *testing.T) {
 	pane.previewLines = splitPreviewLines(pane.previewContent)
 	pane.SetSize(80, 8)
 
-	updated, _ := pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	updated, _ := pane.Update(tea.KeyPressMsg{Code: '/', Text: "/"})
 	pane = updated.(*EditorPane)
-	updated, _ = pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n', 'e', 'e', 'd', 'l', 'e'}})
+	updated, _ = pane.Update(tea.KeyPressMsg{Code: 'n', Text: "needle"})
 	pane = updated.(*EditorPane)
-	updated, _ = pane.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ = pane.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	pane = updated.(*EditorPane)
 
 	if !strings.Contains(pane.notice, "match 1/2") {
@@ -336,13 +337,13 @@ func TestEditorPanePreviewSearchMovesScrollToMatch(t *testing.T) {
 		t.Fatalf("expected preview scroll to first match line, got %d", pane.previewScroll)
 	}
 
-	updated, _ = pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+	updated, _ = pane.Update(tea.KeyPressMsg{Code: 'n', Text: "n"})
 	pane = updated.(*EditorPane)
 	if pane.previewScroll != 4 {
 		t.Fatalf("expected preview scroll to advance to later match, got %d", pane.previewScroll)
 	}
-	if view := pane.View(); !strings.Contains(view, "search \"needle\" · 2/2") || !strings.Contains(view, "› needle again") {
-		t.Fatalf("expected preview view to show active search status and marker, got:\n%s", view)
+	if view := pane.View(); !strings.Contains(ansi.Strip(view.Content), "search \"needle\" · 2/2") || !strings.Contains(ansi.Strip(view.Content), "› needle again") {
+		t.Fatalf("expected preview view to show active search status and marker, got:\n%s", view.Content)
 	}
 }
 

@@ -9,7 +9,7 @@ import (
 	gitmodel "focus/internal/git"
 	"focus/internal/models"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 func TestPluginCreatePaneReturnsStatusPane(t *testing.T) {
@@ -53,8 +53,8 @@ func TestStatusPaneInitLoadsStatusAndRendersSections(t *testing.T) {
 
 	view := pane.View()
 	for _, want := range []string{"main", "origin/main", "↑2", "↓1", "Staged", "Unstaged", "Untracked", "staged.go", "modified.go", "new.txt"} {
-		if !strings.Contains(view, want) {
-			t.Fatalf("expected view to contain %q, got:\n%s", want, view)
+		if !strings.Contains(view.Content, want) {
+			t.Fatalf("expected view to contain %q, got:\n%s", want, view.Content)
 		}
 	}
 	if pane.loading {
@@ -70,19 +70,19 @@ func TestStatusPaneNavigationClampsCursor(t *testing.T) {
 		},
 	}
 
-	updated, _ := pane.Update(tea.KeyMsg{Type: tea.KeyDown})
+	updated, _ := pane.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	pane = updated.(*StatusPane)
 	if pane.cursor != 1 {
 		t.Fatalf("expected cursor 1, got %d", pane.cursor)
 	}
 
-	updated, _ = pane.Update(tea.KeyMsg{Type: tea.KeyDown})
+	updated, _ = pane.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	pane = updated.(*StatusPane)
 	if pane.cursor != 1 {
 		t.Fatalf("expected cursor to clamp at 1, got %d", pane.cursor)
 	}
 
-	updated, _ = pane.Update(tea.KeyMsg{Type: tea.KeyUp})
+	updated, _ = pane.Update(tea.KeyPressMsg{Code: tea.KeyUp})
 	pane = updated.(*StatusPane)
 	if pane.cursor != 0 {
 		t.Fatalf("expected cursor 0, got %d", pane.cursor)
@@ -143,8 +143,8 @@ func TestStatusPaneShowsErrorWhenLoadFails(t *testing.T) {
 	updated, _ := pane.Update(msg)
 	pane = updated.(*StatusPane)
 
-	if !strings.Contains(pane.View(), "not a git repository") {
-		t.Fatalf("expected error view, got %q", pane.View())
+	if !strings.Contains(pane.View().Content, "not a git repository") {
+		t.Fatalf("expected error view, got %q", pane.View().Content)
 	}
 }
 
@@ -164,7 +164,7 @@ func TestStatusPaneStageFile(t *testing.T) {
 	updated, _ := pane.Update(msg)
 	pane = updated.(*StatusPane)
 
-	updated, cmd := pane.Update(tea.KeyMsg{Type: tea.KeySpace})
+	updated, cmd := pane.Update(tea.KeyPressMsg{Code: tea.KeySpace})
 	pane = updated.(*StatusPane)
 
 	if cmd == nil {
@@ -196,7 +196,7 @@ func TestStatusPaneUnstageFile(t *testing.T) {
 	updated, _ := pane.Update(msg)
 	pane = updated.(*StatusPane)
 
-	updated, cmd := pane.Update(tea.KeyMsg{Type: tea.KeySpace})
+	updated, cmd := pane.Update(tea.KeyPressMsg{Code: tea.KeySpace})
 	pane = updated.(*StatusPane)
 
 	if cmd == nil {
@@ -228,7 +228,7 @@ func TestStatusPaneStageUntrackedFile(t *testing.T) {
 	updated, _ := pane.Update(msg)
 	pane = updated.(*StatusPane)
 
-	updated, cmd := pane.Update(tea.KeyMsg{Type: tea.KeySpace})
+	updated, cmd := pane.Update(tea.KeyPressMsg{Code: tea.KeySpace})
 	pane = updated.(*StatusPane)
 
 	if cmd == nil {
@@ -261,7 +261,7 @@ func TestStatusPaneStageError(t *testing.T) {
 	updated, _ := pane.Update(msg)
 	pane = updated.(*StatusPane)
 
-	updated, cmd := pane.Update(tea.KeyMsg{Type: tea.KeySpace})
+	updated, cmd := pane.Update(tea.KeyPressMsg{Code: tea.KeySpace})
 	pane = updated.(*StatusPane)
 
 	if cmd != nil {
@@ -285,7 +285,7 @@ func TestStatusPaneDiscardStagedFile(t *testing.T) {
 	updated, _ := pane.Update(msg)
 	pane = updated.(*StatusPane)
 
-	updated, cmd := pane.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
+	updated, cmd := pane.Update(tea.KeyPressMsg{Code: 'd', Mod: tea.ModCtrl, Text: "d"})
 	pane = updated.(*StatusPane)
 
 	if cmd != nil {
@@ -295,7 +295,7 @@ func TestStatusPaneDiscardStagedFile(t *testing.T) {
 		t.Fatalf("expected discard confirmation to be active")
 	}
 
-	updated, cmd = pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
+	updated, cmd = pane.Update(tea.KeyPressMsg{Code: 'y', Text: "y"})
 	pane = updated.(*StatusPane)
 
 	if cmd == nil {
@@ -328,10 +328,10 @@ func TestStatusPaneDiscardUnstagedFile(t *testing.T) {
 	updated, _ := pane.Update(msg)
 	pane = updated.(*StatusPane)
 
-	updated, _ = pane.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
+	updated, _ = pane.Update(tea.KeyPressMsg{Code: 'd', Mod: tea.ModCtrl, Text: "d"})
 	pane = updated.(*StatusPane)
 
-	updated, cmd := pane.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, cmd := pane.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	pane = updated.(*StatusPane)
 
 	if cmd == nil {
@@ -361,10 +361,10 @@ func TestStatusPaneDiscardUntrackedFile(t *testing.T) {
 	updated, _ := pane.Update(msg)
 	pane = updated.(*StatusPane)
 
-	updated, _ = pane.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
+	updated, _ = pane.Update(tea.KeyPressMsg{Code: 'd', Mod: tea.ModCtrl, Text: "d"})
 	pane = updated.(*StatusPane)
 
-	updated, cmd := pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
+	updated, cmd := pane.Update(tea.KeyPressMsg{Code: 'y', Text: "y"})
 	pane = updated.(*StatusPane)
 
 	if cmd == nil {
@@ -394,14 +394,14 @@ func TestStatusPaneDiscardConfirmationCancel(t *testing.T) {
 	updated, _ := pane.Update(msg)
 	pane = updated.(*StatusPane)
 
-	updated, _ = pane.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
+	updated, _ = pane.Update(tea.KeyPressMsg{Code: 'd', Mod: tea.ModCtrl, Text: "d"})
 	pane = updated.(*StatusPane)
 
-	if !strings.Contains(pane.View(), "Discard selected changes for modified.go? [y/n]") {
-		t.Fatalf("expected discard confirmation prompt, got:\n%s", pane.View())
+	if !strings.Contains(pane.View().Content, "Discard selected changes for modified.go? [y/n]") {
+		t.Fatalf("expected discard confirmation prompt, got:\n%s", pane.View().Content)
 	}
 
-	updated, cmd := pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+	updated, cmd := pane.Update(tea.KeyPressMsg{Code: 'n', Text: "n"})
 	pane = updated.(*StatusPane)
 
 	if cmd != nil {
@@ -549,7 +549,7 @@ func TestStatusPaneStageAll(t *testing.T) {
 	updated, _ := pane.Update(msg)
 	pane = updated.(*StatusPane)
 
-	updated, cmd := pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+	updated, cmd := pane.Update(tea.KeyPressMsg{Code: 'a', Text: "a"})
 	pane = updated.(*StatusPane)
 
 	if cmd == nil {
@@ -575,7 +575,7 @@ func TestStatusPaneUnstageAll(t *testing.T) {
 	updated, _ := pane.Update(msg)
 	pane = updated.(*StatusPane)
 
-	updated, cmd := pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+	updated, cmd := pane.Update(tea.KeyPressMsg{Code: 'a', Text: "a"})
 	pane = updated.(*StatusPane)
 
 	if cmd == nil {
@@ -602,7 +602,7 @@ func TestStatusPanePush(t *testing.T) {
 	updated, _ := pane.Update(msg)
 	pane = updated.(*StatusPane)
 
-	updated, cmd := pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'P'}})
+	updated, cmd := pane.Update(tea.KeyPressMsg{Code: 'P', Text: "P"})
 	pane = updated.(*StatusPane)
 
 	if cmd == nil {
@@ -622,7 +622,7 @@ func TestStatusPanePushRequiresUpstream(t *testing.T) {
 	updated, _ := pane.Update(msg)
 	pane = updated.(*StatusPane)
 
-	updated, cmd := pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'P'}})
+	updated, cmd := pane.Update(tea.KeyPressMsg{Code: 'P', Text: "P"})
 	pane = updated.(*StatusPane)
 
 	if cmd != nil {
@@ -645,7 +645,7 @@ func TestStatusPanePushRequiresPullBeforePushing(t *testing.T) {
 	updated, _ := pane.Update(msg)
 	pane = updated.(*StatusPane)
 
-	updated, cmd := pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'P'}})
+	updated, cmd := pane.Update(tea.KeyPressMsg{Code: 'P', Text: "P"})
 	pane = updated.(*StatusPane)
 
 	if cmd != nil {
@@ -668,7 +668,7 @@ func TestStatusPanePushShowsNoticeWhenNothingToPush(t *testing.T) {
 	updated, _ := pane.Update(msg)
 	pane = updated.(*StatusPane)
 
-	updated, cmd := pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'P'}})
+	updated, cmd := pane.Update(tea.KeyPressMsg{Code: 'P', Text: "P"})
 	pane = updated.(*StatusPane)
 
 	if cmd != nil {
@@ -690,7 +690,7 @@ func TestStatusPaneFetch(t *testing.T) {
 	updated, _ := pane.Update(msg)
 	pane = updated.(*StatusPane)
 
-	updated, cmd := pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'f'}})
+	updated, cmd := pane.Update(tea.KeyPressMsg{Code: 'f', Text: "f"})
 	pane = updated.(*StatusPane)
 
 	if cmd == nil {
@@ -710,7 +710,7 @@ func TestStatusPanePull(t *testing.T) {
 	updated, _ := pane.Update(msg)
 	pane = updated.(*StatusPane)
 
-	updated, cmd := pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'p'}})
+	updated, cmd := pane.Update(tea.KeyPressMsg{Code: 'p', Text: "p"})
 	pane = updated.(*StatusPane)
 
 	if cmd == nil {
@@ -729,7 +729,7 @@ func TestStatusPanePullRequiresUpstream(t *testing.T) {
 	updated, _ := pane.Update(msg)
 	pane = updated.(*StatusPane)
 
-	updated, cmd := pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'p'}})
+	updated, cmd := pane.Update(tea.KeyPressMsg{Code: 'p', Text: "p"})
 	pane = updated.(*StatusPane)
 
 	if cmd != nil {
@@ -752,7 +752,7 @@ func TestStatusPanePullRejectsDivergedBranch(t *testing.T) {
 	updated, _ := pane.Update(msg)
 	pane = updated.(*StatusPane)
 
-	updated, cmd := pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'p'}})
+	updated, cmd := pane.Update(tea.KeyPressMsg{Code: 'p', Text: "p"})
 	pane = updated.(*StatusPane)
 
 	if cmd != nil {
@@ -775,7 +775,7 @@ func TestStatusPanePullShowsUpToDateNotice(t *testing.T) {
 	updated, _ := pane.Update(msg)
 	pane = updated.(*StatusPane)
 
-	updated, cmd := pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'p'}})
+	updated, cmd := pane.Update(tea.KeyPressMsg{Code: 'p', Text: "p"})
 	pane = updated.(*StatusPane)
 
 	if cmd != nil {
@@ -797,7 +797,7 @@ func TestStatusPaneFetchShowsNoticeOnSuccess(t *testing.T) {
 	updated, _ := pane.Update(msg)
 	pane = updated.(*StatusPane)
 
-	updated, cmd := pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'f'}})
+	updated, cmd := pane.Update(tea.KeyPressMsg{Code: 'f', Text: "f"})
 	pane = updated.(*StatusPane)
 
 	if cmd == nil {

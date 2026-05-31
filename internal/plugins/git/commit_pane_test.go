@@ -8,7 +8,7 @@ import (
 	gitmodel "focus/internal/git"
 	"focus/internal/models"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 func TestCommitPaneInitRendersStagedFiles(t *testing.T) {
@@ -28,8 +28,8 @@ func TestCommitPaneInitRendersStagedFiles(t *testing.T) {
 
 	view := pane.View()
 	for _, want := range []string{"Commit", "main.go", "README.md", "Subject 0/50 chars", "Ctrl+S commit", "Ctrl+J fallback"} {
-		if !strings.Contains(view, want) {
-			t.Fatalf("expected view to contain %q, got:\n%s", want, view)
+		if !strings.Contains(view.Content, want) {
+			t.Fatalf("expected view to contain %q, got:\n%s", want, view.Content)
 		}
 	}
 }
@@ -40,18 +40,18 @@ func TestCommitPaneInputHandlingSupportsMultilineMessage(t *testing.T) {
 	pane.SetSize(80, 20)
 	pane.Init()
 
-	updated, _ := pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("feat")})
+	updated, _ := pane.Update(tea.KeyPressMsg{Code: 'f', Text: "feat"})
 	pane = updated.(*CommitPane)
-	updated, _ = pane.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ = pane.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	pane = updated.(*CommitPane)
-	updated, _ = pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("body")})
+	updated, _ = pane.Update(tea.KeyPressMsg{Code: 'b', Text: "body"})
 	pane = updated.(*CommitPane)
 
 	if got := pane.input.Value(); got != "feat\nbody" {
 		t.Fatalf("expected multiline message, got %q", got)
 	}
-	if !strings.Contains(pane.View(), "Subject 4/50 chars") {
-		t.Fatalf("expected subject length hint, got:\n%s", pane.View())
+	if !strings.Contains(pane.View().Content, "Subject 4/50 chars") {
+		t.Fatalf("expected subject length hint, got:\n%s", pane.View().Content)
 	}
 }
 
@@ -63,7 +63,7 @@ func TestStatusPaneCKeyOpensCommitPane(t *testing.T) {
 		},
 	}
 
-	_, cmd := pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
+	_, cmd := pane.Update(tea.KeyPressMsg{Code: 'c', Text: "c"})
 	msg := runCmd(t, cmd)
 	openMsg, ok := msg.(OpenCommitMsg)
 	if !ok {
@@ -84,7 +84,7 @@ func TestCommitPaneCommitExecutionSendsCompletionMessageWithCtrlS(t *testing.T) 
 	pane.Init()
 	pane.input.SetValue("feat: add commit pane\n\ninclude commit workflow")
 
-	updated, cmd := pane.Update(tea.KeyMsg{Type: tea.KeyCtrlS})
+	updated, cmd := pane.Update(tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl, Text: "s"})
 	pane = updated.(*CommitPane)
 	if cmd == nil {
 		t.Fatalf("expected commit command")
@@ -128,7 +128,7 @@ func TestCommitPaneCommitExecutionStillSupportsCtrlJ(t *testing.T) {
 	pane.Init()
 	pane.input.SetValue("feat: keep ctrl+j support")
 
-	updated, cmd := pane.Update(tea.KeyMsg{Type: tea.KeyCtrlJ})
+	updated, cmd := pane.Update(tea.KeyPressMsg{Code: 'j', Mod: tea.ModCtrl, Text: "j"})
 	pane = updated.(*CommitPane)
 	if cmd == nil {
 		t.Fatalf("expected commit command for ctrl+j fallback")
@@ -150,7 +150,7 @@ func TestCommitPaneCancelOperation(t *testing.T) {
 	pane.SetSize(80, 20)
 	pane.Init()
 
-	_, cmd := pane.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	_, cmd := pane.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
 	msg := runCmd(t, cmd)
 	closeMsg, ok := msg.(CloseCommitMsg)
 	if !ok {

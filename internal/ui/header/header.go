@@ -12,8 +12,8 @@ import (
 	"focus/internal/ui/banner"
 	"focus/internal/weather"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -89,8 +89,8 @@ func (m *Model) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 }
 
 // View renders the header as two compact lines: weather+time, then quote.
-func (m *Model) View() string {
-	return m.ViewCompact(m.width, true)
+func (m *Model) View() tea.View {
+	return tea.NewView(m.ViewCompact(m.width, true))
 }
 
 // ViewBanner renders the big FOCUS FIGlet banner on the left with an info

@@ -8,8 +8,8 @@ import (
 	gitplugin "focus/internal/plugins/git"
 	appstyles "focus/internal/styles"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 // CloseDeleteConfirmMsg closes the delete confirmation overlay.
@@ -43,14 +43,13 @@ func (p *deleteConfirmPane) ID() models.PaneID {
 
 func (p *deleteConfirmPane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		switch msg.String() {
+	case tea.KeyPressMsg:
+		switch msg.Keystroke() {
 		case "y", "Y":
 			return p, func() tea.Msg {
 				return gitplugin.RequestRemoveWorktreeMsg{
 					Worktree: p.worktree,
-					Force:    p.force,
-				}
+					Force:    p.force,}
 			}
 		case "n", "N", "q", "esc", "ctrl+c":
 			return p, func() tea.Msg {
@@ -61,7 +60,7 @@ func (p *deleteConfirmPane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 	return p, nil
 }
 
-func (p *deleteConfirmPane) View() string {
+func (p *deleteConfirmPane) View() tea.View {
 	width := p.width
 	if width <= 0 {
 		width = 64
@@ -97,7 +96,7 @@ func (p *deleteConfirmPane) View() string {
 
 	b.WriteString(lipgloss.NewStyle().Foreground(appstyles.Subtle).Render("y confirm · n cancel"))
 
-	return appstyles.StyleCache.MaxWidth(width).Render(b.String())
+	return tea.NewView(appstyles.StyleCache.MaxWidth(width).Render(b.String()))
 }
 
 func (p *deleteConfirmPane) SetSize(width, height int) {

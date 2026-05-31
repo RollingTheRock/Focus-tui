@@ -3,7 +3,7 @@ package app
 import (
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"focus/internal/models"
 )
 
@@ -18,7 +18,7 @@ func TestTabContainerKeySwitching(t *testing.T) {
 	}
 
 	// Press A to switch to ADRs tab
-	newPanel, cmd := tc.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'A'}})
+	newPanel, cmd := tc.Update(tea.KeyPressMsg{Code: 'A', Text: "A"})
 	if cmd != nil {
 		t.Fatalf("expected nil cmd, got %v", cmd)
 	}
@@ -31,7 +31,7 @@ func TestTabContainerKeySwitching(t *testing.T) {
 	}
 
 	// Press T to switch back to Tasks tab
-	newPanel2, cmd2 := newTc.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'T'}})
+	newPanel2, cmd2 := newTc.Update(tea.KeyPressMsg{Code: 'T', Text: "T"})
 	if cmd2 != nil {
 		t.Fatalf("expected nil cmd, got %v", cmd2)
 	}

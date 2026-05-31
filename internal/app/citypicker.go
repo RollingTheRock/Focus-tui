@@ -7,8 +7,8 @@ import (
 	"focus/internal/models"
 	"focus/internal/styles"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 type cityPickedMsg struct{ city string }
@@ -56,13 +56,12 @@ func (p *cityPickerOverlay) Init() tea.Cmd { return nil }
 
 func (p *cityPickerOverlay) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		switch msg.String() {
+	case tea.KeyPressMsg:
+		switch msg.Keystroke() {
 		case "left", "h":
 			if p.zoneIdx > 0 {
 				p.zoneIdx--
-				p.cityIdx = 0
-			}
+				p.cityIdx = 0}
 		case "right", "l":
 			if p.zoneIdx < len(p.zones)-1 {
 				p.zoneIdx++
@@ -88,7 +87,7 @@ func (p *cityPickerOverlay) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 	return p, nil
 }
 
-func (p *cityPickerOverlay) View() string {
+func (p *cityPickerOverlay) View() tea.View {
 	w := p.width
 	if w <= 0 {
 		w = 40
@@ -145,7 +144,7 @@ func (p *cityPickerOverlay) View() string {
 	}
 
 	b.WriteString(subtle.Render("\n  [←→] zone  [↑↓] city  [enter] select  [esc] cancel"))
-	return b.String()
+	return tea.NewView(b.String())
 }
 
 func (p *cityPickerOverlay) SetSize(width, height int) {

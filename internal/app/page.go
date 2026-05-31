@@ -25,8 +25,8 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 // page holds the pane collection, layout tree, and focus state for a single
@@ -640,7 +640,7 @@ func (p *page) renderBody(w, h int, overlay OverlayKind) string {
 		active := id == p.focused
 		content := panel.View()
 		title := p.renderPaneTitle(id, p.focused, ModeNormal, max(frame.W-4, 8))
-		panelView := layout.RenderPanel(title, content, max(frame.W-4, 8), max(frame.H-2, 3), active)
+		panelView := layout.RenderPanel(title, content.Content, max(frame.W-4, 8), max(frame.H-2, 3), active)
 		base = layout.OverlayOnBase(base, panelView, frame.X, frame.Y)
 	}
 
@@ -669,7 +669,7 @@ func (p *page) renderBodyCanvas(w, h int, overlay OverlayKind) string {
 		} else {
 			panel.SetSize(max(frame.W-4, 8), max(frame.H-2, 3))
 			content := panel.View()
-			render.RenderPane(sub, title, content, active)
+			render.RenderPane(sub, title, content.Content, active)
 		}
 	}
 
@@ -817,7 +817,7 @@ func (p *page) renderOverlayPane(base string, id models.PaneID) string {
 		overlayW, overlayH = p.overlayContentSize()
 	}
 	panel.SetSize(overlayW, overlayH)
-	overlayView := layout.RenderPanel(p.renderPaneTitle(id, p.focused, ModeNormal, overlayW), panel.View(), overlayW, overlayH, true)
+	overlayView := layout.RenderPanel(p.renderPaneTitle(id, p.focused, ModeNormal, overlayW), panel.View().Content, overlayW, overlayH, true)
 	bounds := p.bodyBoundsSize()
 	x := bounds.X + (bounds.W-(overlayW+4))/2
 	y := bounds.Y + (bounds.H-(overlayH+2))/2
@@ -858,7 +858,7 @@ func (p *page) renderOverlayPaneToCanvas(canvas *render.Canvas, id models.PaneID
 	} else {
 		panel.SetSize(overlayW, overlayH)
 		content := panel.View()
-		render.RenderPane(sub, p.renderPaneTitle(id, p.focused, ModeNormal, overlayW), content, true)
+		render.RenderPane(sub, p.renderPaneTitle(id, p.focused, ModeNormal, overlayW), content.Content, true)
 	}
 }
 
