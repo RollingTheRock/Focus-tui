@@ -8,8 +8,8 @@ import (
 	"focus/internal/models"
 	appstyles "focus/internal/styles"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 // OpenAgentStoreMsg opens the agent store overlay.
@@ -100,7 +100,7 @@ func (p *agentStorePane) Init() tea.Cmd {
 
 func (p *agentStorePane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 	switch msg := msg.(type) {
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		switch msg.String() {
 		case "q", "esc":
 			return p, func() tea.Msg { return CloseAgentStoreMsg{} }
@@ -152,7 +152,7 @@ func (p *agentStorePane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 	return p, nil
 }
 
-func (p *agentStorePane) View() string {
+func (p *agentStorePane) View() tea.View {
 	w := p.width
 	if w <= 0 {
 		w = 60
@@ -193,7 +193,7 @@ func (p *agentStorePane) View() string {
 	if len(lines) > h {
 		lines = lines[:h]
 	}
-	return strings.Join(lines, "\n")
+	return tea.NewView(strings.Join(lines, "\n"))
 }
 
 func (p *agentStorePane) SetSize(width, height int) {
