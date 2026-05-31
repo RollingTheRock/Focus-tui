@@ -18,6 +18,7 @@ import (
 	agentsplugin "focus/internal/plugins/agents"
 	editorplugin "focus/internal/plugins/editor"
 	filebrowser "focus/internal/plugins/filebrowser"
+	gitfiletree "focus/internal/plugins/gitfiletree"
 	gitplugin "focus/internal/plugins/git"
 	dbstore "focus/internal/store"
 	"focus/internal/styles"
@@ -52,6 +53,7 @@ const (
 	paneDAG                   models.PaneID = "dag-main"
 	paneWorktreeDetail        models.PaneID = "worktree-detail-main"
 	paneGitDiff               models.PaneID = "git-diff-pane"
+	paneGitFileTree           models.PaneID = "git-filetree-overlay"
 	paneGitCommit             models.PaneID = "git-commit-overlay"
 	paneWorktreeCreate        models.PaneID = "worktree-create-overlay"
 	paneTaskEdit              models.PaneID = "task-edit-overlay"
@@ -70,6 +72,7 @@ const (
 	paneCityPicker            models.PaneID = "city-picker-overlay"
 	paneFooter                models.PaneID = "footer"
 
+	paneTypeGitFileTree           models.PaneType = "git-filetree"
 	paneTypeGitCommit             models.PaneType = "git-commit"
 	paneTypeWorktreeCreate        models.PaneType = "worktree-create"
 	paneTypeTaskEdit              models.PaneType = "task-edit"
@@ -102,6 +105,8 @@ const (
 type avatarRenderedMsg struct {
 	art string
 }
+
+type resetSpaceLeaderMsg struct{}
 
 // orchNotificationMsg wraps an orchestrator.Notification for Bubbletea routing.
 type orchNotificationMsg orchestrator.Notification
@@ -143,6 +148,9 @@ type model struct {
 	notifications []orchestrator.Notification
 
 	disablePiggyback bool
+
+	// Leader key state for space+g shortcut.
+	spaceLeader bool
 
 	// cmdBus is the command-layer bus for structured domain writes.
 	cmdBus *commands.Bus
@@ -1508,6 +1516,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Re-subscribe to the next notification.
 		return m, m.orchestratorCmd()
 
+	case resetSpaceLeaderMsg:
+		m.spaceLeader = false
+		return m, nil
+
 	case tea.KeyPressMsg:
 		return m.handleKey(msg)
 
@@ -1869,6 +1881,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case gitplugin.CloseDiffMsg:
+		m.closePane(msg.ID)
+		m.syncWorktreeActivities()
+		m.invalidateView()
+		return m, nil
+
+	case gitfiletree.CloseOverlayMsg:
 		m.closePane(msg.ID)
 		m.syncWorktreeActivities()
 		m.invalidateView()
@@ -2264,6 +2282,23 @@ func (m model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 				return m, m.routeToPane(m.activePage.focused, msg)}
 			m.mode = ModeNormal
 		}
+	}
+
+	// Leader key: space + g → open GitFileTree overlay.
+	if m.spaceLeader {
+		m.spaceLeader = false
+		if msg.Keystroke() == "g" {
+			cmd := m.activePage.openGitFileTreePane(gitfiletree.OpenGitFileTreeMsg{RepoPath: m.gitRepoPath()})
+			m.invalidateView()
+			return m, cmd
+		}
+		// Not 'g' — fall through to normal processing.
+	}
+	if msg.Keystroke() == "space" {
+		m.spaceLeader = true
+		return m, tea.Tick(500*time.Millisecond, func(time.Time) tea.Msg {
+			return resetSpaceLeaderMsg{}
+		})
 	}
 
 	switch msg.Keystroke() {
@@ -3159,53 +3194,8 @@ func helpBindingsForState(m model, compact bool) []bubblesKey.Binding {
 			}
 		}
 	case paneWorktreeDetail:
-		if dp, ok := m.activePage.pane(paneWorktreeDetail).(*worktreeDetailPane); ok {
-			switch dp.activeTab {
-			case tabGit:
-				if compact {
-					bindings = []bubblesKey.Binding{
-						bubblesKey.NewBinding(bubblesKey.WithKeys("j", "k"), bubblesKey.WithHelp("j/k", "nav")),
-						bubblesKey.NewBinding(bubblesKey.WithKeys("space"), bubblesKey.WithHelp("space", "stage")),
-						bubblesKey.NewBinding(bubblesKey.WithKeys("d"), bubblesKey.WithHelp("d", "diff")),
-						bubblesKey.NewBinding(bubblesKey.WithKeys("c"), bubblesKey.WithHelp("c", "commit")),
-						bubblesKey.NewBinding(bubblesKey.WithKeys("f"), bubblesKey.WithHelp("f", "fetch")),
-					}
-				} else {
-					bindings = []bubblesKey.Binding{
-						bubblesKey.NewBinding(bubblesKey.WithKeys("j", "k"), bubblesKey.WithHelp("j/k", "nav")),
-						bubblesKey.NewBinding(bubblesKey.WithKeys("space"), bubblesKey.WithHelp("space", "stage")),
-						bubblesKey.NewBinding(bubblesKey.WithKeys("a"), bubblesKey.WithHelp("a", "all")),
-						bubblesKey.NewBinding(bubblesKey.WithKeys("d"), bubblesKey.WithHelp("d", "diff")),
-						bubblesKey.NewBinding(bubblesKey.WithKeys("enter"), bubblesKey.WithHelp("enter", "diff all")),
-						bubblesKey.NewBinding(bubblesKey.WithKeys("c"), bubblesKey.WithHelp("c", "commit")),
-						bubblesKey.NewBinding(bubblesKey.WithKeys("f"), bubblesKey.WithHelp("f", "fetch")),
-						bubblesKey.NewBinding(bubblesKey.WithKeys("p"), bubblesKey.WithHelp("p", "pull")),
-						bubblesKey.NewBinding(bubblesKey.WithKeys("P"), bubblesKey.WithHelp("P", "push")),
-						bubblesKey.NewBinding(bubblesKey.WithKeys("ctrl+d"), bubblesKey.WithHelp("ctrl+d", "discard")),
-						bubblesKey.NewBinding(bubblesKey.WithKeys("1", "2", "3"), bubblesKey.WithHelp("1-3", "tabs")),
-						bubblesKey.NewBinding(bubblesKey.WithKeys("tab"), bubblesKey.WithHelp("tab", "cycle focus")),
-					}
-				}
-			case tabFiles:
-				if compact {
-					bindings = []bubblesKey.Binding{
-						bubblesKey.NewBinding(bubblesKey.WithKeys("j", "k"), bubblesKey.WithHelp("j/k", "nav")),
-						bubblesKey.NewBinding(bubblesKey.WithKeys("o"), bubblesKey.WithHelp("o", "open")),
-						bubblesKey.NewBinding(bubblesKey.WithKeys("enter"), bubblesKey.WithHelp("enter", "dir")),
-						bubblesKey.NewBinding(bubblesKey.WithKeys("space"), bubblesKey.WithHelp("space", "fold")),
-					}
-				} else {
-					bindings = []bubblesKey.Binding{
-						bubblesKey.NewBinding(bubblesKey.WithKeys("j", "k"), bubblesKey.WithHelp("j/k", "nav")),
-						bubblesKey.NewBinding(bubblesKey.WithKeys("o", "v"), bubblesKey.WithHelp("o/v", "open")),
-						bubblesKey.NewBinding(bubblesKey.WithKeys("enter"), bubblesKey.WithHelp("enter", "open/dir")),
-						bubblesKey.NewBinding(bubblesKey.WithKeys("space"), bubblesKey.WithHelp("space", "fold")),
-						bubblesKey.NewBinding(bubblesKey.WithKeys("left", "right"), bubblesKey.WithHelp("←/→", "fold")),
-						bubblesKey.NewBinding(bubblesKey.WithKeys("1", "2", "3"), bubblesKey.WithHelp("1-3", "tabs")),
-						bubblesKey.NewBinding(bubblesKey.WithKeys("tab"), bubblesKey.WithHelp("tab", "cycle focus")),
-					}
-				}
-			default: // tabTasks
+		if _, ok := m.activePage.pane(paneWorktreeDetail).(*worktreeDetailPane); ok {
+			
 				if compact {
 					bindings = []bubblesKey.Binding{
 						bubblesKey.NewBinding(bubblesKey.WithKeys("j", "k"), bubblesKey.WithHelp("j/k", "nav")),
@@ -3221,7 +3211,6 @@ func helpBindingsForState(m model, compact bool) []bubblesKey.Binding {
 						bubblesKey.NewBinding(bubblesKey.WithKeys("tab"), bubblesKey.WithHelp("tab", "cycle focus")),
 					}
 				}
-			}
 		} else {
 			if compact {
 				bindings = []bubblesKey.Binding{

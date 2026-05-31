@@ -9,7 +9,6 @@ import (
 	"focus/internal/adapters"
 	"focus/internal/agents"
 	"focus/internal/models"
-	filebrowser "focus/internal/plugins/filebrowser"
 	gitplugin "focus/internal/plugins/git"
 	"focus/internal/styles"
 
@@ -31,10 +30,6 @@ type worktreeDetailPane struct {
 
 	activeTab detailTab
 
-	// Sub-panes (re-use original component shapes)
-	gitPane   *gitplugin.StatusPane
-	filesPane *filebrowser.TreePane
-
 	// Tasks for this worktree
 	tasks      []models.TaskContextRecord
 	taskCursor int
@@ -50,8 +45,6 @@ type detailTab int
 
 const (
 	tabTasks detailTab = iota
-	tabGit
-	tabFiles
 )
 
 func newWorktreeDetailPane(id models.PaneID, meta models.PaneMeta, common *models.CommonModel, adapter adapters.GitAdapter, repoID string) *worktreeDetailPane {
@@ -71,52 +64,12 @@ func (p *worktreeDetailPane) setWorktree(worktreeID string) tea.Cmd {
 	}
 	p.worktreeID = worktreeID
 	p.taskCursor = 0
-	p.gitPane = nil
-	p.filesPane = nil
-	p.initSubPanes()
 	p.loadTasks()
-
-	var cmds []tea.Cmd
-	if p.gitPane != nil {
-		if cmd := p.gitPane.Init(); cmd != nil {
-			cmds = append(cmds, cmd)
-		}
-	}
-	if p.filesPane != nil {
-		if cmd := p.filesPane.Init(); cmd != nil {
-			cmds = append(cmds, cmd)
-		}
-	}
-	return tea.Batch(cmds...)
+	return nil
 }
 
 func (p *worktreeDetailPane) initSubPanes() {
-	if p.worktreeID == "" {
-		return
-	}
-	gitMeta := models.PaneMeta{
-		ID:         "detail-git",
-		Name:       "Git",
-		Type:       models.PaneTypeGitStatus,
-		CWD:        p.worktreeID,
-		RepoID:     p.repoID,
-		WorktreeID: p.worktreeID,
-		Status:     models.PaneStatusIdle,
-		Closable:   false,
-	}
-	p.gitPane = gitplugin.NewStatusPane(gitMeta.ID, gitMeta, p.common, p.adapter)
-
-	filesMeta := models.PaneMeta{
-		ID:         "detail-files",
-		Name:       "Files",
-		Type:       models.PaneTypeFileTree,
-		CWD:        p.worktreeID,
-		RepoID:     p.repoID,
-		WorktreeID: p.worktreeID,
-		Status:     models.PaneStatusIdle,
-		Closable:   false,
-	}
-	p.filesPane = filebrowser.NewTreePane(filesMeta.ID, filesMeta, p.common)
+	// Git and Files moved to GitFileTree overlay; this pane now only shows Tasks.
 }
 
 func (p *worktreeDetailPane) loadTasks() {
@@ -137,21 +90,8 @@ func (p *worktreeDetailPane) loadTasks() {
 }
 
 func (p *worktreeDetailPane) Init() tea.Cmd {
-	p.initSubPanes()
 	p.loadTasks()
-
-	var cmds []tea.Cmd
-	if p.gitPane != nil {
-		if cmd := p.gitPane.Init(); cmd != nil {
-			cmds = append(cmds, cmd)
-		}
-	}
-	if p.filesPane != nil {
-		if cmd := p.filesPane.Init(); cmd != nil {
-			cmds = append(cmds, cmd)
-		}
-	}
-	return tea.Batch(cmds...)
+	return nil
 }
 
 func (p *worktreeDetailPane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
@@ -167,87 +107,29 @@ func (p *worktreeDetailPane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 		return p, nil
 	case refreshWorktreeDetailMsg:
 		p.loadTasks()
-		var cmds []tea.Cmd
-		if p.gitPane != nil {
-			newPane, cmd := p.gitPane.Update(gitplugin.RefreshStatusMsg{})
-			if gp, ok := newPane.(*gitplugin.StatusPane); ok {
-				p.gitPane = gp
-			}
-			if cmd != nil {
-				cmds = append(cmds, cmd)
-			}
-		}
-		if p.filesPane != nil {
-			newPane, cmd := p.filesPane.Update(filebrowser.RefreshTreeMsg{})
-			if fp, ok := newPane.(*filebrowser.TreePane); ok {
-				p.filesPane = fp
-			}
-			if cmd != nil {
-				cmds = append(cmds, cmd)
-			}
-		}
-		return p, tea.Batch(cmds...)
+		return p, nil
 	case tea.KeyPressMsg:
 		switch msg.Keystroke() {
-		case "1":
-			p.activeTab = tabTasks
-			return p, nil
-		case "2":
-			p.activeTab = tabGit
-			return p, nil
-		case "3":
-			p.activeTab = tabFiles
-			return p, nil
 		case "j", "down":
-			if p.activeTab == tabTasks {
-				if p.taskCursor < len(p.tasks)-1 {
-					p.taskCursor++}
-				return p, nil
+			if p.taskCursor < len(p.tasks)-1 {
+				p.taskCursor++
 			}
+			return p, nil
 		case "k", "up":
-			if p.activeTab == tabTasks {
-				if p.taskCursor > 0 {
-					p.taskCursor--
-				}
-				return p, nil
+			if p.taskCursor > 0 {
+				p.taskCursor--
 			}
+			return p, nil
 		case "s":
 			return p, p.openAgentSelectCmd()
 		case "e", "enter":
-			if p.activeTab == tabTasks {
-				return p, p.openTaskEditCmd()
-			}
+			return p, p.openTaskEditCmd()
 		case "tab":
 			return p, nil // let app route to next pane
 		}
 	}
 
-	// Route to sub-panes. Data messages always reach both sub-panes
-	// regardless of active tab so git and file tree stay up to date.
-	// Key events only go to the active tab to avoid double-handling.
-	_, isKey := msg.(tea.KeyPressMsg)
-
-	var cmds []tea.Cmd
-
-	if p.gitPane != nil && (!isKey || p.activeTab == tabGit) {
-		newPane, cmd := p.gitPane.Update(msg)
-		if gp, ok := newPane.(*gitplugin.StatusPane); ok {
-			p.gitPane = gp
-		}
-		if cmd != nil {
-			cmds = append(cmds, cmd)
-		}
-	}
-	if p.filesPane != nil && (!isKey || p.activeTab == tabFiles) {
-		newPane, cmd := p.filesPane.Update(msg)
-		if fp, ok := newPane.(*filebrowser.TreePane); ok {
-			p.filesPane = fp
-		}
-		if cmd != nil {
-			cmds = append(cmds, cmd)
-		}
-	}
-	return p, tea.Batch(cmds...)
+	return p, nil
 }
 
 type worktreeSelectedMsg struct {
@@ -297,12 +179,6 @@ func (p *worktreeDetailPane) refreshSessions() {
 func (p *worktreeDetailPane) SetSize(width, height int) {
 	p.width = width
 	p.height = height
-	if p.gitPane != nil {
-		p.gitPane.SetSize(width, contentHeight(height))
-	}
-	if p.filesPane != nil {
-		p.filesPane.SetSize(width, contentHeight(height))
-	}
 }
 
 func contentHeight(total int) int {
@@ -318,17 +194,8 @@ func agentCardsHeight() int {
 }
 
 func (p *worktreeDetailPane) helpText() (wide, compact string) {
-	switch p.activeTab {
-	case tabGit:
-		wide = "[j/k]nav  [space]stage  [a]all  [d]diff  [enter]diff all  [c]commit  [f]etch  [p]ull  [P]ush  [ctrl+d]discard  [1-3]tabs  [tab]cycle focus"
-		compact = "[j/k]nav  [space]stage  [d]diff  [c]commit  [f]etch"
-	case tabFiles:
-		wide = "[j/k]nav  [o/v]open  [enter]open/dir  [space]fold  [←/→]fold  [1-3]tabs  [tab]cycle focus"
-		compact = "[j/k]nav  [o]open  [enter]dir  [space]fold"
-	default:
-		wide = "[j/k]nav  [enter/e]edit task  [s]tart agent  [1-3]tabs  [tab]cycle focus"
-		compact = "[j/k]nav  [enter/e]edit  [s]agent"
-	}
+	wide = "[j/k]nav  [enter/e]edit task  [s]tart agent  [tab]cycle focus"
+	compact = "[j/k]nav  [enter/e]edit  [s]agent"
 	return
 }
 
@@ -340,52 +207,17 @@ func (p *worktreeDetailPane) View() tea.View {
 	}
 
 	var parts []string
-	parts = append(parts, p.renderTabs(w))
-
-	ch := contentHeight(h)
-	switch p.activeTab {
-	case tabGit:
-		if p.gitPane != nil {
-			p.gitPane.SetSize(w, ch)
-			parts = append(parts, p.gitPane.View().Content)
-		} else {
-			parts = append(parts, emptyLine(w, ch))
-		}
-	case tabFiles:
-		if p.filesPane != nil {
-			p.filesPane.SetSize(w, ch)
-			parts = append(parts, p.filesPane.View().Content)
-		} else {
-			parts = append(parts, emptyLine(w, ch))
-		}
-	default:
-		parts = append(parts, p.renderTasks(w, ch))
+	ch := h - agentCardsHeight()
+	if ch < 3 {
+		ch = 3
 	}
-
+	parts = append(parts, p.renderTasks(w, ch))
 	parts = append(parts, p.renderAgentCards(w))
 	return tea.NewView(strings.Join(parts, "\n"))
 }
 
 func (p *worktreeDetailPane) renderTabs(w int) string {
-	tabs := []struct {
-		key   string
-		label string
-		tab   detailTab
-	}{
-		{"1", "Tasks", tabTasks},
-		{"2", "Git", tabGit},
-		{"3", "Files", tabFiles},
-	}
-	var parts []string
-	for _, t := range tabs {
-		label := t.key + " " + t.label
-		if t.tab == p.activeTab {
-			parts = append(parts, detailTabActiveStyle.Render("["+label+"]"))
-		} else {
-			parts = append(parts, detailTabStyle.Render(label))
-		}
-	}
-	return lipgloss.NewStyle().MaxWidth(w).Render("  " + strings.Join(parts, "  "))
+	return ""
 }
 
 func (p *worktreeDetailPane) renderTasks(w, h int) string {
