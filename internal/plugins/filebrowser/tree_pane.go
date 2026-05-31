@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"focus/internal/models"
-	editorplugin "focus/internal/plugins/editor"
 	"focus/internal/styles"
+	editorplugin "focus/internal/plugins/editor"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -31,6 +31,9 @@ type TreePane struct {
 	height  int
 	err     error
 	loading bool
+
+	iconMode   IconMode
+	gitIgnore  *GitIgnoreFilter
 }
 
 type FileNode struct {
@@ -41,6 +44,10 @@ type FileNode struct {
 	Parent    *FileNode
 	Collapsed bool
 	Depth     int
+
+	// CompressionLevel tracks how many single-child dirs were merged.
+	// 0 = no compression, >0 = compressed path segments.
+	CompressionLevel int
 }
 
 type treeRefreshMsg struct {
@@ -61,16 +68,21 @@ func NewTreePane(id models.PaneID, meta models.PaneMeta, common models.CommonMod
 	}
 
 	return &TreePane{
-		id:      id,
-		meta:    meta,
-		common:  common,
-		cwd:     cwd,
-		loading: true,
+		id:       id,
+		meta:     meta,
+		common:   common,
+		cwd:      cwd,
+		loading:  true,
+		iconMode: IconModeNerd,
 	}
 }
 
 func (p *TreePane) Init() tea.Cmd {
 	p.loading = true
+	// Try to load .gitignore filter
+	if filter, err := NewGitIgnoreFilter(p.cwd); err == nil {
+		p.gitIgnore = filter
+	}
 	return tea.Batch(p.refreshTreeCmd(), p.refreshTickCmd())
 }
 
@@ -149,7 +161,8 @@ func (p *TreePane) updateKey(msg tea.KeyPressMsg) (models.Panel, tea.Cmd) {
 	switch msg.Keystroke() {
 	case "j", "down":
 		if p.cursor < count-1 {
-			p.cursor++}
+			p.cursor++
+		}
 	case "k", "up":
 		if p.cursor > 0 {
 			p.cursor--
@@ -243,8 +256,12 @@ func (p *TreePane) applyRefresh(msg treeRefreshMsg) {
 
 func (p *TreePane) refreshTreeCmd() tea.Cmd {
 	cwd := p.cwd
+	filter := p.gitIgnore
 	return func() tea.Msg {
-		root, err := buildTree(cwd, nil, 0)
+		root, err := buildTree(cwd, filter, nil, 0)
+		if err == nil && root != nil {
+			root.Compress()
+		}
 		return treeRefreshMsg{cwd: cwd, root: root, err: err}
 	}
 }
@@ -261,7 +278,14 @@ func (p *TreePane) renderNode(index int, node *FileNode, width int) string {
 		prefix = "> "
 	}
 
-	indent := strings.Repeat("  ", node.Depth)
+	// Calculate visual indent based on depth and compression
+	visualDepth := node.Depth
+	if node.CompressionLevel > 0 {
+		visualDepth = node.Depth - node.CompressionLevel + 1
+	}
+	indent := strings.Repeat("  ", visualDepth)
+
+	// Expansion marker for directories
 	marker := "  "
 	if node.IsDir {
 		if node.Collapsed {
@@ -271,7 +295,13 @@ func (p *TreePane) renderNode(index int, node *FileNode, width int) string {
 		}
 	}
 
-	line := prefix + indent + marker + renderNodeIcon(node) + " " + nameStyle.Render(node.Name)
+	// Icon
+	icon, iconStyle := FileIcon(node.Name, node.IsDir, p.iconMode)
+	if icon != "" {
+		icon = iconStyle.Render(icon) + " "
+	}
+
+	line := prefix + indent + marker + icon + nameStyle.Render(node.Name)
 	line = ansi.Truncate(line, width, "")
 	if index == p.cursor {
 		return selectedStyle.Width(width).Render(line)
@@ -294,7 +324,7 @@ func (p *TreePane) visibleRange() (int, int) {
 		return 0, len(p.flatList)
 	}
 
-	bodyHeight := p.height - 3 // cwd + position + at least one list row
+	bodyHeight := p.height - 3
 	if bodyHeight <= 0 || len(p.flatList) <= bodyHeight {
 		return 0, len(p.flatList)
 	}
@@ -337,7 +367,12 @@ func (p *TreePane) selectPath(path string) {
 	p.clampCursor()
 }
 
-func buildTree(path string, parent *FileNode, depth int) (*FileNode, error) {
+func (p *TreePane) String() string {
+	return fmt.Sprintf("TreePane(%s)", p.id)
+}
+
+// buildTree recursively builds a file tree with optional gitignore filtering.
+func buildTree(path string, filter *GitIgnoreFilter, parent *FileNode, depth int) (*FileNode, error) {
 	cleanPath := filepath.Clean(path)
 	info, err := os.Stat(cleanPath)
 	if err != nil {
@@ -371,14 +406,69 @@ func buildTree(path string, parent *FileNode, depth int) (*FileNode, error) {
 
 	children := make([]*FileNode, 0, len(entries))
 	for _, entry := range entries {
-		child, err := buildTree(filepath.Join(cleanPath, entry.Name()), node, depth+1)
+		childPath := filepath.Join(cleanPath, entry.Name())
+
+		// Apply .gitignore filter
+		if filter != nil {
+			relPath := childPath
+			if strings.HasPrefix(relPath, filter.root) {
+				relPath = strings.TrimPrefix(relPath, filter.root)
+				relPath = strings.TrimPrefix(relPath, string(filepath.Separator))
+			}
+			if filter.Match(relPath, entry.IsDir()) {
+				continue
+			}
+		}
+
+		// Skip hidden files (except .gitignore which is handled by filter)
+		if strings.HasPrefix(entry.Name(), ".") && entry.Name() != ".gitignore" {
+			continue
+		}
+
+		child, err := buildTree(childPath, filter, node, depth+1)
 		if err != nil {
-			return nil, err
+			continue
 		}
 		children = append(children, child)
 	}
 	node.Children = children
 	return node, nil
+}
+
+// Compress merges single-child directory chains into one node.
+func (n *FileNode) Compress() {
+	if !n.IsDir || len(n.Children) == 0 {
+		return
+	}
+
+	for i := range n.Children {
+		child := n.Children[i]
+		if !child.IsDir || len(child.Children) != 1 || child.Children[0].IsDir == false {
+			// Recursively compress children that don't qualify
+			child.Compress()
+			continue
+		}
+
+		// Merge single-child directory chain
+		grandchild := child.Children[0]
+		merged := &FileNode{
+			Name:             child.Name + "/" + grandchild.Name,
+			Path:             grandchild.Path,
+			IsDir:            grandchild.IsDir,
+			Children:         grandchild.Children,
+			Parent:           n,
+			Depth:            child.Depth,
+			CompressionLevel: child.CompressionLevel + 1,
+			Collapsed:        grandchild.Collapsed,
+		}
+		// Update children's parent pointers
+		for _, gc := range merged.Children {
+			gc.Parent = merged
+		}
+		n.Children[i] = merged
+		// Try compressing the merged node again
+		merged.Compress()
+	}
 }
 
 func flattenVisibleNodes(root *FileNode) []*FileNode {
@@ -419,8 +509,4 @@ func applyCollapsed(node *FileNode, collapsed map[string]bool) {
 	for _, child := range node.Children {
 		applyCollapsed(child, collapsed)
 	}
-}
-
-func (p *TreePane) String() string {
-	return fmt.Sprintf("TreePane(%s)", p.id)
 }
