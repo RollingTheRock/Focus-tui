@@ -12,12 +12,12 @@ import (
 	"focus/internal/git"
 	"focus/internal/models"
 	"focus/internal/plugins/editor"
+	filebrowser "focus/internal/plugins/filebrowser"
 	gitplugin "focus/internal/plugins/git"
 	"focus/internal/styles"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-
 )
 
 // OpenGitFileTreeMsg triggers the GitFileTree overlay.
@@ -30,15 +30,16 @@ type CloseOverlayMsg struct {
 	ID models.PaneID
 }
 
-// overlayMode controls which view is active.
-type overlayMode int
+// rightPaneMode controls what the right pane displays.
+type rightPaneMode int
 
 const (
-	modeFiles overlayMode = iota
-	modeCommits
+	rightPaneGraph rightPaneMode = iota
+	rightPaneDiff
 )
 
 // GitFileTreeOverlay is a combined file tree + git status + commit graph overlay.
+// Layout: left pane = file list, right pane = diff preview or commit graph.
 type GitFileTreeOverlay struct {
 	id      models.PaneID
 	meta    models.PaneMeta
@@ -46,20 +47,21 @@ type GitFileTreeOverlay struct {
 	adapter adapters.GitAdapter
 
 	repoPath string
-	mode     overlayMode
 
-	// Files mode state
+	// Left pane: file list
 	status      *git.Status
 	files       []fileEntry
 	fileCursor  int
 	fileLoading bool
 	fileErr     error
 
-	// Commits mode state (populated later)
+	// Right pane: commit graph
 	commits      []commitEntry
 	commitCursor int
+	commitsLoading bool
 
-	// Diff preview (bottom panel within overlay)
+	// Right pane: diff preview
+	rightMode   rightPaneMode
 	diffPreview string
 	diffPath    string
 	diffStaged  bool
@@ -87,18 +89,19 @@ type commitEntry struct {
 // NewOverlay creates a new GitFileTree overlay.
 func NewOverlay(id models.PaneID, meta models.PaneMeta, common models.CommonModel, adapter adapters.GitAdapter, repoPath string) *GitFileTreeOverlay {
 	return &GitFileTreeOverlay{
-		id:       id,
-		meta:     meta,
-		common:   common,
-		adapter:  adapter,
-		repoPath: repoPath,
-		mode:     modeFiles,
+		id:         id,
+		meta:       meta,
+		common:     common,
+		adapter:    adapter,
+		repoPath:   repoPath,
+		rightMode:  rightPaneGraph,
 	}
 }
 
 func (o *GitFileTreeOverlay) Init() tea.Cmd {
 	o.fileLoading = true
-	return tea.Batch(o.loadStatusCmd(), o.loadFilesCmd())
+	o.commitsLoading = true
+	return tea.Batch(o.loadStatusCmd(), o.loadCommitsCmd())
 }
 
 func (o *GitFileTreeOverlay) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
@@ -109,10 +112,9 @@ func (o *GitFileTreeOverlay) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 		o.status = msg.status
 		o.rebuildFileEntries()
 		o.clampFileCursor()
-		return o, nil
+		return o, o.previewSelectedFile()
 
 	case gitFilesLoadedMsg:
-		// Files loaded from tree walk
 		return o, nil
 
 	case diffLoadedMsg:
@@ -121,6 +123,16 @@ func (o *GitFileTreeOverlay) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 			o.diffPreview = msg.diff
 			o.diffPath = msg.path
 			o.diffStaged = msg.staged
+			if o.diffPath != "" {
+				o.rightMode = rightPaneDiff
+			}
+		}
+		return o, nil
+
+	case commitsLoadedMsg:
+		o.commitsLoading = false
+		if msg.err == nil {
+			o.commits = msg.commits
 		}
 		return o, nil
 
@@ -132,13 +144,6 @@ func (o *GitFileTreeOverlay) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 }
 
 func (o *GitFileTreeOverlay) updateKey(msg tea.KeyPressMsg) (models.Panel, tea.Cmd) {
-	if o.mode == modeFiles {
-		return o.updateFilesKey(msg)
-	}
-	return o.updateCommitsKey(msg)
-}
-
-func (o *GitFileTreeOverlay) updateFilesKey(msg tea.KeyPressMsg) (models.Panel, tea.Cmd) {
 	count := len(o.files)
 
 	switch msg.Keystroke() {
@@ -152,18 +157,15 @@ func (o *GitFileTreeOverlay) updateFilesKey(msg tea.KeyPressMsg) (models.Panel, 
 			o.fileCursor--
 		}
 		return o, o.previewSelectedFile()
-	case "tab":
-		o.mode = modeCommits
-		if len(o.commits) == 0 {
-			return o, o.loadCommitsCmd()
-		}
-		return o, nil
 	case "space":
 		return o.handleStageToggle()
 	case "a":
 		return o, o.handleStageAllToggle()
 	case "d":
 		return o, o.handleDiff()
+	case "g":
+		o.rightMode = rightPaneGraph
+		return o, nil
 	case "c":
 		return o, o.handleCommit()
 	case "ctrl+d":
@@ -179,44 +181,73 @@ func (o *GitFileTreeOverlay) updateFilesKey(msg tea.KeyPressMsg) (models.Panel, 
 	return o, nil
 }
 
-func (o *GitFileTreeOverlay) updateCommitsKey(msg tea.KeyPressMsg) (models.Panel, tea.Cmd) {
-	switch msg.Keystroke() {
-	case "j", "down":
-		if o.commitCursor < len(o.commits)-1 {
-			o.commitCursor++
-		}
-	case "k", "up":
-		if o.commitCursor > 0 {
-			o.commitCursor--
-		}
-	case "tab":
-		o.mode = modeFiles
-	case "esc", "q":
-		return o, closeOverlayCmd(o.id)
-	}
-	return o, nil
-}
-
 func (o *GitFileTreeOverlay) View() tea.View {
-	width := o.width
-	if width <= 0 {
-		width = 80
+	w := o.width
+	if w <= 0 {
+		w = 80
+	}
+	h := o.height
+	if h <= 0 {
+		h = 24
 	}
 
-	lines := []string{o.renderHeader(width)}
+	// Header
+	header := o.renderHeader(w)
 
-	if o.mode == modeFiles {
-		lines = append(lines, o.renderFilesMode(width)...)
-	} else {
-		lines = append(lines, o.renderCommitsMode(width)...)
+	// Content area
+	contentH := h - 2 // header + footer
+	if contentH < 1 {
+		contentH = 1
 	}
 
-	// Clamp to height
-	if o.height > 0 && len(lines) > o.height {
-		lines = lines[:o.height]
+	leftW := w / 3
+	if leftW < 28 {
+		leftW = 28
+	}
+	if leftW > 45 {
+		leftW = 45
+	}
+	rightW := w - leftW - 1 // 1 col separator
+	if rightW < 20 {
+		rightW = 20
+		leftW = w - rightW - 1
 	}
 
-	return tea.NewView(strings.Join(lines, "\n"))
+	leftContent := o.renderLeftPane(leftW, contentH)
+	rightContent := o.renderRightPane(rightW, contentH)
+
+	// Pad both panes to same height
+	leftLines := strings.Split(leftContent, "\n")
+	rightLines := strings.Split(rightContent, "\n")
+	for len(leftLines) < contentH {
+		leftLines = append(leftLines, strings.Repeat(" ", leftW))
+	}
+	for len(rightLines) < contentH {
+		rightLines = append(rightLines, strings.Repeat(" ", rightW))
+	}
+	if len(leftLines) > contentH {
+		leftLines = leftLines[:contentH]
+	}
+	if len(rightLines) > contentH {
+		rightLines = rightLines[:contentH]
+	}
+
+	// Join horizontally line by line
+	sep := lipgloss.NewStyle().Foreground(styles.Subtle).Render("│")
+	var contentLines []string
+	for i := 0; i < contentH; i++ {
+		ll := lipgloss.NewStyle().Width(leftW).Render(leftLines[i])
+		rl := lipgloss.NewStyle().Width(rightW).Render(rightLines[i])
+		contentLines = append(contentLines, ll+sep+rl)
+	}
+
+	// Footer hint
+	footer := o.renderFooter(w)
+
+	allLines := append([]string{header}, contentLines...)
+	allLines = append(allLines, footer)
+
+	return tea.NewView(strings.Join(allLines, "\n"))
 }
 
 func (o *GitFileTreeOverlay) SetSize(width, height int) {
@@ -247,29 +278,27 @@ func (o *GitFileTreeOverlay) renderHeader(width int) string {
 		parts = append(parts, behindStyle.Render(fmt.Sprintf("↓%d", o.status.Behind)))
 	}
 
-	modeIndicator := "[1 Files]"
-	if o.mode == modeCommits {
-		modeIndicator = "[2 Commits]"
+	rightLabel := "[G]raph"
+	if o.rightMode == rightPaneDiff {
+		rightLabel = "[D]iff"
 	}
-	parts = append(parts, tabStyle.Render(modeIndicator))
+	parts = append(parts, lipgloss.NewStyle().Foreground(styles.Subtle).Render(rightLabel))
 
 	return headerStyle.MaxWidth(width).Render(strings.Join(parts, " "))
 }
 
-func (o *GitFileTreeOverlay) renderFilesMode(width int) []string {
+func (o *GitFileTreeOverlay) renderLeftPane(width, height int) string {
 	if o.fileLoading && o.status == nil {
-		return []string{loadingStyle.Render("Loading git status...")}
+		return loadingStyle.Render("Loading...")
 	}
 	if o.fileErr != nil {
-		return []string{errorStyle.Render("Error: " + o.fileErr.Error())}
+		return errorStyle.Render("Err: "+truncate(o.fileErr.Error(), width-4))
 	}
 	if o.status == nil {
-		return []string{emptyStyle.Render("No git status available.")}
+		return emptyStyle.Render("No git status.")
 	}
 
 	var lines []string
-	lines = append(lines, "")
-
 	// Section: Conflicted
 	conflicted := o.filesInSection("conflicted")
 	lines = append(lines, o.renderSection("Conflicted", conflicted, width)...)
@@ -290,39 +319,86 @@ func (o *GitFileTreeOverlay) renderFilesMode(width int) []string {
 		lines = append(lines, emptyStyle.Render("  Working tree clean."))
 	}
 
-	// Diff preview (bottom area)
-	if o.diffPreview != "" && o.height > 20 {
-		lines = append(lines, "", diffSeparatorStyle.Render(strings.Repeat("─", width)))
-		previewLines := strings.Split(o.diffPreview, "\n")
-		maxPreview := (o.height - len(lines)) / 2
-		if maxPreview < 3 {
-			maxPreview = 3
-		}
-		if len(previewLines) > maxPreview {
-			previewLines = previewLines[:maxPreview]
-		}
-		for _, pl := range previewLines {
-			lines = append(lines, o.renderDiffLine(pl))
-		}
+	// Truncate or pad to height
+	if len(lines) > height {
+		lines = lines[:height]
 	}
-
-	// Footer hint
-	lines = append(lines, "", hintStyle.Render(
-		"[j/k]nav [space]stage [d]iff [a]ll [c]ommit [ctrl+d]discard [tab]commits [esc]close",
-	))
-
-	return lines
+	for len(lines) < height {
+		lines = append(lines, "")
+	}
+	return strings.Join(lines, "\n")
 }
 
-func (o *GitFileTreeOverlay) renderCommitsMode(width int) []string {
-	if len(o.commits) == 0 {
-		return []string{"", emptyStyle.Render("  Loading commits...")}
+func (o *GitFileTreeOverlay) renderRightPane(width, height int) string {
+	if o.rightMode == rightPaneDiff {
+		return o.renderDiffPane(width, height)
+	}
+	return o.renderGraphPane(width, height)
+}
+
+func (o *GitFileTreeOverlay) renderDiffPane(width, height int) string {
+	if o.diffLoading {
+		return loadingStyle.Render("Loading diff...")
+	}
+	if o.diffPreview == "" {
+		return emptyStyle.Render("Select a file to preview diff. Press [d] to load, [g] for graph.")
 	}
 
 	var lines []string
-	lines = append(lines, "")
+	if o.diffPath != "" {
+		dir := filepath.Dir(o.diffPath)
+		if dir == "." {
+			dir = ""
+		}
+		name := filepath.Base(o.diffPath)
+		label := name
+		if dir != "" {
+			label = dir + "/" + name
+		}
+		if o.diffStaged {
+			label += " (staged)"
+		}
+		lines = append(lines, lipgloss.NewStyle().Bold(true).Foreground(styles.Accent).Render(truncate(label, width)))
+	}
 
+	previewLines := strings.Split(o.diffPreview, "\n")
+	available := height - len(lines)
+	if available < 3 {
+		available = 3
+	}
+	for i, pl := range previewLines {
+		if i >= available {
+			remaining := len(previewLines) - available
+			if remaining > 0 {
+				lines = append(lines, hintStyle.Render(fmt.Sprintf("  ... %d more lines", remaining)))
+			}
+			break
+		}
+		lines = append(lines, o.renderDiffLine(pl))
+	}
+
+	if len(lines) > height {
+		lines = lines[:height]
+	}
+	for len(lines) < height {
+		lines = append(lines, "")
+	}
+	return strings.Join(lines, "\n")
+}
+
+func (o *GitFileTreeOverlay) renderGraphPane(width, height int) string {
+	if o.commitsLoading {
+		return loadingStyle.Render("Loading commits...")
+	}
+	if len(o.commits) == 0 {
+		return emptyStyle.Render("No commits.")
+	}
+
+	var lines []string
 	for i, c := range o.commits {
+		if len(lines) >= height {
+			break
+		}
 		prefix := "  "
 		if i == o.commitCursor {
 			prefix = "> "
@@ -331,15 +407,38 @@ func (o *GitFileTreeOverlay) renderCommitsMode(width int) []string {
 		if len(shortHash) > 7 {
 			shortHash = shortHash[:7]
 		}
-		line := fmt.Sprintf("%s%s %s %s", prefix, hashStyle.Render(shortHash), authorStyle.Render(truncate(c.Author, 12)), truncate(c.Subject, width-30))
+		// Simple symbol based on position
+		symbol := "◯"
+		if i == 0 {
+			symbol = "●"
+		}
+		if i == o.commitCursor {
+			symbol = "⏣"
+		}
+
+		hashPart := hashStyle.Render(shortHash)
+		authorPart := authorStyle.Render(truncate(c.Author, 10))
+		subjectPart := truncate(c.Subject, width-28)
+		line := fmt.Sprintf("%s%s %s %s %s", prefix, symbol, hashPart, authorPart, subjectPart)
 		if i == o.commitCursor {
 			line = selectedStyle.Width(width).Render(line)
 		}
 		lines = append(lines, line)
 	}
 
-	lines = append(lines, "", hintStyle.Render("[j/k]nav [d]iff [tab]files [esc]close"))
-	return lines
+	if len(lines) > height {
+		lines = lines[:height]
+	}
+	for len(lines) < height {
+		lines = append(lines, "")
+	}
+	return strings.Join(lines, "\n")
+}
+
+func (o *GitFileTreeOverlay) renderFooter(width int) string {
+	return hintStyle.MaxWidth(width).Render(
+		"[j/k]nav [space]stage [a]ll [d]iff [g]raph [c]ommit [ctrl+d]discard [enter]open [esc]close",
+	)
 }
 
 func (o *GitFileTreeOverlay) renderSection(title string, entries []fileEntry, width int) []string {
@@ -351,14 +450,21 @@ func (o *GitFileTreeOverlay) renderSection(title string, entries []fileEntry, wi
 	lines = append(lines, sectionStyle.Render(title+fmt.Sprintf(" (%d)", len(entries))))
 
 	for _, e := range entries {
-		icon, colorStr := statusIconAndColor(e.file, e.status)
+		statusIcon, colorStr := statusIconAndColor(e.file, e.status)
 		name := filepath.Base(e.file.Path)
 		if e.file.OriginalPath != "" && e.file.OriginalPath != e.file.Path {
 			name = filepath.Base(e.file.OriginalPath) + " -> " + name
 		}
 
-		statusStr := statusStyle.Copy().Foreground(lipgloss.Color(colorStr)).Render(icon)
-		line := fmt.Sprintf("  %s %s", statusStr, nameStyle.Render(name))
+		// File type icon via Nerd Fonts
+		fileTypeIcon, _ := filebrowser.FileIcon(name, false, filebrowser.IconModeNerd)
+		if fileTypeIcon == "" {
+			fileTypeIcon = " "
+		}
+
+		statusStr := statusStyle.Copy().Foreground(lipgloss.Color(colorStr)).Render(statusIcon)
+		// line: "  status fileIcon name"
+		line := fmt.Sprintf("  %s %s %s", statusStr, fileTypeIcon, nameStyle.Render(name))
 
 		idx := o.fileIndex(e.file.Path, e.status)
 		if idx == o.fileCursor {
@@ -671,7 +777,6 @@ var (
 	upstreamStyle      = lipgloss.NewStyle().Foreground(styles.Subtle)
 	aheadStyle         = lipgloss.NewStyle().Foreground(styles.Success)
 	behindStyle        = lipgloss.NewStyle().Foreground(styles.Warning)
-	tabStyle           = lipgloss.NewStyle().Foreground(styles.Subtle)
 	sectionStyle       = lipgloss.NewStyle().Bold(true).Foreground(styles.Text)
 	nameStyle          = lipgloss.NewStyle().Foreground(styles.Text)
 	statusStyle        = lipgloss.NewStyle().Bold(true)
@@ -682,7 +787,6 @@ var (
 	hintStyle          = lipgloss.NewStyle().Foreground(styles.Subtle)
 	hashStyle          = lipgloss.NewStyle().Foreground(styles.Accent)
 	authorStyle        = lipgloss.NewStyle().Foreground(styles.Subtle)
-	diffSeparatorStyle = lipgloss.NewStyle().Foreground(styles.Subtle)
 	addedLineStyle     = lipgloss.NewStyle().Foreground(styles.Success)
 	removedLineStyle   = lipgloss.NewStyle().Foreground(styles.Overdue)
 	hunkHeaderStyle    = lipgloss.NewStyle().Foreground(styles.Accent)

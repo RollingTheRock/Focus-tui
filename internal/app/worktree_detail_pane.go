@@ -28,8 +28,6 @@ type worktreeDetailPane struct {
 	repoID     string
 	worktreeID string
 
-	activeTab detailTab
-
 	// Tasks for this worktree
 	tasks      []models.TaskContextRecord
 	taskCursor int
@@ -40,12 +38,6 @@ type worktreeDetailPane struct {
 	width  int
 	height int
 }
-
-type detailTab int
-
-const (
-	tabTasks detailTab = iota
-)
 
 func newWorktreeDetailPane(id models.PaneID, meta models.PaneMeta, common *models.CommonModel, adapter adapters.GitAdapter, repoID string) *worktreeDetailPane {
 	p := &worktreeDetailPane{
@@ -182,7 +174,7 @@ func (p *worktreeDetailPane) SetSize(width, height int) {
 }
 
 func contentHeight(total int) int {
-	ch := total - 3 - agentCardsHeight() // tab bar + agent cards
+	ch := total - agentCardsHeight()
 	if ch < 3 {
 		ch = 3
 	}
@@ -317,8 +309,6 @@ func emptyLine(w, h int) string {
 }
 
 var (
-	detailTabStyle         = lipgloss.NewStyle().Foreground(styles.Subtle)
-	detailTabActiveStyle   = lipgloss.NewStyle().Bold(true).Foreground(styles.Accent)
 	detailMetaStyle        = lipgloss.NewStyle().Foreground(styles.Subtle)
 	detailSelectedRowStyle = lipgloss.NewStyle().Background(styles.Highlight)
 )

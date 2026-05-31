@@ -2261,7 +2261,6 @@ func TestWorktreeDetailPaneTasksTabOpensTaskEditOnEnterAndE(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected worktreeDetailPane, got %T", m.activePage.pane(paneWorktreeDetail))
 	}
-	detail.activeTab = tabTasks
 	detail.worktreeID = worktreeID
 	detail.loadTasks()
 
