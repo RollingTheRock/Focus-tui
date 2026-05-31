@@ -10,9 +10,8 @@ import (
 	"focus/internal/models"
 	appstyles "focus/internal/styles"
 
-	"github.com/charmbracelet/bubbles/textarea"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/textarea"
+	tea "charm.land/bubbletea/v2"
 )
 
 var _ models.Panel = (*CommitPane)(nil)
@@ -61,17 +60,7 @@ func NewCommitPane(id models.PaneID, meta models.PaneMeta, common models.CommonM
 	input.Placeholder = "Subject on the first line, details below"
 	input.Prompt = "│ "
 	input.ShowLineNumbers = false
-
-	focusedStyle, blurredStyle := textarea.DefaultStyles()
-	focusedStyle.Base = lipgloss.NewStyle().Foreground(appstyles.Text)
-	focusedStyle.CursorLine = lipgloss.NewStyle()
-	focusedStyle.Prompt = lipgloss.NewStyle().Foreground(appstyles.Accent)
-	focusedStyle.Placeholder = lipgloss.NewStyle().Foreground(appstyles.Subtle)
-	focusedStyle.Text = lipgloss.NewStyle().Foreground(appstyles.Text)
-	blurredStyle = focusedStyle
-	blurredStyle.Prompt = lipgloss.NewStyle().Foreground(appstyles.Subtle)
-	input.FocusedStyle = focusedStyle
-	input.BlurredStyle = blurredStyle
+	input.SetStyles(appstyles.TextareaStyles())
 	input.SetWidth(56)
 	input.SetHeight(6)
 
@@ -104,15 +93,14 @@ func (p *CommitPane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 		p.err = nil
 		return p, commitCompletedCmd(p.id, p.repoPath)
 
-	case tea.KeyMsg:
-		switch msg.Type {
-		case tea.KeyEsc:
+	case tea.KeyPressMsg:
+		switch msg.Keystroke() {
+		case "esc":
 			return p, closeCommitCmd(p.id)
-		case tea.KeyCtrlS:
+		case "ctrl+s":
 			return p.submit()
-		case tea.KeyCtrlJ:
-			return p.submit()
-		}
+		case "ctrl+j":
+			return p.submit()}
 	}
 
 	var cmd tea.Cmd
@@ -120,7 +108,7 @@ func (p *CommitPane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 	return p, cmd
 }
 
-func (p *CommitPane) View() string {
+func (p *CommitPane) View() tea.View {
 	width := p.width
 	if width <= 0 {
 		width = 60
@@ -150,7 +138,7 @@ func (p *CommitPane) View() string {
 		lines[i] = appstyles.StyleCache.MaxWidth(width).Render(lines[i])
 	}
 
-	return strings.Join(lines, "\n")
+	return tea.NewView(strings.Join(lines, "\n"))
 }
 
 func (p *CommitPane) SetSize(width, height int) {

@@ -9,7 +9,7 @@ import (
 	"focus/internal/models"
 	editorplugin "focus/internal/plugins/editor"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 func TestPluginCreatePaneReturnsTreePane(t *testing.T) {
@@ -65,8 +65,8 @@ func TestTreePaneRefreshLoadsDirectoryAndRendersIcons(t *testing.T) {
 
 	view := pane.View()
 	for _, want := range []string{filepath.Base(dir), "main.go", "pkg", "📁", "📄"} {
-		if !strings.Contains(view, want) {
-			t.Fatalf("expected view to contain %q, got:\n%s", want, view)
+		if !strings.Contains(view.Content, want) {
+			t.Fatalf("expected view to contain %q, got:\n%s", want, view.Content)
 		}
 	}
 	if pane.loading {
@@ -87,13 +87,13 @@ func TestTreePaneNavigationAndToggleDirectory(t *testing.T) {
 
 	pane := &TreePane{root: root, flatList: flattenVisibleNodes(root)}
 
-	updated, _ := pane.Update(tea.KeyMsg{Type: tea.KeyDown})
+	updated, _ := pane.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	pane = updated.(*TreePane)
 	if pane.cursor != 1 {
 		t.Fatalf("expected cursor 1, got %d", pane.cursor)
 	}
 
-	updated, _ = pane.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ = pane.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	pane = updated.(*TreePane)
 	if !dir.Collapsed {
 		t.Fatalf("expected directory to collapse")
@@ -102,7 +102,7 @@ func TestTreePaneNavigationAndToggleDirectory(t *testing.T) {
 		t.Fatalf("expected collapsed list to hide nested file, got %d nodes", len(pane.flatList))
 	}
 
-	updated, _ = pane.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ = pane.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	pane = updated.(*TreePane)
 	if dir.Collapsed {
 		t.Fatalf("expected directory to expand")
@@ -122,7 +122,7 @@ func TestTreePaneRefreshPreservesCollapseStateAndFindsNewFiles(t *testing.T) {
 	pane = updated.(*TreePane)
 
 	pane.cursor = 1
-	updated, _ = pane.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ = pane.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	pane = updated.(*TreePane)
 	if !pane.flatList[1].Collapsed {
 		t.Fatalf("expected pkg directory to be collapsed")
@@ -136,15 +136,15 @@ func TestTreePaneRefreshPreservesCollapseStateAndFindsNewFiles(t *testing.T) {
 		t.Fatalf("expected collapse state to persist across refresh")
 	}
 
-	updated, _ = pane.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ = pane.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	pane = updated.(*TreePane)
 	if pane.flatList[1].Collapsed {
 		t.Fatalf("expected directory to expand after toggle")
 	}
 
 	view := pane.View()
-	if !strings.Contains(view, "two.go") {
-		t.Fatalf("expected refreshed view to contain new file, got:\n%s", view)
+	if !strings.Contains(view.Content, "two.go") {
+		t.Fatalf("expected refreshed view to contain new file, got:\n%s", view.Content)
 	}
 }
 
@@ -154,7 +154,7 @@ func TestTreePaneEnterOnFileEmitsOpenEditorMsg(t *testing.T) {
 	root.Children = []*FileNode{file}
 	pane := &TreePane{root: root, flatList: flattenVisibleNodes(root), cursor: 1}
 
-	updated, cmd := pane.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, cmd := pane.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	pane = updated.(*TreePane)
 	msg, ok := runCmd(t, cmd).(editorplugin.OpenEditorMsg)
 	if !ok {
@@ -175,7 +175,7 @@ func TestTreePaneVOnFileEmitsSplitEditorMsg(t *testing.T) {
 	root.Children = []*FileNode{file}
 	pane := &TreePane{root: root, flatList: flattenVisibleNodes(root), cursor: 1}
 
-	_, cmd := pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'v'}})
+	_, cmd := pane.Update(tea.KeyPressMsg{Code: 'v', Text: "v"})
 	msg, ok := runCmd(t, cmd).(editorplugin.OpenEditorMsg)
 	if !ok {
 		t.Fatalf("expected OpenEditorMsg, got %T", runCmd(t, cmd))

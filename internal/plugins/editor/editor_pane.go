@@ -12,10 +12,10 @@ import (
 	"focus/internal/models"
 	appstyles "focus/internal/styles"
 
-	"github.com/charmbracelet/bubbles/textarea"
-	"github.com/charmbracelet/bubbles/textinput"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/textarea"
+	"charm.land/bubbles/v2/textinput"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 var _ models.Panel = (*EditorPane)(nil)
@@ -125,16 +125,7 @@ func NewEditorPane(id models.PaneID, meta models.PaneMeta, common models.CommonM
 	input.Placeholder = "Start typing..."
 	input.Prompt = ""
 	input.ShowLineNumbers = true
-	focusedStyle, blurredStyle := textarea.DefaultStyles()
-	focusedStyle.Base = lipgloss.NewStyle().Foreground(appstyles.Text)
-	focusedStyle.CursorLine = lipgloss.NewStyle().Background(appstyles.Highlight)
-	focusedStyle.LineNumber = lipgloss.NewStyle().Foreground(appstyles.Subtle)
-	focusedStyle.CursorLineNumber = lipgloss.NewStyle().Foreground(appstyles.Accent)
-	focusedStyle.Placeholder = lipgloss.NewStyle().Foreground(appstyles.Subtle)
-	focusedStyle.Text = lipgloss.NewStyle().Foreground(appstyles.Text)
-	blurredStyle = focusedStyle
-	input.FocusedStyle = focusedStyle
-	input.BlurredStyle = blurredStyle
+	input.SetStyles(appstyles.TextareaEditorStyles())
 	input.SetWidth(60)
 	input.SetHeight(12)
 	miniInput := textinput.New()
@@ -165,12 +156,12 @@ func (p *EditorPane) Init() tea.Cmd {
 
 func (p *EditorPane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 	if p.confirmClose {
-		if key, ok := msg.(tea.KeyMsg); ok {
+		if key, ok := msg.(tea.KeyPressMsg); ok {
 			return p.updateCloseConfirm(key)
 		}
 	}
 	if p.mode != editorModeNormal {
-		if key, ok := msg.(tea.KeyMsg); ok {
+		if key, ok := msg.(tea.KeyPressMsg); ok {
 			return p.updateMiniInput(key)
 		}
 	}
@@ -253,22 +244,19 @@ func (p *EditorPane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 		p.notice = ""
 		return p, p.loadFileCmd(fileReloadedNotice(p.filePath))
 
-	case tea.KeyMsg:
-		switch msg.Type {
-		case tea.KeyCtrlS:
+	case tea.KeyPressMsg:
+		switch msg.Keystroke() {
+		case "ctrl+s":
 			return p.submitSave()
-		case tea.KeyCtrlF:
+		case "ctrl+f":
 			return p.startSearchMode()
-		case tea.KeyEsc:
+		case "esc":
 			if p.dirty {
 				p.confirmClose = true
 				p.err = nil
 				p.notice = ""
-				return p, nil
-			}
+				return p, nil}
 			return p, closeEditorCmd(p.id)
-		}
-		switch msg.String() {
 		case "/":
 			return p.startSearchMode()
 		case ":":
@@ -298,7 +286,7 @@ func (p *EditorPane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 	return p, cmd
 }
 
-func (p *EditorPane) View() string {
+func (p *EditorPane) View() tea.View {
 	width := p.width
 	if width <= 0 {
 		width = 60
@@ -365,7 +353,7 @@ func (p *EditorPane) View() string {
 	for i := range lines {
 		lines[i] = appstyles.StyleCache.MaxWidth(width).Render(lines[i])
 	}
-	return strings.Join(lines, "\n")
+	return tea.NewView(strings.Join(lines, "\n"))
 }
 
 func (p *EditorPane) SetSize(width, height int) {
@@ -479,7 +467,7 @@ func (p *EditorPane) checkExternalFileCmd() tea.Cmd {
 	}
 }
 
-func (p *EditorPane) updateCloseConfirm(msg tea.KeyMsg) (models.Panel, tea.Cmd) {
+func (p *EditorPane) updateCloseConfirm(msg tea.KeyPressMsg) (models.Panel, tea.Cmd) {
 	switch strings.ToLower(msg.String()) {
 	case "y":
 		p.confirmClose = false
@@ -528,20 +516,19 @@ func (p *EditorPane) startJumpMode() (models.Panel, tea.Cmd) {
 	return p, p.miniInput.Focus()
 }
 
-func (p *EditorPane) updateMiniInput(msg tea.KeyMsg) (models.Panel, tea.Cmd) {
-	switch msg.Type {
-	case tea.KeyEsc:
+func (p *EditorPane) updateMiniInput(msg tea.KeyPressMsg) (models.Panel, tea.Cmd) {
+	switch msg.Keystroke() {
+	case "esc":
 		p.mode = editorModeNormal
 		p.miniInput.Blur()
 		return p, nil
-	case tea.KeyEnter:
+	case "enter":
 		value := strings.TrimSpace(p.miniInput.Value())
 		p.mode = editorModeNormal
 		p.miniInput.Blur()
 		if value == "" {
 			p.notice = ""
-			return p, nil
-		}
+			return p, nil}
 		if p.miniInput.Prompt == "/ " {
 			return p.executeSearch(value)
 		}
@@ -645,8 +632,8 @@ func (p *EditorPane) moveToTarget(target cursorTarget) {
 	p.input.CursorStart()
 }
 
-func (p *EditorPane) updatePreviewKey(msg tea.KeyMsg) (models.Panel, tea.Cmd) {
-	switch msg.String() {
+func (p *EditorPane) updatePreviewKey(msg tea.KeyPressMsg) (models.Panel, tea.Cmd) {
+	switch msg.Keystroke() {
 	case "j", "down":
 		p.previewScroll = clampInt(p.previewScroll+1, 0, p.maxPreviewScroll())
 	case "k", "up":
@@ -658,8 +645,7 @@ func (p *EditorPane) updatePreviewKey(msg tea.KeyMsg) (models.Panel, tea.Cmd) {
 	case "g", "home":
 		p.previewScroll = 0
 	case "G", "end":
-		p.previewScroll = p.maxPreviewScroll()
-	}
+		p.previewScroll = p.maxPreviewScroll()}
 	return p, nil
 }
 

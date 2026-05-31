@@ -9,7 +9,8 @@ import (
 	"focus/internal/models"
 	"focus/internal/styles"
 
-	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
+	tea "charm.land/bubbletea/v2"
 )
 
 func TestSessionPaneNavigation(t *testing.T) {
@@ -26,25 +27,25 @@ func TestSessionPaneNavigation(t *testing.T) {
 		t.Fatalf("expected cursor 0, got %d", pane.cursor)
 	}
 
-	updated, _ := pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	updated, _ := pane.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
 	p := updated.(*SessionPane)
 	if p.cursor != 1 {
 		t.Fatalf("expected cursor 1 after j, got %d", p.cursor)
 	}
 
-	updated, _ = p.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	updated, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
 	p = updated.(*SessionPane)
 	if p.cursor != 2 {
 		t.Fatalf("expected cursor 2 after second j, got %d", p.cursor)
 	}
 
-	updated, _ = p.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	updated, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
 	p = updated.(*SessionPane)
 	if p.cursor != 2 {
 		t.Fatalf("expected cursor to stay at 2 at boundary, got %d", p.cursor)
 	}
 
-	updated, _ = p.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'k'}})
+	updated, _ = p.Update(tea.KeyPressMsg{Code: 'k', Text: "k"})
 	p = updated.(*SessionPane)
 	if p.cursor != 1 {
 		t.Fatalf("expected cursor 1 after k, got %d", p.cursor)
@@ -58,7 +59,7 @@ func TestSessionPaneFocusAction(t *testing.T) {
 		{ID: "s1", Provider: agents.ProviderOpenCode, PID: 1001, WorktreeID: "/tmp/wt1", StartedAt: time.Now()},
 	})
 
-	updated, cmd := pane.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, cmd := pane.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if cmd == nil {
 		t.Fatal("expected cmd from enter action")
 	}
@@ -83,7 +84,7 @@ func TestSessionPaneKillAction(t *testing.T) {
 		{ID: "s1", Provider: agents.ProviderClaude, PID: 2002, WorktreeID: "/tmp/wt2", StartedAt: time.Now()},
 	})
 
-	updated, cmd := pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
+	updated, cmd := pane.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
 	if cmd == nil {
 		t.Fatal("expected cmd from kill action")
 	}
@@ -108,7 +109,7 @@ func TestSessionPaneLaunchAction(t *testing.T) {
 		{ID: "s1", Provider: agents.ProviderKimi, PID: 3003, WorktreeID: "/tmp/wt3", StartedAt: time.Now()},
 	})
 
-	updated, cmd := pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+	updated, cmd := pane.Update(tea.KeyPressMsg{Code: 'a', Text: "a"})
 	if cmd == nil {
 		t.Fatal("expected cmd from launch action")
 	}
@@ -153,7 +154,7 @@ func TestSessionPaneViewNotEmpty(t *testing.T) {
 	})
 
 	view := pane.View()
-	if view == "" {
+	if view.Content == "" {
 		t.Fatal("expected non-empty view")
 	}
 }
@@ -165,11 +166,11 @@ func TestSessionPaneEmptyState(t *testing.T) {
 	pane.SetSessions(nil)
 
 	view := pane.View()
-	if view == "" {
+	if view.Content == "" {
 		t.Fatal("expected non-empty view for empty state")
 	}
-	if !strings.Contains(view, "No running agents.") {
-		t.Fatalf("expected empty state message, got:\n%s", view)
+	if !strings.Contains(ansi.Strip(view.Content), "No running agents.") {
+		t.Fatalf("expected empty state message, got:\n%s", view.Content)
 	}
 }
 
@@ -185,13 +186,13 @@ func TestSessionPaneShowsRunningAndRecentSections(t *testing.T) {
 	})
 	view := pane.View()
 	for _, want := range []string{"Running", "Attention", "Recent", "opencode  [running]", "claude  [failed]", "kimi  [exited]", "last:", "tool call failed"} {
-		if !strings.Contains(view, want) {
-			t.Fatalf("expected view to contain %q, got:\n%s", want, view)
+		if !strings.Contains(ansi.Strip(view.Content), want) {
+			t.Fatalf("expected view to contain %q, got:\n%s", want, view.Content)
 		}
 	}
 	for _, want := range []string{"tmp/wt1", "tmp/wt2", "tmp/wt3"} {
-		if !strings.Contains(view, want) {
-			t.Fatalf("expected grouped worktree label %q, got:\n%s", want, view)
+		if !strings.Contains(ansi.Strip(view.Content), want) {
+			t.Fatalf("expected grouped worktree label %q, got:\n%s", want, view.Content)
 		}
 	}
 }

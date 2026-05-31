@@ -11,7 +11,7 @@ import (
 	editorplugin "focus/internal/plugins/editor"
 	"focus/internal/styles"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -90,14 +90,14 @@ func (p *TreePane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 		p.loading = true
 		return p, p.refreshTreeCmd()
 
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		return p.updateKey(msg)
 	}
 
 	return p, nil
 }
 
-func (p *TreePane) View() string {
+func (p *TreePane) View() tea.View {
 	width := p.width
 	if width <= 0 {
 		width = 40
@@ -107,17 +107,17 @@ func (p *TreePane) View() string {
 
 	if p.loading && p.root == nil && p.err == nil {
 		lines = append(lines, emptyStyle.Render("Loading file tree..."))
-		return p.fitHeight(lines, width)
+		return tea.NewView(p.fitHeight(lines, width))
 	}
 
 	if p.err != nil && p.root == nil {
 		lines = append(lines, errorStyle.MaxWidth(width).Render("Unable to load file tree: "+p.err.Error()))
-		return p.fitHeight(lines, width)
+		return tea.NewView(p.fitHeight(lines, width))
 	}
 
 	if len(p.flatList) == 0 {
 		lines = append(lines, emptyStyle.Render("No files found."))
-		return p.fitHeight(lines, width)
+		return tea.NewView(p.fitHeight(lines, width))
 	}
 
 	start, end := p.visibleRange()
@@ -132,7 +132,7 @@ func (p *TreePane) View() string {
 		lines = append(lines, metaStyle.Render(fmt.Sprintf("  ▼ %d hidden", len(p.flatList)-end)))
 	}
 
-	return p.fitHeight(lines, width)
+	return tea.NewView(p.fitHeight(lines, width))
 }
 
 func (p *TreePane) SetSize(width, height int) {
@@ -140,17 +140,16 @@ func (p *TreePane) SetSize(width, height int) {
 	p.height = height
 }
 
-func (p *TreePane) updateKey(msg tea.KeyMsg) (models.Panel, tea.Cmd) {
+func (p *TreePane) updateKey(msg tea.KeyPressMsg) (models.Panel, tea.Cmd) {
 	count := len(p.flatList)
 	if count == 0 {
 		return p, nil
 	}
 
-	switch msg.String() {
+	switch msg.Keystroke() {
 	case "j", "down":
 		if p.cursor < count-1 {
-			p.cursor++
-		}
+			p.cursor++}
 	case "k", "up":
 		if p.cursor > 0 {
 			p.cursor--

@@ -6,7 +6,7 @@ import (
 
 	"focus/internal/models"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 func TestRegisterRejectsDuplicatePluginName(t *testing.T) {
@@ -151,8 +151,8 @@ func (stubPanel) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 	return stubPanel{}, nil
 }
 
-func (stubPanel) View() string {
-	return ""
+func (stubPanel) View() tea.View {
+	return tea.NewView("")
 }
 
 func (stubPanel) SetSize(width, height int) {}

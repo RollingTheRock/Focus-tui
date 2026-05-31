@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"focus/internal/app"
 	"focus/internal/config"
 	"focus/internal/projections"
@@ -66,11 +66,7 @@ func main() {
 	}
 
 	m := app.New(cfg, st)
-	opts := []tea.ProgramOption{
-		tea.WithAltScreen(),
-		tea.WithMouseCellMotion(),
-	}
-	p := tea.NewProgram(m, opts...)
+	p := tea.NewProgram(m)
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)

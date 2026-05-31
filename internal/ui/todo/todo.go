@@ -8,9 +8,9 @@ import (
 	"focus/internal/models"
 	"focus/internal/styles"
 
-	"github.com/charmbracelet/bubbles/textinput"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/textinput"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -210,7 +210,7 @@ func (m *Model) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 	case sessionTimesLoadedMsg:
 		m.sessionTimes = msg.times
 
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		return m.updateNormal(msg)
 
 	case RefreshTodosMsg:
@@ -271,7 +271,7 @@ func (m *Model) updateTick() (models.Panel, tea.Cmd) {
 // --- Reminder ---
 
 func (m *Model) updateReminder(msg tea.Msg) (models.Panel, tea.Cmd) {
-	if keyMsg, ok := msg.(tea.KeyMsg); ok {
+	if keyMsg, ok := msg.(tea.KeyPressMsg); ok {
 		switch keyMsg.String() {
 		case "b":
 			// Stop all timers, reset focus.
@@ -327,23 +327,22 @@ func (m *Model) updateReminder(msg tea.Msg) (models.Panel, tea.Cmd) {
 
 // --- Normal mode keys ---
 
-func (m *Model) updateNormal(msg tea.KeyMsg) (models.Panel, tea.Cmd) {
+func (m *Model) updateNormal(msg tea.KeyPressMsg) (models.Panel, tea.Cmd) {
 	if m.bulkMode {
 		return m.updateBulkMode(msg)
 	}
 
-	switch msg.String() {
+	switch msg.Keystroke() {
 	case "j", "down":
 		if m.cursor < len(m.items)-1 {
-			m.cursor++
-		}
+			m.cursor++}
 	case "k", "up":
 		if m.cursor > 0 {
 			m.cursor--
 		}
 	case "enter":
 		return m, m.toggleCurrentTimer()
-	case " ":
+	case "space":
 		return m, m.toggleCurrent()
 	case "a":
 		m.inputMode = inputAdd
@@ -389,17 +388,16 @@ func (m *Model) updateNormal(msg tea.KeyMsg) (models.Panel, tea.Cmd) {
 	return m, nil
 }
 
-func (m *Model) updateBulkMode(msg tea.KeyMsg) (models.Panel, tea.Cmd) {
-	switch msg.String() {
+func (m *Model) updateBulkMode(msg tea.KeyPressMsg) (models.Panel, tea.Cmd) {
+	switch msg.Keystroke() {
 	case "j", "down":
 		if m.cursor < len(m.items)-1 {
-			m.cursor++
-		}
+			m.cursor++}
 	case "k", "up":
 		if m.cursor > 0 {
 			m.cursor--
 		}
-	case " ":
+	case "space":
 		if cur := m.currentItem(); cur != nil {
 			m.marked[cur.ID] = !m.marked[cur.ID]
 			if !m.marked[cur.ID] {
@@ -473,15 +471,14 @@ func (m *Model) toggleCurrentTimer() tea.Cmd {
 
 func (m *Model) updateInput(msg tea.Msg) (models.Panel, tea.Cmd) {
 	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		switch msg.String() {
+	case tea.KeyPressMsg:
+		switch msg.Keystroke() {
 		case "enter":
 			text := strings.TrimSpace(m.input.Value())
 			if text != "" {
 				var cmd tea.Cmd
 				if m.inputMode == inputAdd {
-					cmd = m.addTodo(text)
-				} else {
+					cmd = m.addTodo(text)} else {
 					cmd = m.editTodo(m.editID, text)
 				}
 				m.inputMode = inputNone
@@ -505,21 +502,20 @@ func (m *Model) updateInput(msg tea.Msg) (models.Panel, tea.Cmd) {
 // --- Delete confirmation ---
 
 func (m *Model) updateConfirm(msg tea.Msg) (models.Panel, tea.Cmd) {
-	if msg, ok := msg.(tea.KeyMsg); ok {
-		switch msg.String() {
+	if msg, ok := msg.(tea.KeyPressMsg); ok {
+		switch msg.Keystroke() {
 		case "y":
 			m.confirmDelete = false
 			return m, m.deleteCurrent()
 		default:
-			m.confirmDelete = false
-		}
+			m.confirmDelete = false}
 	}
 	return m, nil
 }
 
 // --- View ---
 
-func (m *Model) View() string {
+func (m *Model) View() tea.View {
 	w := m.width
 	if w <= 0 {
 		w = 50
@@ -641,7 +637,7 @@ func (m *Model) View() string {
 	}
 	b.WriteString(hintStyle.Render(ansi.Truncate(footer, contentW, "…")) + "\n")
 
-	return b.String()
+	return tea.NewView(b.String())
 }
 
 // --- Render helpers ---

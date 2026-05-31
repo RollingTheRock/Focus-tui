@@ -2,6 +2,7 @@ package app
 
 import (
 	"errors"
+	"fmt"
 	"sort"
 	"strings"
 
@@ -11,9 +12,9 @@ import (
 	gitplugin "focus/internal/plugins/git"
 	"focus/internal/styles"
 
-	"github.com/charmbracelet/bubbles/textinput"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/huh/v2"
+	"charm.land/lipgloss/v2"
 )
 
 // dagPane shows the full Task DAG at the top of the screen.
@@ -40,36 +41,18 @@ type dagPane struct {
 	scrollOffset int
 
 	// quick-create state
-	creating    bool
-	titleInput  textinput.Model
-	goalInput   textinput.Model
-	createFocus int // 0=title, 1=goal
-	createErr   error
+	creating   bool
+	createForm *huh.Form
+	createErr  error
 }
 
 func newDagPane(id models.PaneID, meta models.PaneMeta, common *models.CommonModel, repoID string, adapter adapters.GitAdapter) *dagPane {
-	titleInput := textinput.New()
-	titleInput.Prompt = "New task title: "
-	titleInput.Placeholder = "e.g. Bug: crash on empty input"
-	titleInput.PromptStyle = lipgloss.NewStyle().Foreground(styles.Accent)
-	titleInput.TextStyle = lipgloss.NewStyle().Foreground(styles.Text)
-	titleInput.PlaceholderStyle = lipgloss.NewStyle().Foreground(styles.Subtle)
-
-	goalInput := textinput.New()
-	goalInput.Prompt = "Goal (optional): "
-	goalInput.Placeholder = "What should this task achieve?"
-	goalInput.PromptStyle = lipgloss.NewStyle().Foreground(styles.Accent)
-	goalInput.TextStyle = lipgloss.NewStyle().Foreground(styles.Text)
-	goalInput.PlaceholderStyle = lipgloss.NewStyle().Foreground(styles.Subtle)
-
 	return &dagPane{
-		id:         id,
-		meta:       meta,
-		common:     *common,
-		repoID:     repoID,
-		adapter:    adapter,
-		titleInput: titleInput,
-		goalInput:  goalInput,
+		id:      id,
+		meta:    meta,
+		common:  *common,
+		repoID:  repoID,
+		adapter: adapter,
 	}
 }
 
@@ -104,28 +87,30 @@ func (p *dagPane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 		p.buildDAG()
 		return p, nil
 
-	case tea.KeyMsg:
-		if p.creating {
-			switch msg.String() {
-			case "esc":
-				p.exitCreateMode()
-				return p, nil
-			case "tab":
-				p.toggleCreateFocus()
-				return p, nil
-			case "enter", "ctrl+s":
-				return p, p.submitCreate()
+		case tea.KeyPressMsg:
+			if p.creating && p.createForm != nil {
+				if msg.Keystroke() == "esc" {
+					p.exitCreateMode()
+					return p, nil
+				}
+				m, cmd := p.createForm.Update(msg)
+				if f, ok := m.(*huh.Form); ok {
+					p.createForm = f
+				}
+				// Only flush on Enter to avoid per-keystroke overhead in production.
+				if msg.Keystroke() == "enter" {
+					p.flushFormCmds(cmd)
+				}
+				if p.createForm.State == huh.StateCompleted {
+					title := strings.TrimSpace(p.createForm.GetString("title"))
+					goal := strings.TrimSpace(p.createForm.GetString("goal"))
+					p.exitCreateMode()
+					return p, p.submitCreate(title, goal)
+				}
+				return p, cmd
 			}
-			var cmd tea.Cmd
-			if p.createFocus == 0 {
-				p.titleInput, cmd = p.titleInput.Update(msg)
-			} else {
-				p.goalInput, cmd = p.goalInput.Update(msg)
-			}
-			return p, cmd
-		}
 
-		switch msg.String() {
+			switch msg.Keystroke() {
 		case "R":
 			return p, p.refreshCmd()
 		case "j", "down":
@@ -149,8 +134,7 @@ func (p *dagPane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 		case "t":
 			return p, p.addToTodayTodosCmd()
 		case "n":
-			p.enterCreateMode()
-			return p, textinput.Blink
+			return p, p.enterCreateMode()
 		case "d":
 			return p, p.deleteTaskCmd()
 		case "D":
@@ -594,44 +578,82 @@ type dagTasksClearedMsg struct {
 	RepoID string
 }
 
-func (p *dagPane) enterCreateMode() {
+func (p *dagPane) enterCreateMode() tea.Cmd {
 	p.creating = true
-	p.createFocus = 0
 	p.createErr = nil
-	p.titleInput.SetValue("")
-	p.titleInput.Focus()
-	p.goalInput.SetValue("")
-	p.goalInput.Blur()
+	p.createForm = huh.NewForm(
+		huh.NewGroup(
+			huh.NewInput().
+				Key("title").
+				Title("New task title").
+				Placeholder("e.g. Bug: crash on empty input").
+				Validate(huh.ValidateNotEmpty()),
+			huh.NewInput().
+				Key("goal").
+				Title("Goal (optional)").
+				Placeholder("What should this task achieve?"),
+		),
+	).WithWidth(p.width).WithHeight(10)
+	return p.createForm.Init()
+}
+
+// flushFormCmds synchronously processes Huh form commands (e.g. NextField,
+// nextGroup) so that field transitions and form completion happen immediately.
+// This is needed because Huh uses async tea.Cmd for navigation, and tests do
+// not run a full Bubble Tea runtime.
+func (p *dagPane) flushFormCmds(cmd tea.Cmd) {
+	if p.createForm == nil || cmd == nil {
+		return
+	}
+	for i := 0; i < 30 && cmd != nil; i++ {
+		msg := cmd()
+		if msg == nil {
+			break
+		}
+		// Skip cursor blink messages to avoid infinite loops.
+		if strings.Contains(fmt.Sprintf("%T", msg), "BlinkMsg") {
+			break
+		}
+		// Handle BatchMsg: execute each sub-command in order.
+		if batch, ok := msg.(tea.BatchMsg); ok {
+			for _, c := range batch {
+				if c == nil {
+					continue
+				}
+				m := c()
+				if m == nil {
+					continue
+				}
+				if strings.Contains(fmt.Sprintf("%T", m), "BlinkMsg") {
+					continue
+				}
+				m2, _ := p.createForm.Update(m)
+				if f, ok := m2.(*huh.Form); ok {
+					p.createForm = f
+				}
+			}
+			break
+		}
+		// Pass other messages (including sequenceMsg) through form.Update.
+		m, c := p.createForm.Update(msg)
+		if f, ok := m.(*huh.Form); ok {
+			p.createForm = f
+		}
+		cmd = c
+	}
 }
 
 func (p *dagPane) exitCreateMode() {
 	p.creating = false
 	p.createErr = nil
-	p.titleInput.SetValue("")
-	p.titleInput.Blur()
-	p.goalInput.SetValue("")
-	p.goalInput.Blur()
+	p.createForm = nil
 }
 
-func (p *dagPane) toggleCreateFocus() {
-	if p.createFocus == 0 {
-		p.createFocus = 1
-		p.titleInput.Blur()
-		p.goalInput.Focus()
-	} else {
-		p.createFocus = 0
-		p.goalInput.Blur()
-		p.titleInput.Focus()
-	}
-}
-
-func (p *dagPane) submitCreate() tea.Cmd {
-	title := strings.TrimSpace(p.titleInput.Value())
+func (p *dagPane) submitCreate(title, goal string) tea.Cmd {
 	if title == "" {
 		p.createErr = errors.New("task title cannot be empty")
 		return nil
 	}
-	goal := strings.TrimSpace(p.goalInput.Value())
 	p.exitCreateMode()
 	return func() tea.Msg {
 		return dagTaskCreatedMsg{
@@ -645,15 +667,9 @@ func (p *dagPane) submitCreate() tea.Cmd {
 func (p *dagPane) SetSize(width, height int) {
 	p.width = width
 	p.height = height
-	inputWidth := width - 8
-	if inputWidth < 24 {
-		inputWidth = 24
-	}
-	p.titleInput.Width = inputWidth
-	p.goalInput.Width = inputWidth
 }
 
-func (p *dagPane) View() string {
+func (p *dagPane) View() tea.View {
 	w := p.width
 	if w <= 0 {
 		w = 80
@@ -674,7 +690,7 @@ func (p *dagPane) View() string {
 
 	if !p.hasDAG() && !p.creating {
 		lines = append(lines, dagMutedStyle.Render("  No tasks yet. Press [r] to refresh."))
-		return p.clampAndJoin(lines, h, w)
+		return tea.NewView(p.clampAndJoin(lines, h, w))
 	}
 
 	bodyH := h - headerRows
@@ -707,18 +723,15 @@ func (p *dagPane) View() string {
 		lines = append(lines, dagMutedStyle.Render("  ▼ ..."))
 	}
 
-	if p.creating {
+	if p.creating && p.createForm != nil {
 		lines = append(lines, "")
-		lines = append(lines, p.titleInput.View())
-		lines = append(lines, p.goalInput.View())
+		lines = append(lines, p.createForm.View())
 		if p.createErr != nil {
 			lines = append(lines, dagErrorStyle.Render("Error: "+p.createErr.Error()))
-		} else {
-			lines = append(lines, dagHintStyle.Render("Enter title and optional goal, then press Enter to save"))
 		}
 	}
 
-	return p.clampAndJoin(lines, h, w)
+	return tea.NewView(p.clampAndJoin(lines, h, w))
 }
 
 func dagHelpHint(width int, creating bool) string {

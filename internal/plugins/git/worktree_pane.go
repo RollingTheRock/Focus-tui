@@ -13,8 +13,9 @@ import (
 	"focus/internal/render"
 	"focus/internal/styles"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/spinner"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -38,6 +39,7 @@ type WorktreePane struct {
 	agentSessions map[string][]agents.Session
 	cursor        int
 	loading       bool
+	spinner       spinner.Model
 	width         int
 	height        int
 	err           error
@@ -132,7 +134,10 @@ func NewWorktreePane(id models.PaneID, meta models.PaneMeta, common models.Commo
 
 func (p *WorktreePane) Init() tea.Cmd {
 	p.loading = true
-	return p.loadWorktreesCmd()
+	p.spinner = spinner.New()
+	p.spinner.Spinner = spinner.Dot
+	p.spinner.Style = lipgloss.NewStyle().Foreground(styles.Accent)
+	return tea.Batch(p.loadWorktreesCmd(), p.spinner.Tick)
 }
 
 func (p *WorktreePane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
@@ -148,6 +153,10 @@ func (p *WorktreePane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 			p.notice = fmt.Sprintf("Loaded %d worktrees", len(p.worktrees))
 		}
 		return p, nil
+	case spinner.TickMsg:
+		var cmd tea.Cmd
+		p.spinner, cmd = p.spinner.Update(msg)
+		return p, cmd
 	case WorktreeRemovedMsg:
 		p.loading = true
 		p.err = nil
@@ -161,12 +170,11 @@ func (p *WorktreePane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 		p.loading = true
 		p.notice = ""
 		return p, p.loadWorktreesCmd()
-	case tea.KeyMsg:
-		switch msg.String() {
+	case tea.KeyPressMsg:
+		switch msg.Keystroke() {
 		case "j", "down":
 			if p.cursor < len(p.visibleWorktrees())-1 {
-				p.cursor++
-			}
+				p.cursor++}
 		case "k", "up":
 			if p.cursor > 0 {
 				p.cursor--
@@ -244,7 +252,7 @@ func (p *WorktreePane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 	return p, nil
 }
 
-func (p *WorktreePane) View() string {
+func (p *WorktreePane) View() tea.View {
 	width := p.width
 	if width <= 0 {
 		width = 40
@@ -255,12 +263,12 @@ func (p *WorktreePane) View() string {
 	}
 	canvas := render.NewCanvas(width, height)
 	p.Render(canvas, width, height)
-	return canvas.Render()
+	return tea.NewView(canvas.Render())
 }
 
 func (p *WorktreePane) Render(canvas render.Surface, width, height int) {
 	if p.loading && len(p.worktrees) == 0 && p.err == nil {
-		canvas.SetString(0, 0, loadingStyle.Render("Loading worktrees…"), nil)
+		canvas.SetString(0, 0, p.spinner.View(), nil)
 		return
 	}
 	if p.err != nil && len(p.worktrees) == 0 {

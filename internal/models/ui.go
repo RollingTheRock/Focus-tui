@@ -6,7 +6,7 @@ import (
 	"focus/internal/styles"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 // Store defines the storage interface used by UI components.
@@ -279,7 +279,7 @@ type CommonModel struct {
 type Panel interface {
 	Init() tea.Cmd
 	Update(msg tea.Msg) (Panel, tea.Cmd)
-	View() string
+	View() tea.View
 	SetSize(width, height int)
 }
 

@@ -3,7 +3,7 @@ package filebrowser
 import (
 	appstyles "focus/internal/styles"
 
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
 )
 
 var (

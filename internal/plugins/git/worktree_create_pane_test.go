@@ -7,7 +7,7 @@ import (
 	gitmodel "focus/internal/git"
 	"focus/internal/models"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 func TestWorktreePaneNewKeyOpensCreateOverlay(t *testing.T) {
@@ -16,7 +16,7 @@ func TestWorktreePaneNewKeyOpensCreateOverlay(t *testing.T) {
 	updated, _ := pane.Update(worktreesLoadedMsg{worktrees: adapter.worktrees})
 	pane = updated.(*WorktreePane)
 
-	updated, cmd := pane.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+	updated, cmd := pane.Update(tea.KeyPressMsg{Code: 'n', Text: "n"})
 	pane = updated.(*WorktreePane)
 	if cmd == nil {
 		t.Fatalf("expected create-worktree command")
@@ -39,8 +39,8 @@ func TestCreateWorktreePaneSubmitCreatesWorktree(t *testing.T) {
 	pane := NewWorktreeCreatePane("create-1", models.PaneMeta{ID: "create-1", Type: "worktree-create", CWD: "/repo/focus-tui"}, models.CommonModel{}, adapter, OpenCreateWorktreeMsg{RepoPath: "/repo/focus-tui", BaseRef: "main"})
 	pane.SetSize(80, 12)
 
-	pane.inputs[createWorktreeFieldBranch].SetValue("feature-a")
-	pane.inputs[createWorktreeFieldPath].SetValue("/repo/focus-tui-feature-a")
+	pane.formValues.branch = "feature-a"
+	pane.formValues.path = "/repo/focus-tui-feature-a"
 	updated, cmd := pane.submit()
 	pane = updated.(*WorktreeCreatePane)
 	if cmd == nil {
@@ -73,10 +73,11 @@ func TestCreateWorktreePaneSubmitCreatesWorktree(t *testing.T) {
 func TestCreateWorktreePaneViewShowsHints(t *testing.T) {
 	pane := NewWorktreeCreatePane("create-1", models.PaneMeta{ID: "create-1", Type: "worktree-create", CWD: "/repo/focus-tui"}, models.CommonModel{}, &fakeGitAdapter{}, OpenCreateWorktreeMsg{RepoPath: "/repo/focus-tui", BaseRef: "main"})
 	pane.SetSize(80, 12)
+	runCmd(t, pane.Init())
 	view := pane.View()
-	for _, want := range []string{"Create Worktree", "Task (optional):", "Branch:", "Base ref:", "Path:", "Ctrl+S create"} {
-		if !strings.Contains(view, want) {
-			t.Fatalf("expected view to contain %q, got:\n%s", want, view)
+	for _, want := range []string{"Create Worktree", "Task (optional)", "Branch", "Base ref", "Path", "Ctrl+S create"} {
+		if !strings.Contains(view.Content, want) {
+			t.Fatalf("expected view to contain %q, got:\n%s", want, view.Content)
 		}
 	}
 }

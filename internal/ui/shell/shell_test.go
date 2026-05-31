@@ -5,7 +5,7 @@ import (
 
 	"focus/internal/models"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 func TestSessionStatus(t *testing.T) {
@@ -41,7 +41,7 @@ func TestScopedShellMessagesIgnoreOtherPanes(t *testing.T) {
 func TestExitedShellRestartsOnKeyPress(t *testing.T) {
 	m := &Model{id: "shell-1", exited: true}
 
-	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if cmd == nil {
 		t.Fatalf("expected restart command after key press")
 	}

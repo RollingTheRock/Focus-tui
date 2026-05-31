@@ -6,8 +6,8 @@ import (
 	"focus/internal/models"
 	"focus/internal/styles"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 type tabContainer struct {
@@ -124,7 +124,7 @@ func (tc *tabContainer) SetSize(width, height int) {
 	tc.adrPane.SetSize(width, contentH)
 }
 
-func (tc *tabContainer) View() string {
+func (tc *tabContainer) View() tea.View {
 	w := tc.width
 	if w <= 0 {
 		w = 80
@@ -142,10 +142,10 @@ func (tc *tabContainer) View() string {
 	}
 	tc.activePane().SetSize(w, contentH)
 	content := tc.activePane().View()
-	lines = append(lines, content)
-	return lipgloss.NewStyle().MaxWidth(w).MaxHeight(h).Render(
+	lines = append(lines, content.Content)
+	return tea.NewView(lipgloss.NewStyle().MaxWidth(w).MaxHeight(h).Render(
 		lipgloss.JoinVertical(lipgloss.Left, lines...),
-	)
+	))
 }
 
 func (tc *tabContainer) renderTabBar(w int) string {

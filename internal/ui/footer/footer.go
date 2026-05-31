@@ -6,8 +6,8 @@ import (
 	"focus/internal/models"
 	"focus/internal/styles"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 // Model is the Footer panel sub-model.
@@ -48,7 +48,7 @@ func (m *Model) Refresh() tea.Cmd {
 	return m.loadStats
 }
 
-func (m *Model) View() string {
+func (m *Model) View() tea.View {
 	w := m.width
 	if w <= 0 {
 		w = 80
@@ -71,7 +71,7 @@ func (m *Model) View() string {
 		Align(lipgloss.Center).
 		Render(content)
 
-	return bar
+	return tea.NewView(bar)
 }
 
 func (m *Model) SetSize(width, height int) {

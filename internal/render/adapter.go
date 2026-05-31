@@ -4,7 +4,7 @@ import (
 	"focus/internal/models"
 	"focus/internal/styles"
 
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -19,7 +19,7 @@ func NewStringAdapter(panel models.Panel) *StringAdapter {
 func (a *StringAdapter) Render(canvas Surface, width, height int) {
 	a.panel.SetSize(width, height)
 	content := a.panel.View()
-	lines := splitLines(content)
+	lines := splitLines(content.Content)
 	for y, line := range lines {
 		if y >= height {
 			break

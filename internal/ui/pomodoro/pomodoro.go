@@ -8,8 +8,8 @@ import (
 	"focus/internal/models"
 	"focus/internal/styles"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 // Phase represents the current pomodoro phase.
@@ -112,13 +112,13 @@ func (m *Model) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 		m.linkedTodoText = msg.TodoText
 		return m, m.startTimer()
 
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		return m.updateNormal(msg)
 	}
 	return m, nil
 }
 
-func (m *Model) View() string {
+func (m *Model) View() tea.View {
 	w := m.width
 	if w <= 0 {
 		w = 40
@@ -129,7 +129,7 @@ func (m *Model) View() string {
 	}
 
 	if m.pickerActive {
-		return m.viewPicker(w, h)
+		return tea.NewView(m.viewPicker(w, h))
 	}
 
 	var lines []string
@@ -189,7 +189,7 @@ func (m *Model) View() string {
 		lines = append(lines, "")
 	}
 
-	return strings.Join(lines, "\n")
+	return tea.NewView(strings.Join(lines, "\n"))
 }
 
 func (m *Model) SetSize(width, height int) {
@@ -283,13 +283,12 @@ func (m *Model) CurrentPhase() Phase {
 
 // --- Normal mode keys ---
 
-func (m *Model) updateNormal(msg tea.KeyMsg) (models.Panel, tea.Cmd) {
-	switch msg.String() {
+func (m *Model) updateNormal(msg tea.KeyPressMsg) (models.Panel, tea.Cmd) {
+	switch msg.Keystroke() {
 	case "s":
 		if m.phase == PhaseIdle {
 			// Start: show todo picker.
-			return m, m.loadPickerTodos()
-		}
+			return m, m.loadPickerTodos()}
 	case "p":
 		if m.running {
 			m.paused = !m.paused
@@ -345,12 +344,11 @@ func (m *Model) updatePicker(msg tea.Msg) (models.Panel, tea.Cmd) {
 			return m, m.startTimer()
 		}
 
-	case tea.KeyMsg:
-		switch msg.String() {
+	case tea.KeyPressMsg:
+		switch msg.Keystroke() {
 		case "j", "down":
 			if m.pickerCursor < len(m.pickerItems)-1 {
-				m.pickerCursor++
-			}
+				m.pickerCursor++}
 		case "k", "up":
 			if m.pickerCursor > 0 {
 				m.pickerCursor--

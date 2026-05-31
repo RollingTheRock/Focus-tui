@@ -3,7 +3,7 @@ package app
 import (
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"focus/internal/models"
 )
 
@@ -29,7 +29,7 @@ func TestTabContainerSurvivesBroadcast(t *testing.T) {
 	}
 
 	// KeyMsg must also return *tabContainer
-	newPanel3, _ := tc.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'A'}})
+	newPanel3, _ := tc.Update(tea.KeyPressMsg{Code: 'A', Text: "A"})
 	if _, ok := newPanel3.(*tabContainer); !ok {
 		t.Fatalf("KeyMsg A: expected *tabContainer, got %T", newPanel3)
 	}
