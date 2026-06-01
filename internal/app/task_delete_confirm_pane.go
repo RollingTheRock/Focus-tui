@@ -6,8 +6,8 @@ import (
 	"focus/internal/models"
 	appstyles "focus/internal/styles"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 // CloseTaskDeleteConfirmMsg closes the task delete confirmation overlay.
@@ -16,13 +16,13 @@ type CloseTaskDeleteConfirmMsg struct {
 }
 
 type taskDeleteConfirmPane struct {
-	id       models.PaneID
-	taskID   string
+	id        models.PaneID
+	taskID    string
 	taskTitle string
-	clearAll bool
-	repoID   string
-	width    int
-	height   int
+	clearAll  bool
+	repoID    string
+	width     int
+	height    int
 }
 
 func newTaskDeleteConfirmPane(id models.PaneID, taskID, taskTitle, repoID string, clearAll bool) *taskDeleteConfirmPane {
@@ -45,7 +45,7 @@ func (p *taskDeleteConfirmPane) ID() models.PaneID {
 
 func (p *taskDeleteConfirmPane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 	switch msg := msg.(type) {
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		switch msg.String() {
 		case "y", "Y":
 			if p.clearAll {
@@ -65,7 +65,7 @@ func (p *taskDeleteConfirmPane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 	return p, nil
 }
 
-func (p *taskDeleteConfirmPane) View() string {
+func (p *taskDeleteConfirmPane) View() tea.View {
 	width := p.width
 	if width <= 0 {
 		width = 64
@@ -97,7 +97,7 @@ func (p *taskDeleteConfirmPane) View() string {
 	b.WriteByte('\n')
 	b.WriteString(lipgloss.NewStyle().Foreground(appstyles.Subtle).Render("y confirm · n cancel"))
 
-	return appstyles.StyleCache.MaxWidth(width).Render(b.String())
+	return tea.NewView(appstyles.StyleCache.MaxWidth(width).Render(b.String()))
 }
 
 func (p *taskDeleteConfirmPane) SetSize(width, height int) {

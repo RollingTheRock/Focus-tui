@@ -7,8 +7,8 @@ import (
 	"focus/internal/models"
 	appstyles "focus/internal/styles"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 // CloseAgentInstallHintMsg closes the install hint overlay.
@@ -45,7 +45,7 @@ func (p *agentInstallHintPane) Init() tea.Cmd { return nil }
 
 func (p *agentInstallHintPane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 	switch msg := msg.(type) {
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		switch msg.String() {
 		case "q", "esc":
 			return p, func() tea.Msg { return CloseAgentInstallHintMsg{} }
@@ -60,7 +60,7 @@ func (p *agentInstallHintPane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 	return p, nil
 }
 
-func (p *agentInstallHintPane) View() string {
+func (p *agentInstallHintPane) View() tea.View {
 	w := p.width
 	if w <= 0 {
 		w = 64
@@ -68,7 +68,7 @@ func (p *agentInstallHintPane) View() string {
 
 	def, err := p.common.Store.GetAgentDefinition(p.agentID)
 	if err != nil || def == nil {
-		return lipgloss.NewStyle().Foreground(appstyles.Warning).Render("Agent not found.")
+		return tea.NewView(lipgloss.NewStyle().Foreground(appstyles.Warning).Render("Agent not found."))
 	}
 
 	// Inner content width (accounting for box padding).
@@ -147,7 +147,7 @@ func (p *agentInstallHintPane) View() string {
 		Padding(1, 2).
 		Width(w)
 
-	return box.Render(b.String())
+	return tea.NewView(box.Render(b.String()))
 }
 
 func (p *agentInstallHintPane) SetSize(width, height int) {
