@@ -1,7 +1,7 @@
 package shell
 
 import (
-	"fmt"
+	"image/color"
 	"io"
 	"os"
 	"os/exec"
@@ -16,7 +16,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
-const shellRefreshInterval = 100 * time.Millisecond
+const shellRefreshInterval = 33 * time.Millisecond
 
 // Messages for the Bubbletea event loop.
 type StartedMsg struct{ PaneID models.PaneID }
@@ -186,6 +186,11 @@ func (m *Model) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 		if !m.running {
 			return m, nil
 		}
+		// Sync the cached mouse state so FastMouseSequence stays accurate
+		// without needing a lock on every scroll event.
+		if m.vterm != nil {
+			m.vterm.SyncMouseState()
+		}
 		// Only mark view dirty if the reader goroutine produced new output.
 		if m.dirty.CompareAndSwap(true, false) {
 			m.viewDirty = true
@@ -232,6 +237,9 @@ func (m *Model) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 			return m, nil
 		}
 		m.forwardMouse(msg)
+		// forwardMouse already sets viewDirty for scrollback navigation.
+		// For mouse-reporting apps the screen only changes after the PTY
+		// produces output, which readPtyLoop picks up on the next tick.
 		return m, nil
 	}
 	return m, nil
@@ -357,9 +365,10 @@ func (m *Model) forwardKey(msg tea.KeyPressMsg) {
 }
 
 // forwardMouse handles mouse events. When the inner PTY application has enabled
-// mouse reporting, events are encoded as SGR sequences and forwarded. When mouse
-// reporting is off (plain shell prompt), wheel events scroll the view through the
-// scrollback buffer instead.
+// mouse reporting, events are forwarded directly to the PTY using the cached
+// mouse mode state (IsMouseReportingFast / FastMouseSequence) to avoid lock
+// contention with readPtyLoop's Write. When mouse reporting is off, wheel
+// events scroll the view through the scrollback buffer instead.
 func (m *Model) forwardMouse(msg tea.MouseMsg) {
 	if m.pty == nil {
 		return
@@ -369,7 +378,7 @@ func (m *Model) forwardMouse(msg tea.MouseMsg) {
 
 	// When the inner app has NOT enabled mouse reporting, use wheel events for
 	// scrollback navigation rather than forwarding them as garbage bytes.
-	if !m.vterm.IsMouseReporting() {
+	if !m.vterm.IsMouseReportingFast() {
 		switch e.Button {
 		case tea.MouseWheelUp:
 			m.scrollOffset += 3
@@ -387,51 +396,29 @@ func (m *Model) forwardMouse(msg tea.MouseMsg) {
 		return
 	}
 
-	// Mouse-reporting mode: forward as SGR escape sequence to PTY.
-	// Format: ESC [ < Cb ; Cx ; Cy M/m
-	var cb int
-	switch e.Button {
-	case tea.MouseLeft:
-		cb = 0
-	case tea.MouseMiddle:
-		cb = 1
-	case tea.MouseRight:
-		cb = 2
-	case tea.MouseWheelUp:
-		cb = 64
-	case tea.MouseWheelDown:
-		cb = 65
-	case tea.MouseWheelLeft:
-		cb = 66
-	case tea.MouseWheelRight:
-		cb = 67
-	case 8:
-		cb = 128
-	case 9:
-		cb = 129
+	// Convert Bubble Tea mouse message to ultraviolet mouse event, preserving
+	// the original message type so that FastMouseSequence can correctly determine
+	// motion vs release vs click.
+	var uvMouse vt.Mouse
+	switch msg.(type) {
+	case tea.MouseWheelMsg:
+		uvMouse = vt.MouseWheel{X: e.X, Y: e.Y, Button: e.Button, Mod: e.Mod}
+	case tea.MouseMotionMsg:
+		uvMouse = vt.MouseMotion{X: e.X, Y: e.Y, Button: e.Button, Mod: e.Mod}
+	case tea.MouseReleaseMsg:
+		uvMouse = vt.MouseRelease{X: e.X, Y: e.Y, Button: e.Button, Mod: e.Mod}
+	case tea.MouseClickMsg:
+		uvMouse = vt.MouseClick{X: e.X, Y: e.Y, Button: e.Button, Mod: e.Mod}
 	default:
-		return
+		uvMouse = vt.MouseClick{X: e.X, Y: e.Y, Button: e.Button, Mod: e.Mod}
 	}
 
-	if e.Mod.Contains(tea.ModShift) {
-		cb |= 4
+	// Write directly to the PTY using the cached mouse state. This avoids
+	// RLock contention with readPtyLoop's Write lock, which is the root cause
+	// of the escalating latency during continuous scrolling.
+	if seq, ok := m.vterm.FastMouseSequence(uvMouse); ok {
+		m.pty.Write([]byte(seq)) //nolint:errcheck
 	}
-	if e.Mod.Contains(tea.ModAlt) {
-		cb |= 8
-	}
-	if e.Mod.Contains(tea.ModCtrl) {
-		cb |= 16
-	}
-	if _, ok := msg.(tea.MouseMotionMsg); ok {
-		cb |= 32
-	}
-
-	suffix := "M"
-	if _, ok := msg.(tea.MouseReleaseMsg); ok {
-		suffix = "m"
-	}
-	seq := fmt.Sprintf("\x1b[<%d;%d;%d%s", cb, e.X+1, e.Y+1, suffix)
-	m.pty.Write([]byte(seq)) //nolint:errcheck
 }
 
 // CursorPos returns the cursor's column (x) and row (y, 0-indexed) inside the
@@ -450,6 +437,19 @@ func (m *Model) CursorPos() (x, y int, visible bool) {
 	}
 	pos := m.vterm.CursorPosition()
 	return pos.X, pos.Y, true
+}
+
+// CursorInfo returns the cursor's position, visibility, style, steady state,
+// and color so that the outer Bubble Tea view can render a matching hardware
+// cursor.
+func (m *Model) CursorInfo() (x, y int, visible bool, style vt.CursorStyle, steady bool, curColor color.Color) {
+	if m.vterm == nil || !m.running {
+		return 0, 0, false, vt.CursorBlock, true, nil
+	}
+	if m.scrollOffset > 0 {
+		return 0, 0, false, vt.CursorBlock, true, nil
+	}
+	return m.vterm.CursorState()
 }
 
 // SessionStatus reports the shell lifecycle state for pane metadata.
