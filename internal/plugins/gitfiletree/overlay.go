@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"focus/internal/adapters"
 	"focus/internal/git"
@@ -56,8 +57,8 @@ type GitFileTreeOverlay struct {
 	fileErr     error
 
 	// Right pane: commit graph
-	commits      []commitEntry
-	commitCursor int
+	commits        []commitEntry
+	commitCursor   int
 	commitsLoading bool
 
 	// Right pane: diff preview
@@ -78,30 +79,31 @@ type fileEntry struct {
 }
 
 // commitEntry is a commit for the graph view.
+// Graph holds the raw prefix from git log --graph (e.g. "* | ", "|/  ").
 type commitEntry struct {
 	Hash    string
 	Subject string
 	Author  string
 	Date    string
-	Parents []string
+	Graph   string
 }
 
 // NewOverlay creates a new GitFileTree overlay.
 func NewOverlay(id models.PaneID, meta models.PaneMeta, common models.CommonModel, adapter adapters.GitAdapter, repoPath string) *GitFileTreeOverlay {
 	return &GitFileTreeOverlay{
-		id:         id,
-		meta:       meta,
-		common:     common,
-		adapter:    adapter,
-		repoPath:   repoPath,
-		rightMode:  rightPaneGraph,
+		id:        id,
+		meta:      meta,
+		common:    common,
+		adapter:   adapter,
+		repoPath:  repoPath,
+		rightMode: rightPaneGraph,
 	}
 }
 
 func (o *GitFileTreeOverlay) Init() tea.Cmd {
 	o.fileLoading = true
 	o.commitsLoading = true
-	return tea.Batch(o.loadStatusCmd(), o.loadCommitsCmd())
+	return tea.Batch(o.loadStatusCmd(), o.loadCommitsCmd(), o.autoRefreshCmd())
 }
 
 func (o *GitFileTreeOverlay) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
@@ -135,6 +137,9 @@ func (o *GitFileTreeOverlay) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 			o.commits = msg.commits
 		}
 		return o, nil
+
+	case autoRefreshMsg:
+		return o, tea.Batch(o.refreshCmd(), o.autoRefreshCmd())
 
 	case tea.KeyPressMsg:
 		return o.updateKey(msg)
@@ -292,7 +297,7 @@ func (o *GitFileTreeOverlay) renderLeftPane(width, height int) string {
 		return loadingStyle.Render("Loading...")
 	}
 	if o.fileErr != nil {
-		return errorStyle.Render("Err: "+truncate(o.fileErr.Error(), width-4))
+		return errorStyle.Render("Err: " + truncate(o.fileErr.Error(), width-4))
 	}
 	if o.status == nil {
 		return emptyStyle.Render("No git status.")
@@ -399,27 +404,31 @@ func (o *GitFileTreeOverlay) renderGraphPane(width, height int) string {
 		if len(lines) >= height {
 			break
 		}
-		prefix := "  "
-		if i == o.commitCursor {
-			prefix = "> "
+
+		// Pure graph line (merge connector with no commit data)
+		if c.Hash == "" {
+			styledGraph := styleGraphChars(c.Graph)
+			lines = append(lines, styledGraph)
+			continue
 		}
+
 		shortHash := c.Hash
 		if len(shortHash) > 7 {
 			shortHash = shortHash[:7]
 		}
-		// Simple symbol based on position
-		symbol := "◯"
-		if i == 0 {
-			symbol = "●"
-		}
-		if i == o.commitCursor {
-			symbol = "⏣"
-		}
 
+		graphPrefix := styleGraphChars(c.Graph)
 		hashPart := hashStyle.Render(shortHash)
 		authorPart := authorStyle.Render(truncate(c.Author, 10))
-		subjectPart := truncate(c.Subject, width-28)
-		line := fmt.Sprintf("%s%s %s %s %s", prefix, symbol, hashPart, authorPart, subjectPart)
+		// Reserve space for graph prefix + hash + author + spacing
+		prefixWidth := lipgloss.Width(graphPrefix)
+		subjectWidth := width - prefixWidth - 7 - 11 - 4 // hash(7) + author(10) + spaces(~4)
+		if subjectWidth < 10 {
+			subjectWidth = 10
+		}
+		subjectPart := truncate(c.Subject, subjectWidth)
+
+		line := fmt.Sprintf("%s%s %s %s", graphPrefix, hashPart, authorPart, subjectPart)
 		if i == o.commitCursor {
 			line = selectedStyle.Width(width).Render(line)
 		}
@@ -433,6 +442,27 @@ func (o *GitFileTreeOverlay) renderGraphPane(width, height int) string {
 		lines = append(lines, "")
 	}
 	return strings.Join(lines, "\n")
+}
+
+// styleGraphChars applies color styling to git graph drawing characters.
+func styleGraphChars(s string) string {
+	if s == "" {
+		return ""
+	}
+	var out strings.Builder
+	for _, r := range s {
+		switch r {
+		case '*':
+			out.WriteString(commitNodeStyle.Render(string(r)))
+		case '|', '/', '\\':
+			out.WriteString(graphLineStyle.Render(string(r)))
+		case '─', '├', '┘', '┌', '┬', '┐', '└', '┼':
+			out.WriteString(graphLineStyle.Render(string(r)))
+		default:
+			out.WriteString(graphLineStyle.Render(string(r)))
+		}
+	}
+	return out.String()
 }
 
 func (o *GitFileTreeOverlay) renderFooter(width int) string {
@@ -688,6 +718,12 @@ func (o *GitFileTreeOverlay) loadCommitsCmd() tea.Cmd {
 	}
 }
 
+func (o *GitFileTreeOverlay) autoRefreshCmd() tea.Cmd {
+	return tea.Tick(3*time.Second, func(time.Time) tea.Msg {
+		return autoRefreshMsg{}
+	})
+}
+
 func closeOverlayCmd(id models.PaneID) tea.Cmd {
 	return func() tea.Msg {
 		return CloseOverlayMsg{ID: id}
@@ -715,10 +751,12 @@ type commitsLoadedMsg struct {
 	err     error
 }
 
+type autoRefreshMsg struct{}
+
 // --- External helpers ---
 
 func loadCommits(repoPath string) ([]commitEntry, error) {
-	cmd := exec.Command("git", "-C", repoPath, "log", "--oneline", "--format=%H|%s|%an|%ar", "-50")
+	cmd := exec.Command("git", "-C", repoPath, "log", "--graph", "--format=%H|%s|%an|%ar", "-50")
 	out, err := cmd.Output()
 	if err != nil {
 		return nil, err
@@ -730,7 +768,13 @@ func loadCommits(repoPath string) ([]commitEntry, error) {
 		if line == "" {
 			continue
 		}
-		parts := strings.SplitN(line, "|", 4)
+		graph, data := splitGraphLine(line)
+		if data == "" {
+			// Pure graph line (merge connector)
+			commits = append(commits, commitEntry{Graph: graph})
+			continue
+		}
+		parts := strings.SplitN(data, "|", 4)
 		if len(parts) < 4 {
 			continue
 		}
@@ -739,9 +783,31 @@ func loadCommits(repoPath string) ([]commitEntry, error) {
 			Subject: parts[1],
 			Author:  parts[2],
 			Date:    parts[3],
+			Graph:   graph,
 		})
 	}
 	return commits, nil
+}
+
+// splitGraphLine separates the git graph prefix from commit data.
+// It looks for the first 40-character hex string (the full commit hash).
+func splitGraphLine(line string) (graph, data string) {
+	for i := 0; i <= len(line)-40; i++ {
+		candidate := line[i : i+40]
+		if isHex(candidate) {
+			return line[:i], line[i:]
+		}
+	}
+	return line, ""
+}
+
+func isHex(s string) bool {
+	for _, r := range s {
+		if !((r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F')) {
+			return false
+		}
+	}
+	return true
 }
 
 func statusIconAndColor(f git.File, section string) (string, string) {
@@ -787,6 +853,8 @@ var (
 	hintStyle          = lipgloss.NewStyle().Foreground(styles.Subtle)
 	hashStyle          = lipgloss.NewStyle().Foreground(styles.Accent)
 	authorStyle        = lipgloss.NewStyle().Foreground(styles.Subtle)
+	commitNodeStyle    = lipgloss.NewStyle().Foreground(styles.Accent)
+	graphLineStyle     = lipgloss.NewStyle().Foreground(styles.Subtle)
 	addedLineStyle     = lipgloss.NewStyle().Foreground(styles.Success)
 	removedLineStyle   = lipgloss.NewStyle().Foreground(styles.Overdue)
 	hunkHeaderStyle    = lipgloss.NewStyle().Foreground(styles.Accent)
