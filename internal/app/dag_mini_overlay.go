@@ -6,8 +6,8 @@ import (
 	"focus/internal/models"
 	appstyles "focus/internal/styles"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 // CloseDAGMiniOverlayMsg closes the DAG mini overlay.
@@ -43,7 +43,7 @@ func (p *dagMiniOverlayPane) ID() models.PaneID {
 
 func (p *dagMiniOverlayPane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 	switch msg := msg.(type) {
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		switch msg.String() {
 		case "q", "esc", "ctrl+c":
 			return p, func() tea.Msg {
@@ -54,7 +54,7 @@ func (p *dagMiniOverlayPane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 	return p, nil
 }
 
-func (p *dagMiniOverlayPane) View() string {
+func (p *dagMiniOverlayPane) View() tea.View {
 	width := p.width
 	if width <= 0 {
 		width = 64
@@ -87,7 +87,7 @@ func (p *dagMiniOverlayPane) View() string {
 	b.WriteByte('\n')
 	b.WriteString(lipgloss.NewStyle().Foreground(appstyles.Subtle).Render("[esc] or [q] close"))
 
-	return appstyles.StyleCache.MaxWidth(width).Render(b.String())
+	return tea.NewView(appstyles.StyleCache.MaxWidth(width).Render(b.String()))
 }
 
 func (p *dagMiniOverlayPane) SetSize(width, height int) {

@@ -6,8 +6,8 @@ import (
 	"focus/internal/models"
 	appstyles "focus/internal/styles"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 // CloseAgentRegisterMsg closes the register overlay.
@@ -17,14 +17,14 @@ type CloseAgentRegisterMsg struct{}
 type AgentRegisteredMsg struct{}
 
 type agentRegisterPane struct {
-	id       models.PaneID
-	meta     models.PaneMeta
-	common   models.CommonModel
-	width    int
-	height   int
-	fields   []field
-	cursor   int
-	errMsg   string
+	id     models.PaneID
+	meta   models.PaneMeta
+	common models.CommonModel
+	width  int
+	height int
+	fields []field
+	cursor int
+	errMsg string
 }
 
 type field struct {
@@ -50,24 +50,24 @@ func (p *agentRegisterPane) Init() tea.Cmd { return nil }
 
 func (p *agentRegisterPane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		switch msg.Type {
-		case tea.KeyEsc:
+	case tea.KeyPressMsg:
+		switch msg.String() {
+		case "esc":
 			return p, func() tea.Msg { return CloseAgentRegisterMsg{} }
-		case tea.KeyTab:
+		case "tab":
 			p.cursor = (p.cursor + 1) % len(p.fields)
-		case tea.KeyEnter:
+		case "enter":
 			if p.cursor == len(p.fields)-1 {
 				return p, p.save()
 			}
 			p.cursor++
-		case tea.KeyBackspace:
+		case "backspace":
 			if len(p.fields[p.cursor].value) > 0 {
 				p.fields[p.cursor].value = p.fields[p.cursor].value[:len(p.fields[p.cursor].value)-1]
 			}
 		default:
-			if msg.Type == tea.KeyRunes {
-				p.fields[p.cursor].value += string(msg.Runes)
+			if text := msg.Key().Text; text != "" {
+				p.fields[p.cursor].value += text
 			}
 		}
 	}
@@ -94,11 +94,11 @@ func (p *agentRegisterPane) save() tea.Cmd {
 	}
 
 	def := models.AgentDefinition{
-		ID:          id,
-		Name:        name,
-		Description: desc,
-		Binary:      binary,
-		Tags:        tags,
+		ID:           id,
+		Name:         name,
+		Description:  desc,
+		Binary:       binary,
+		Tags:         tags,
 		ProviderType: "generic",
 	}
 
@@ -110,7 +110,7 @@ func (p *agentRegisterPane) save() tea.Cmd {
 	return func() tea.Msg { return AgentRegisteredMsg{} }
 }
 
-func (p *agentRegisterPane) View() string {
+func (p *agentRegisterPane) View() tea.View {
 	w := p.width
 	if w <= 0 {
 		w = 56
@@ -148,7 +148,7 @@ func (p *agentRegisterPane) View() string {
 	b.WriteByte('\n')
 	b.WriteString(lipgloss.NewStyle().Foreground(appstyles.Subtle).Render("Tab move · Enter next/save · Esc cancel"))
 
-	return appstyles.StyleCache.MaxWidth(w).Render(b.String())
+	return tea.NewView(appstyles.StyleCache.MaxWidth(w).Render(b.String()))
 }
 
 func (p *agentRegisterPane) SetSize(width, height int) {
