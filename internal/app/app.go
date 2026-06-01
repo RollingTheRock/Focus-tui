@@ -2253,6 +2253,11 @@ func (m model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	m.invalidateView()
 
 	if overlayID := m.activeOverlayPane(); overlayID != "" {
+		f, _ := os.OpenFile("/tmp/overlay-debug.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		if f != nil {
+			_, _ = f.WriteString(fmt.Sprintf("APP handleKey overlay=%s keystroke=%s\n", overlayID, msg.Keystroke()))
+			_ = f.Close()
+		}
 		return m, m.routeToPane(overlayID, msg)
 	}
 

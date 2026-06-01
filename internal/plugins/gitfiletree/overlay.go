@@ -3,6 +3,7 @@ package gitfiletree
 import (
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
@@ -21,6 +22,14 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 )
+
+func logOverlay(s string) {
+	f, _ := os.OpenFile("/tmp/overlay-debug.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if f != nil {
+		_, _ = f.WriteString(time.Now().Format("15:04:05") + " " + s + "\n")
+		_ = f.Close()
+	}
+}
 
 // OpenGitFileTreeMsg triggers the GitFileTree overlay.
 type OpenGitFileTreeMsg struct {
@@ -142,6 +151,7 @@ func (o *GitFileTreeOverlay) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 		return o, tea.Batch(o.refreshCmd(), o.autoRefreshCmd())
 
 	case tea.KeyPressMsg:
+		logOverlay(fmt.Sprintf("Update received KeyPressMsg keystroke=%s", msg.Keystroke()))
 		return o.updateKey(msg)
 	}
 
@@ -150,6 +160,7 @@ func (o *GitFileTreeOverlay) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 
 func (o *GitFileTreeOverlay) updateKey(msg tea.KeyPressMsg) (models.Panel, tea.Cmd) {
 	count := len(o.files)
+	logOverlay(fmt.Sprintf("updateKey keystroke=%s files=%d cursor=%d", msg.Keystroke(), count, o.fileCursor))
 
 	switch msg.Keystroke() {
 	case "j", "down":
@@ -180,6 +191,7 @@ func (o *GitFileTreeOverlay) updateKey(msg tea.KeyPressMsg) (models.Panel, tea.C
 	case "enter":
 		return o, o.handleOpenFile()
 	case "esc", "q":
+		logOverlay("updateKey: returning closeOverlayCmd")
 		return o, closeOverlayCmd(o.id)
 	}
 
