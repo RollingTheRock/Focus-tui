@@ -15,6 +15,7 @@ import (
 	"focus/internal/plugins/editor"
 	filebrowser "focus/internal/plugins/filebrowser"
 	gitplugin "focus/internal/plugins/git"
+	"focus/internal/plugins/gitfiletree/graph"
 	"focus/internal/styles"
 
 	tea "charm.land/bubbletea/v2"
@@ -79,13 +80,12 @@ type fileEntry struct {
 }
 
 // commitEntry is a commit for the graph view.
-// Graph holds the raw prefix from git log --graph (e.g. "* | ", "|/  ").
 type commitEntry struct {
 	Hash    string
 	Subject string
 	Author  string
 	Date    string
-	Graph   string
+	Parents []string
 }
 
 // NewOverlay creates a new GitFileTree overlay.
@@ -399,70 +399,72 @@ func (o *GitFileTreeOverlay) renderGraphPane(width, height int) string {
 		return emptyStyle.Render("No commits.")
 	}
 
-	var lines []string
+	// Convert commitEntry to graph.Commit
+	gcommits := make([]graph.Commit, len(o.commits))
 	for i, c := range o.commits {
-		if len(lines) >= height {
-			break
+		gcommits[i] = graph.Commit{
+			Hash:    c.Hash,
+			Subject: c.Subject,
+			Author:  c.Author,
+			Date:    c.Date,
+			Parents: c.Parents,
 		}
+	}
 
-		// Pure graph line (merge connector with no commit data)
-		if c.Hash == "" {
-			styledGraph := styleGraphChars(c.Graph)
-			lines = append(lines, styledGraph)
-			continue
+	var selectedHash string
+	if o.commitCursor >= 0 && o.commitCursor < len(o.commits) {
+		selectedHash = o.commits[o.commitCursor].Hash
+	}
+
+	renderer := graph.NewRenderer(gcommits, selectedHash)
+	graphWidth := width / 3
+	if graphWidth < 12 {
+		graphWidth = 12
+	}
+	if graphWidth > 30 {
+		graphWidth = 30
+	}
+	graphLines := renderer.Render(graphWidth)
+
+	// Right side: commit info (hash author subject)
+	infoWidth := width - graphWidth - 1
+	if infoWidth < 10 {
+		infoWidth = 10
+	}
+
+	var lines []string
+	for i := 0; i < len(graphLines) && i < height; i++ {
+		var info string
+		if i < len(o.commits) {
+			c := o.commits[i]
+			shortHash := c.Hash
+			if len(shortHash) > 7 {
+				shortHash = shortHash[:7]
+			}
+			hashPart := hashStyle.Render(shortHash)
+			authorPart := authorStyle.Render(graph.Truncate(c.Author, 10))
+			subjectPart := graph.Truncate(c.Subject, infoWidth-22)
+			info = fmt.Sprintf(" %s %s %s", hashPart, authorPart, subjectPart)
 		}
-
-		shortHash := c.Hash
-		if len(shortHash) > 7 {
-			shortHash = shortHash[:7]
-		}
-
-		graphPrefix := styleGraphChars(c.Graph)
-		hashPart := hashStyle.Render(shortHash)
-		authorPart := authorStyle.Render(truncate(c.Author, 10))
-		// Reserve space for graph prefix + hash + author + spacing
-		prefixWidth := lipgloss.Width(graphPrefix)
-		subjectWidth := width - prefixWidth - 7 - 11 - 4 // hash(7) + author(10) + spaces(~4)
-		if subjectWidth < 10 {
-			subjectWidth = 10
-		}
-		subjectPart := truncate(c.Subject, subjectWidth)
-
-		line := fmt.Sprintf("%s%s %s %s", graphPrefix, hashPart, authorPart, subjectPart)
 		if i == o.commitCursor {
-			line = selectedStyle.Width(width).Render(line)
+			info = selectedStyle.Render(info)
 		}
-		lines = append(lines, line)
+		// Pad info to fixed width
+		if lipgloss.Width(info) < infoWidth {
+			info += strings.Repeat(" ", infoWidth-lipgloss.Width(info))
+		} else if lipgloss.Width(info) > infoWidth {
+			info = info[:infoWidth]
+		}
+		lines = append(lines, graphLines[i]+info)
 	}
 
 	if len(lines) > height {
 		lines = lines[:height]
 	}
 	for len(lines) < height {
-		lines = append(lines, "")
+		lines = append(lines, strings.Repeat(" ", width))
 	}
 	return strings.Join(lines, "\n")
-}
-
-// styleGraphChars applies color styling to git graph drawing characters.
-func styleGraphChars(s string) string {
-	if s == "" {
-		return ""
-	}
-	var out strings.Builder
-	for _, r := range s {
-		switch r {
-		case '*':
-			out.WriteString(commitNodeStyle.Render(string(r)))
-		case '|', '/', '\\':
-			out.WriteString(graphLineStyle.Render(string(r)))
-		case '─', '├', '┘', '┌', '┬', '┐', '└', '┼':
-			out.WriteString(graphLineStyle.Render(string(r)))
-		default:
-			out.WriteString(graphLineStyle.Render(string(r)))
-		}
-	}
-	return out.String()
 }
 
 func (o *GitFileTreeOverlay) renderFooter(width int) string {
@@ -756,7 +758,8 @@ type autoRefreshMsg struct{}
 // --- External helpers ---
 
 func loadCommits(repoPath string) ([]commitEntry, error) {
-	cmd := exec.Command("git", "-C", repoPath, "log", "--graph", "--format=%H|%s|%an|%ar", "-50")
+	// %H = hash, %P = parent hashes (space separated), %s = subject, %an = author, %ar = relative date
+	cmd := exec.Command("git", "-C", repoPath, "log", "--format=%H|%P|%s|%an|%ar", "-50")
 	out, err := cmd.Output()
 	if err != nil {
 		return nil, err
@@ -768,46 +771,23 @@ func loadCommits(repoPath string) ([]commitEntry, error) {
 		if line == "" {
 			continue
 		}
-		graph, data := splitGraphLine(line)
-		if data == "" {
-			// Pure graph line (merge connector)
-			commits = append(commits, commitEntry{Graph: graph})
+		parts := strings.SplitN(line, "|", 5)
+		if len(parts) < 5 {
 			continue
 		}
-		parts := strings.SplitN(data, "|", 4)
-		if len(parts) < 4 {
-			continue
+		var parents []string
+		if parts[1] != "" {
+			parents = strings.Split(parts[1], " ")
 		}
 		commits = append(commits, commitEntry{
 			Hash:    parts[0],
-			Subject: parts[1],
-			Author:  parts[2],
-			Date:    parts[3],
-			Graph:   graph,
+			Parents: parents,
+			Subject: parts[2],
+			Author:  parts[3],
+			Date:    parts[4],
 		})
 	}
 	return commits, nil
-}
-
-// splitGraphLine separates the git graph prefix from commit data.
-// It looks for the first 40-character hex string (the full commit hash).
-func splitGraphLine(line string) (graph, data string) {
-	for i := 0; i <= len(line)-40; i++ {
-		candidate := line[i : i+40]
-		if isHex(candidate) {
-			return line[:i], line[i:]
-		}
-	}
-	return line, ""
-}
-
-func isHex(s string) bool {
-	for _, r := range s {
-		if !((r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F')) {
-			return false
-		}
-	}
-	return true
 }
 
 func statusIconAndColor(f git.File, section string) (string, string) {
@@ -853,8 +833,6 @@ var (
 	hintStyle          = lipgloss.NewStyle().Foreground(styles.Subtle)
 	hashStyle          = lipgloss.NewStyle().Foreground(styles.Accent)
 	authorStyle        = lipgloss.NewStyle().Foreground(styles.Subtle)
-	commitNodeStyle    = lipgloss.NewStyle().Foreground(styles.Accent)
-	graphLineStyle     = lipgloss.NewStyle().Foreground(styles.Subtle)
 	addedLineStyle     = lipgloss.NewStyle().Foreground(styles.Success)
 	removedLineStyle   = lipgloss.NewStyle().Foreground(styles.Overdue)
 	hunkHeaderStyle    = lipgloss.NewStyle().Foreground(styles.Accent)
