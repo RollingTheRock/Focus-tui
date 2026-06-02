@@ -120,11 +120,10 @@ func (d *DiscoveryRegistry) BootstrapIfEmpty() error {
 			IsEnabled: false, CreatedAt: now, UpdatedAt: now,
 		},
 		{
-			ID: "gemini-cli", Name: "Gemini CLI", Description: "Google",
-			Binary: "gemini", ProviderType: string(ProviderGeneric),
-			Tags: []string{"coding", "research"}, Category: "recommended",
-			InstallHint: "npm install -g @google/gemini-cli  # or: brew install gemini-cli",
-			IsEnabled: false, CreatedAt: now, UpdatedAt: now,
+			ID: "gemini", Name: "Gemini CLI", Description: "Google",
+			Binary: "gemini", ProviderType: string(ProviderGemini),
+			Tags: []string{"coding", "research"}, Category: "built-in",
+			IsEnabled: true, CreatedAt: now, UpdatedAt: now,
 		},
 		{
 			ID: "open-interpreter", Name: "Open Interpreter", Description: "Killian",

@@ -28,6 +28,20 @@ func (s *AgentSpec) AddLayer(layer SpecLayer) {
 	s.Layers = append(s.Layers, layer)
 }
 
+// AddLayerFromMarkdown parses a Markdown document and appends it as a single layer.
+// This is useful for consuming the output of get_context.py.
+func (s *AgentSpec) AddLayerFromMarkdown(md string) {
+	md = strings.TrimSpace(md)
+	if md == "" {
+		return
+	}
+	s.Layers = append(s.Layers, SpecLayer{
+		Title:   "Trellis Context",
+		Content: md,
+		Source:  "trellis",
+	})
+}
+
 // ToMarkdown renders the full spec as a single Markdown document suitable
 // for writing to AGENTS.md.
 func (s *AgentSpec) ToMarkdown() string {

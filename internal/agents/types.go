@@ -13,6 +13,7 @@ const (
 	ProviderClaude   Provider = "claude"
 	ProviderKimi     Provider = "kimi"
 	ProviderCodex    Provider = "codex"
+	ProviderGemini   Provider = "gemini"
 	ProviderGeneric  Provider = "generic"
 )
 
@@ -73,6 +74,8 @@ func (s Session) DisplayName() string {
 		return "kimi"
 	case ProviderCodex:
 		return "codex"
+	case ProviderGemini:
+		return "gemini"
 	default:
 		return "agent"
 	}
