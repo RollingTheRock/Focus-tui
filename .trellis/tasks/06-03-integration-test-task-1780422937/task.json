@@ -7,22 +7,22 @@
   "completedAt": null,
   "createdAt": "2026-06-03",
   "creator": "developer",
-  "description": "",
+  "description": "1. Create task\n2. Verify files\n3. Clean up",
   "dev_type": null,
-  "id": "step-a1",
+  "id": "integration-test-task-1780422937",
   "meta": {
-    "focus_task_id": "d5d50c82-04cf-440d-a68e-38d867d41b74"
+    "focus_task_id": "focus-task-test-1780422937"
   },
-  "name": "step-a1",
+  "name": "integration-test-task-1780422937",
   "notes": "",
   "package": null,
   "parent": null,
   "pr_url": null,
-  "priority": "P2",
+  "priority": "P1",
   "relatedFiles": [],
   "scope": null,
   "status": "planning",
   "subtasks": [],
-  "title": "Step A1",
+  "title": "Integration Test Task 1780422937",
   "worktree_path": null
 }
