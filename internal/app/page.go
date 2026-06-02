@@ -13,6 +13,7 @@ import (
 	"focus/internal/models"
 	"focus/internal/plugins"
 	editorplugin "focus/internal/plugins/editor"
+	gitfiletree "focus/internal/plugins/gitfiletree"
 	gitplugin "focus/internal/plugins/git"
 	"focus/internal/render"
 	"focus/internal/store"
@@ -521,6 +522,9 @@ func (p *page) activeOverlayPane() models.PaneID {
 	if _, ok := p.paneMeta[paneAgentStore]; ok {
 		return paneAgentStore
 	}
+	if _, ok := p.paneMeta[paneGitFileTree]; ok {
+		return paneGitFileTree
+	}
 	if _, ok := p.paneMeta[paneGitDiff]; ok {
 		return paneGitDiff
 	}
@@ -548,7 +552,7 @@ func (p *page) activeOverlayPane() models.PaneID {
 }
 
 func (p *page) isOverlayPane(id models.PaneID) bool {
-	if id == paneTodoOverlay || id == paneGitCommit || id == paneWorktreeCreate || id == paneTaskEdit || id == panePlanEdit || id == paneAgentSelect || id == paneProviderSelect || id == paneAgentStore || id == paneAgentInstallHint || id == paneAgentRegister || id == paneWorktreeHistory || id == paneWorktreeDeleteConfirm || id == paneTaskDeleteConfirm || id == paneDAGMiniOverlay || id == paneADRDetail || id == paneGitDiff || id == paneCityPicker {
+	if id == paneTodoOverlay || id == paneGitFileTree || id == paneGitCommit || id == paneWorktreeCreate || id == paneTaskEdit || id == panePlanEdit || id == paneAgentSelect || id == paneProviderSelect || id == paneAgentStore || id == paneAgentInstallHint || id == paneAgentRegister || id == paneWorktreeHistory || id == paneWorktreeDeleteConfirm || id == paneTaskDeleteConfirm || id == paneDAGMiniOverlay || id == paneADRDetail || id == paneGitDiff || id == paneCityPicker {
 		return true
 	}
 	if meta, ok := p.paneMeta[id]; ok && meta.Type == models.PaneTypeEditor {
@@ -779,6 +783,27 @@ func (p *page) largeOverlayContentSize() (int, int) {
 	return width, height
 }
 
+func (p *page) gitFileTreeOverlayContentSize() (int, int) {
+	bounds := p.bodyBoundsSize()
+	width := bounds.W - 4
+	if width > bounds.W {
+		width = bounds.W
+	}
+	if width < 60 {
+		width = 60
+	}
+
+	height := bounds.H - 2
+	if height > bounds.H {
+		height = bounds.H
+	}
+	if height < 20 {
+		height = 20
+	}
+
+	return width, height
+}
+
 func (p *page) isLargeOverlayPane(id models.PaneID) bool {
 	if id == paneGitDiff {
 		return true
@@ -811,7 +836,9 @@ func (p *page) renderOverlayPane(base string, id models.PaneID) string {
 	}
 
 	var overlayW, overlayH int
-	if p.isLargeOverlayPane(id) {
+	if id == paneGitFileTree {
+		overlayW, overlayH = p.gitFileTreeOverlayContentSize()
+	} else if p.isLargeOverlayPane(id) {
 		overlayW, overlayH = p.largeOverlayContentSize()
 	} else {
 		overlayW, overlayH = p.overlayContentSize()
@@ -837,7 +864,9 @@ func (p *page) renderOverlayPaneToCanvas(canvas *render.Canvas, id models.PaneID
 	}
 
 	var overlayW, overlayH int
-	if p.isLargeOverlayPane(id) {
+	if id == paneGitFileTree {
+		overlayW, overlayH = p.gitFileTreeOverlayContentSize()
+	} else if p.isLargeOverlayPane(id) {
 		overlayW, overlayH = p.largeOverlayContentSize()
 	} else {
 		overlayW, overlayH = p.overlayContentSize()
@@ -860,6 +889,32 @@ func (p *page) renderOverlayPaneToCanvas(canvas *render.Canvas, id models.PaneID
 		content := panel.View()
 		render.RenderPane(sub, p.renderPaneTitle(id, p.focused, ModeNormal, overlayW), content.Content, true)
 	}
+}
+
+func (p *page) openGitFileTreePane(msg gitfiletree.OpenGitFileTreeMsg) tea.Cmd {
+	p.closePane(paneGitFileTree)
+
+	repoPath := msg.RepoPath
+	if repoPath == "" {
+		repoPath = p.gitRepoPath()
+	}
+
+	meta := models.PaneMeta{
+		ID:             paneGitFileTree,
+		Name:           "Git",
+		Type:           paneTypeGitFileTree,
+		CWD:            repoPath,
+		RepoID:         p.currentRepoID(),
+		WorktreeID:     p.currentWorktreeID(),
+		BranchSnapshot: p.currentBranchSnapshot(),
+		Status:         models.PaneStatusReady,
+		Closable:       true,
+	}
+	panel := gitfiletree.NewOverlay(meta.ID, meta, *p.common, p.adapterManager.Git(), repoPath)
+	p.registerPane(meta.ID, panel, meta)
+	p.setFocus(meta.ID)
+	p.updateSizes(p.bodyBoundsSize())
+	return panel.Init()
 }
 
 func (p *page) openDiffPane(msg gitplugin.OpenDiffMsg) tea.Cmd {

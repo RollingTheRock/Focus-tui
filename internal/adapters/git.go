@@ -24,6 +24,18 @@ type GitAdapter interface {
 	UnstageFile(repoPath string, path string) error
 	UnstageAll(repoPath string) error
 	DiscardChanges(repoPath string, path string) error
+
+	// Stash operations
+	GetStashList(repoPath string) ([]StashEntry, error)
+	StashApply(repoPath string, index int) error
+	StashPop(repoPath string, index int) error
+	StashDrop(repoPath string, index int) error
+	CheckoutBranch(repoPath string, branch string) error
+}
+
+type StashEntry struct {
+	Index   int
+	Message string
 }
 
 type StatusEvent struct {

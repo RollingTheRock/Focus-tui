@@ -64,7 +64,7 @@ func TestTreePaneRefreshLoadsDirectoryAndRendersIcons(t *testing.T) {
 	pane = updated.(*TreePane)
 
 	view := pane.View()
-	for _, want := range []string{filepath.Base(dir), "main.go", "pkg", "📁", "📄"} {
+	for _, want := range []string{filepath.Base(dir), "main.go", "pkg", "\uf07b", "\ue627"} {
 		if !strings.Contains(view.Content, want) {
 			t.Fatalf("expected view to contain %q, got:\n%s", want, view.Content)
 		}

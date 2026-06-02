@@ -66,9 +66,9 @@ func (p *agentRegisterPane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 				p.fields[p.cursor].value = p.fields[p.cursor].value[:len(p.fields[p.cursor].value)-1]
 			}
 		default:
-			if text := msg.Key().Text; text != "" {
-				p.fields[p.cursor].value += text
-			}
+				if text := msg.Key().Text; text != "" {
+					p.fields[p.cursor].value += text
+				}
 		}
 	}
 	return p, nil
