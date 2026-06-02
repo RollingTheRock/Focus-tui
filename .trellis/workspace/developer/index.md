@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 27
+- **Total Sessions**: 28
 - **Last Active**: 2026-06-02
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~844 | Active |
+| `journal-1.md` | ~875 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 28 | 2026-06-02 | upstream done | - | `feat-agent-detail` |
 | 27 | 2026-06-02 | Integration test session | - | `feat-agent-detail` |
 | 26 | 2026-06-02 | Integration test session | - | `feat-agent-detail` |
 | 25 | 2026-06-02 | Integration test session | - | `feat-agent-detail` |
