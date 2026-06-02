@@ -862,8 +862,6 @@ func (o *GitFileTreeOverlay) renderFooter(width int) string {
 		}
 	}
 
-	parts = append(parts, "[esc]close")
-
 	return hintStyle.MaxWidth(width).Render(strings.Join(parts, " "))
 }
 
