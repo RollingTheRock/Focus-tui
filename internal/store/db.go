@@ -55,6 +55,13 @@ func newSQLiteStore(dbPath string) (*Store, error) {
 		return nil, fmt.Errorf("open database: %w", err)
 	}
 
+	// In-memory SQLite databases are private to each connection. Force a single
+	// connection so that all operations share the same database instance.
+	if dbPath == ":memory:" {
+		db.SetMaxOpenConns(1)
+		db.SetConnMaxLifetime(0)
+	}
+
 	// Enable WAL mode for better concurrent read performance.
 	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
 		db.Close()
