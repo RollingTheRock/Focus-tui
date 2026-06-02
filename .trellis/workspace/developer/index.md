@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-2.md`
-- **Total Sessions**: 72
+- **Total Sessions**: 87
 - **Last Active**: 2026-06-03
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-2.md` | ~255 | Active |
+| `journal-2.md` | ~720 | Active |
 | `journal-1.md` | ~1991 | Archived |
 <!-- @@@/auto:active-documents -->
 
@@ -30,6 +30,21 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 87 | 2026-06-03 | upstream done | - | `feat-agent-detail` |
+| 86 | 2026-06-03 | Integration test session | - | `feat-agent-detail` |
+| 85 | 2026-06-03 | Integration test session | - | `feat-agent-detail` |
+| 84 | 2026-06-03 | smoke task done | - | `feat-agent-detail` |
+| 83 | 2026-06-03 | done by a2a | - | `feat-agent-detail` |
+| 82 | 2026-06-03 | upstream done | - | `feat-agent-detail` |
+| 81 | 2026-06-03 | smoke task done | - | `feat-agent-detail` |
+| 80 | 2026-06-03 | done by a2a | - | `feat-agent-detail` |
+| 79 | 2026-06-03 | upstream done | - | `feat-agent-detail` |
+| 78 | 2026-06-03 | Integration test session | - | `feat-agent-detail` |
+| 77 | 2026-06-03 | Integration test session | - | `feat-agent-detail` |
+| 76 | 2026-06-03 | smoke task done | - | `feat-agent-detail` |
+| 75 | 2026-06-03 | done by a2a | - | `feat-agent-detail` |
+| 74 | 2026-06-03 | upstream done | - | `feat-agent-detail` |
+| 73 | 2026-06-03 | Integration test session | - | `feat-agent-detail` |
 | 72 | 2026-06-03 | Integration test session | - | `feat-agent-detail` |
 | 71 | 2026-06-03 | smoke task done | - | `feat-agent-detail` |
 | 70 | 2026-06-03 | done by a2a | - | `feat-agent-detail` |

@@ -9,11 +9,11 @@
   "creator": "developer",
   "description": "",
   "dev_type": null,
-  "id": "first-phase",
+  "id": "phase",
   "meta": {
-    "focus_task_id": "8aa90ef1-7f53-433a-ae37-4f742f2d556f"
+    "focus_task_id": "7e3dd0c3-b4b3-42f0-a0ce-65e28919dd5e"
   },
-  "name": "first-phase",
+  "name": "phase",
   "notes": "",
   "package": null,
   "parent": null,
@@ -23,6 +23,6 @@
   "scope": null,
   "status": "planning",
   "subtasks": [],
-  "title": "First Phase",
+  "title": "Phase",
   "worktree_path": null
 }
