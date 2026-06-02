@@ -1,0 +1,28 @@
+{
+  "assignee": "developer",
+  "base_branch": "feat-agent-detail",
+  "branch": null,
+  "children": [],
+  "commit": null,
+  "completedAt": null,
+  "createdAt": "2026-06-03",
+  "creator": "developer",
+  "description": "",
+  "dev_type": null,
+  "id": "step-under-phase",
+  "meta": {
+    "focus_task_id": "20b09098-9b8e-41d8-95cc-219f9aed6ded"
+  },
+  "name": "step-under-phase",
+  "notes": "",
+  "package": null,
+  "parent": null,
+  "pr_url": null,
+  "priority": "P2",
+  "relatedFiles": [],
+  "scope": null,
+  "status": "planning",
+  "subtasks": [],
+  "title": "Step Under Phase",
+  "worktree_path": null
+}

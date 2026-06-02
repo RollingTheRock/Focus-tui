@@ -1,0 +1,28 @@
+{
+  "assignee": "developer",
+  "base_branch": "feat-agent-detail",
+  "branch": null,
+  "children": [],
+  "commit": null,
+  "completedAt": null,
+  "createdAt": "2026-06-03",
+  "creator": "developer",
+  "description": "",
+  "dev_type": null,
+  "id": "phase-a",
+  "meta": {
+    "focus_task_id": "eadd7b91-7050-41d4-888e-2cfb1f8c42dd"
+  },
+  "name": "phase-a",
+  "notes": "",
+  "package": null,
+  "parent": null,
+  "pr_url": null,
+  "priority": "P2",
+  "relatedFiles": [],
+  "scope": null,
+  "status": "planning",
+  "subtasks": [],
+  "title": "Phase A",
+  "worktree_path": null
+}

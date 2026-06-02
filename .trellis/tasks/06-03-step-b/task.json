@@ -1,0 +1,28 @@
+{
+  "assignee": "developer",
+  "base_branch": "feat-agent-detail",
+  "branch": null,
+  "children": [],
+  "commit": null,
+  "completedAt": null,
+  "createdAt": "2026-06-03",
+  "creator": "developer",
+  "description": "",
+  "dev_type": null,
+  "id": "step-b",
+  "meta": {
+    "focus_task_id": "91f6f1ee-f3c1-4fd9-8f0b-332951711361"
+  },
+  "name": "step-b",
+  "notes": "",
+  "package": null,
+  "parent": null,
+  "pr_url": null,
+  "priority": "P2",
+  "relatedFiles": [],
+  "scope": null,
+  "status": "planning",
+  "subtasks": [],
+  "title": "Step B",
+  "worktree_path": null
+}
