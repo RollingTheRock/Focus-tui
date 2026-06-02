@@ -121,8 +121,8 @@ func (pm *ProfileManager) WriteAGENTSMD(spec *AgentSpec) error {
 	return os.WriteFile(pm.Paths.AGENTSMDPath(), data, 0644)
 }
 
-// WriteContextMD writes a standalone context file (useful for agents that
-// read multiple files rather than a single AGENTS.md).
+// WriteContextMD writes a standalone context file.
+// Deprecated: Context is now managed by the Trellis Bridge.
 func (pm *ProfileManager) WriteContextMD(content string) error {
 	if err := pm.Prepare(); err != nil {
 		return err
@@ -131,6 +131,7 @@ func (pm *ProfileManager) WriteContextMD(content string) error {
 }
 
 // WriteConstraintsMD writes the constraints file.
+// Deprecated: Constraints are now managed by the Trellis Bridge.
 func (pm *ProfileManager) WriteConstraintsMD(content string) error {
 	if err := pm.Prepare(); err != nil {
 		return err
@@ -139,6 +140,7 @@ func (pm *ProfileManager) WriteConstraintsMD(content string) error {
 }
 
 // WriteHandoff persists a session handoff note.
+// Deprecated: Handoffs are now synced to Trellis workspace via RecordSession.
 func (pm *ProfileManager) WriteHandoff(sessionID string, content string) error {
 	if err := pm.Prepare(); err != nil {
 		return err
@@ -176,6 +178,7 @@ type JournalEntry struct {
 }
 
 // WriteJournal appends an entry to the developer's journal.
+// Deprecated: Journals are now synced to Trellis workspace via RecordSession.
 func (pm *ProfileManager) WriteJournal(developerName string, entry JournalEntry) error {
 	if err := pm.Prepare(); err != nil {
 		return err

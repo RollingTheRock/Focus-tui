@@ -100,6 +100,7 @@ func AutoTypeCommandWithSession(provider Provider, sessionID string) string {
 	return strings.Join([]string{
 		SessionIDEnvVar + "=" + sessionID,
 		LegacySessionIDEnvVar + "=" + sessionID,
+		TrellisContextIDEnvVar + "=" + sessionID,
 		cmd,
 	}, " ")
 }
@@ -272,9 +273,9 @@ func LaunchExternalCommand(req ExternalLaunchRequest) tea.Cmd {
 			1.2,
 		)
 		cmd := exec.Command(name, args...)
-			f, _ := os.OpenFile("/tmp/focus_launch.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-			f.WriteString(fmt.Sprintf("Launch: %s %v\n", name, args))
-			defer f.Close()
+		f, _ := os.OpenFile("/tmp/focus_launch.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		f.WriteString(fmt.Sprintf("Launch: %s %v\n", name, args))
+		defer f.Close()
 		if err := cmd.Start(); err != nil {
 			return ExternalLaunchResultMsg{
 				SessionID:  req.SessionID,

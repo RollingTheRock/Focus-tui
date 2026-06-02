@@ -1,5 +1,11 @@
 package agents
 
+// Deprecated: The 8-layer SpecLoader has been replaced by the Trellis Bridge
+// (internal/trellis/bridge.go) which assembles agent context from Focus
+// metadata + Trellis context injection. This file is kept for backward
+// compatibility during the migration period and will be removed in a future
+// release. New code should use trellis.Bridge.BuildAgentContext() instead.
+
 import (
 	"fmt"
 	"os"
@@ -11,6 +17,7 @@ import (
 
 // SpecLoadContext carries everything needed to assemble a context-aware
 // agent spec.
+// Deprecated: Use trellis.Bridge.BuildAgentContext() instead.
 type SpecLoadContext struct {
 	Task    *models.TaskContextRecord
 	Plan    *models.TaskPlanRecord
@@ -24,6 +31,7 @@ type SpecLoadContext struct {
 }
 
 // SpecLoader progressively assembles an AgentSpec from layered sources.
+// Deprecated: Use trellis.Bridge.BuildAgentContext() instead.
 type SpecLoader struct {
 	// RepoSpecDir is the project-level spec directory.
 	// Defaults to repo-root/.focus/spec/ if left empty.
@@ -35,6 +43,7 @@ type SpecLoader struct {
 }
 
 // NewSpecLoader creates a loader with the given directories.
+// Deprecated: Use trellis.Bridge.BuildAgentContext() instead.
 func NewSpecLoader(repoSpecDir, worktreeSpecDir string) *SpecLoader {
 	return &SpecLoader{
 		RepoSpecDir:     repoSpecDir,
@@ -43,6 +52,7 @@ func NewSpecLoader(repoSpecDir, worktreeSpecDir string) *SpecLoader {
 }
 
 // Load builds an AgentSpec by layering context from general to specific.
+// Deprecated: Use trellis.Bridge.BuildAgentContext() instead.
 //
 // Layer order:
 //  1. Repo general spec      (coding standards, architecture)
@@ -331,10 +341,16 @@ func inferDomain(ctx SpecLoadContext) string {
 	}
 
 	scores := make(map[string]int)
+	// Use word-boundary matching to avoid substring false-positives
+	// (e.g. "ui" should not match "build").
+	wordsInText := strings.Fields(text)
 	for domain, words := range keywords {
 		for _, w := range words {
-			if strings.Contains(text, w) {
-				scores[domain]++
+			for _, field := range wordsInText {
+				if field == w {
+					scores[domain]++
+					break
+				}
 			}
 		}
 	}
