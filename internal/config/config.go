@@ -47,6 +47,9 @@ type Config struct {
 	Experimental struct {
 		UseCanvasCompositor bool `yaml:"use_canvas_compositor"`
 	} `yaml:"experimental"`
+	Editor struct {
+		Command string `yaml:"command"` // external editor command (e.g. "nvim", "vim", "code --wait"). empty defaults to "nvim".
+	} `yaml:"editor"`
 }
 
 // DefaultConfig returns the default configuration.
