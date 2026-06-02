@@ -2,6 +2,8 @@ package app
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -9,7 +11,9 @@ import (
 	"focus/internal/adapters"
 	"focus/internal/agents"
 	"focus/internal/models"
+	agentsplugin "focus/internal/plugins/agents"
 	gitplugin "focus/internal/plugins/git"
+	gitfiletree "focus/internal/plugins/gitfiletree"
 	"focus/internal/styles"
 
 	tea "charm.land/bubbletea/v2"
@@ -17,23 +21,40 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-// worktreeDetailPane is the right-side pane showing the current worktree's
-// tasks, git status, file tree, agent cards, and a human shell below.
+// detailTab enumerates the tabs inside the worktree detail pane.
+type detailTab int
+
+const (
+	detailTabTasks detailTab = iota
+	detailTabGit
+	detailTabFiles
+	detailTabContext
+	detailTabAgent
+)
+
+var detailTabNames = []string{"Tasks", "Git", "Files", "Context", "Agent"}
+
+// worktreeDetailPane is the right-side pane showing tabbed content for the
+// current worktree: Tasks, Git, Files, Context (Trellis), and Agent sessions.
 type worktreeDetailPane struct {
-	id      models.PaneID
-	meta    models.PaneMeta
-	common  models.CommonModel
-	adapter adapters.GitAdapter
+	id            models.PaneID
+	meta          models.PaneMeta
+	common        models.CommonModel
+	adapter       adapters.GitAdapter
+	trellisBridge trellisBridge
 
 	repoID     string
 	worktreeID string
 
-	// Tasks for this worktree
+	activeTab detailTab
+
+	// Tasks tab
 	tasks      []models.TaskContextRecord
 	taskCursor int
 
-	// Agent sessions attached to this worktree
-	sessions []*agents.Session
+	// Agent tab
+	sessions    []*agents.Session
+	agentCursor int
 
 	width  int
 	height int
@@ -50,18 +71,19 @@ func newWorktreeDetailPane(id models.PaneID, meta models.PaneMeta, common *model
 	return p
 }
 
+func (p *worktreeDetailPane) SetTrellisBridge(bridge trellisBridge) {
+	p.trellisBridge = bridge
+}
+
 func (p *worktreeDetailPane) setWorktree(worktreeID string) tea.Cmd {
 	if p.worktreeID == worktreeID {
 		return nil
 	}
 	p.worktreeID = worktreeID
 	p.taskCursor = 0
+	p.agentCursor = 0
 	p.loadTasks()
 	return nil
-}
-
-func (p *worktreeDetailPane) initSubPanes() {
-	// Git and Files moved to GitFileTree overlay; this pane now only shows Tasks.
 }
 
 func (p *worktreeDetailPane) loadTasks() {
@@ -69,7 +91,6 @@ func (p *worktreeDetailPane) loadTasks() {
 	if p.common.Store == nil {
 		return
 	}
-	// Load tasks whose preferred_worktree_id matches this worktree.
 	all, err := p.common.Store.ListTaskContexts(p.repoID)
 	if err != nil {
 		return
@@ -92,7 +113,6 @@ func (p *worktreeDetailPane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 		cmd := p.setWorktree(msg.WorktreeID)
 		return p, cmd
 	case agents.LaunchAgentMsg:
-		// An agent was launched for this worktree – refresh sessions.
 		if msg.WorktreeID == p.worktreeID {
 			p.refreshSessions()
 		}
@@ -101,28 +121,135 @@ func (p *worktreeDetailPane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 		p.loadTasks()
 		return p, nil
 	case tea.KeyPressMsg:
+		// Global tab switching (1-5)
 		switch msg.Keystroke() {
-		case "j", "down":
-			if p.taskCursor < len(p.tasks)-1 {
-				p.taskCursor++
-			}
+		case "1":
+			p.activeTab = detailTabTasks
 			return p, nil
-		case "k", "up":
-			if p.taskCursor > 0 {
-				p.taskCursor--
-			}
+		case "2":
+			p.activeTab = detailTabGit
 			return p, nil
-		case "s":
-			return p, p.openAgentSelectCmd()
-		case "e", "enter":
-			return p, p.openTaskEditCmd()
+		case "3":
+			p.activeTab = detailTabFiles
+			return p, nil
+		case "4":
+			p.activeTab = detailTabContext
+			return p, nil
+		case "5":
+			p.activeTab = detailTabAgent
+			return p, nil
 		case "tab":
 			return p, nil // let app route to next pane
+		}
+
+		// Route keys to the active tab
+		switch p.activeTab {
+		case detailTabTasks:
+			return p.handleTasksKey(msg)
+		case detailTabGit:
+			return p.handleGitKey(msg)
+		case detailTabFiles:
+			return p.handleFilesKey(msg)
+		case detailTabContext:
+			return p.handleContextKey(msg)
+		case detailTabAgent:
+			return p.handleAgentKey(msg)
 		}
 	}
 
 	return p, nil
 }
+
+// --- Tasks tab key handling ---
+
+func (p *worktreeDetailPane) handleTasksKey(msg tea.KeyPressMsg) (models.Panel, tea.Cmd) {
+	switch msg.Keystroke() {
+	case "j", "down":
+		if p.taskCursor < len(p.tasks)-1 {
+			p.taskCursor++
+		}
+		return p, nil
+	case "k", "up":
+		if p.taskCursor > 0 {
+			p.taskCursor--
+		}
+		return p, nil
+	case "s":
+		return p, p.openAgentSelectCmd()
+	case "e", "enter":
+		return p, p.openTaskEditCmd()
+	}
+	return p, nil
+}
+
+// --- Git tab key handling ---
+
+func (p *worktreeDetailPane) handleGitKey(msg tea.KeyPressMsg) (models.Panel, tea.Cmd) {
+	// Currently read-only; [o] opens the full GitFileTree overlay.
+	switch msg.Keystroke() {
+	case "o":
+		return p, p.openGitFileTreeCmd()
+	}
+	return p, nil
+}
+
+// --- Files tab key handling ---
+
+func (p *worktreeDetailPane) handleFilesKey(msg tea.KeyPressMsg) (models.Panel, tea.Cmd) {
+	switch msg.Keystroke() {
+	case "o":
+		return p, p.openGitFileTreeCmd()
+	}
+	return p, nil
+}
+
+// --- Context tab key handling ---
+
+func (p *worktreeDetailPane) handleContextKey(msg tea.KeyPressMsg) (models.Panel, tea.Cmd) {
+	// e=edit PRD, r=regenerate, h=handoff, j=journal
+	switch msg.Keystroke() {
+	case "e":
+		return p, p.openTaskEditCmd()
+	case "r":
+		// Regenerate PRD from task goal (placeholder — could trigger a command)
+		return p, nil
+	case "h":
+		return p, p.openHandoffCmd()
+	case "j":
+		return p, p.openJournalCmd()
+	case "u":
+		return p, p.trellisUpdateCmd()
+	}
+	return p, nil
+}
+
+// --- Agent tab key handling ---
+
+func (p *worktreeDetailPane) handleAgentKey(msg tea.KeyPressMsg) (models.Panel, tea.Cmd) {
+	switch msg.Keystroke() {
+	case "j", "down":
+		if p.agentCursor < len(p.sessions)-1 {
+			p.agentCursor++
+		}
+		return p, nil
+	case "k", "up":
+		if p.agentCursor > 0 {
+			p.agentCursor--
+		}
+		return p, nil
+	case "s":
+		return p, p.openAgentSelectCmd()
+	case "x":
+		return p, p.stopSelectedAgentCmd()
+	case "l":
+		return p, p.viewAgentLogCmd()
+	case "f":
+		return p, p.focusAgentTerminalCmd()
+	}
+	return p, nil
+}
+
+// --- commands ---
 
 type worktreeSelectedMsg struct {
 	WorktreeID string
@@ -133,6 +260,9 @@ type OpenAgentSelectMsg struct {
 }
 
 type refreshWorktreeDetailMsg struct{}
+
+// TrellisUpdateMsg signals a request to run trellis update.
+type TrellisUpdateMsg struct{}
 
 func (p *worktreeDetailPane) openAgentSelectCmd() tea.Cmd {
 	if p.worktreeID == "" {
@@ -164,6 +294,58 @@ func (p *worktreeDetailPane) openTaskEditCmd() tea.Cmd {
 	}
 }
 
+func (p *worktreeDetailPane) openGitFileTreeCmd() tea.Cmd {
+	if p.worktreeID == "" {
+		return nil
+	}
+	return func() tea.Msg {
+		return gitfiletree.OpenGitFileTreeMsg{RepoPath: p.worktreeID}
+	}
+}
+
+func (p *worktreeDetailPane) openHandoffCmd() tea.Cmd {
+	// Placeholder: open handoff view overlay
+	return nil
+}
+
+func (p *worktreeDetailPane) openJournalCmd() tea.Cmd {
+	// Placeholder: open journal view overlay
+	return nil
+}
+
+func (p *worktreeDetailPane) trellisUpdateCmd() tea.Cmd {
+	if p.trellisBridge == nil {
+		return nil
+	}
+	go func() {
+		_ = p.trellisBridge.Update()
+	}()
+	return func() tea.Msg {
+		return TrellisUpdateMsg{}
+	}
+}
+
+func (p *worktreeDetailPane) stopSelectedAgentCmd() tea.Cmd {
+	if p.agentCursor < 0 || p.agentCursor >= len(p.sessions) {
+		return nil
+	}
+	session := p.sessions[p.agentCursor]
+	if session.State != agents.SessionRunning {
+		return nil
+	}
+	return func() tea.Msg {
+		return agentsplugin.KillSessionMsg{SessionID: session.ID, PID: session.PID}
+	}
+}
+
+func (p *worktreeDetailPane) viewAgentLogCmd() tea.Cmd {
+	return nil // placeholder
+}
+
+func (p *worktreeDetailPane) focusAgentTerminalCmd() tea.Cmd {
+	return nil // placeholder
+}
+
 func (p *worktreeDetailPane) refreshSessions() {
 	// Sessions will be refreshed by the app layer pushing them in.
 }
@@ -173,21 +355,24 @@ func (p *worktreeDetailPane) SetSize(width, height int) {
 	p.height = height
 }
 
-func contentHeight(total int) int {
-	ch := total - agentCardsHeight()
-	if ch < 3 {
-		ch = 3
-	}
-	return ch
-}
-
-func agentCardsHeight() int {
-	return 3
-}
-
 func (p *worktreeDetailPane) helpText() (wide, compact string) {
-	wide = "[j/k]nav  [enter/e]edit task  [s]tart agent  [tab]cycle focus"
-	compact = "[j/k]nav  [enter/e]edit  [s]agent"
+	switch p.activeTab {
+	case detailTabTasks:
+		wide = "[j/k]nav  [enter/e]edit task  [s]tart agent  [1-5]tabs  [tab]cycle focus"
+		compact = "[j/k]nav  [enter/e]edit  [s]agent  [1-5]tabs"
+	case detailTabGit:
+		wide = "[o]pen overlay  [1-5]tabs  [tab]cycle focus"
+		compact = "[o]overlay  [1-5]tabs"
+	case detailTabFiles:
+		wide = "[o]pen overlay  [1-5]tabs  [tab]cycle focus"
+		compact = "[o]overlay  [1-5]tabs"
+	case detailTabContext:
+		wide = "[e]edit PRD  [h]handoff  [j]journal  [u]update  [1-5]tabs  [tab]cycle focus"
+		compact = "[e]PRD  [h]handoff  [j]journal  [u]update  [1-5]tabs"
+	case detailTabAgent:
+		wide = "[j/k]nav  [s]tart  [x]stop  [l]log  [f]ocus  [1-5]tabs  [tab]cycle focus"
+		compact = "[j/k]nav  [s]tart  [x]stop  [1-5]tabs"
+	}
 	return
 }
 
@@ -198,19 +383,48 @@ func (p *worktreeDetailPane) View() tea.View {
 		return tea.NewView("")
 	}
 
-	var parts []string
-	ch := h - agentCardsHeight()
-	if ch < 3 {
-		ch = 3
+	tabBar := p.renderTabs(w)
+	contentH := h - lipgloss.Height(tabBar)
+	if contentH < 2 {
+		contentH = 2
 	}
-	parts = append(parts, p.renderTasks(w, ch))
-	parts = append(parts, p.renderAgentCards(w))
-	return tea.NewView(strings.Join(parts, "\n"))
+
+	var content string
+	switch p.activeTab {
+	case detailTabTasks:
+		content = p.renderTasks(w, contentH)
+	case detailTabGit:
+		content = p.renderGitTab(w, contentH)
+	case detailTabFiles:
+		content = p.renderFilesTab(w, contentH)
+	case detailTabContext:
+		content = p.renderContextTab(w, contentH)
+	case detailTabAgent:
+		content = p.renderAgentTab(w, contentH)
+	}
+
+	return tea.NewView(lipgloss.JoinVertical(lipgloss.Left, tabBar, content))
 }
 
 func (p *worktreeDetailPane) renderTabs(w int) string {
-	return ""
+	var parts []string
+	for i, name := range detailTabNames {
+		label := fmt.Sprintf(" %d %s ", i+1, name)
+		if detailTab(i) == p.activeTab {
+			parts = append(parts, tabActiveStyle.Render(label))
+		} else {
+			parts = append(parts, tabInactiveStyle.Render(label))
+		}
+	}
+	bar := lipgloss.JoinHorizontal(lipgloss.Left, parts...)
+	padding := w - lipgloss.Width(bar)
+	if padding < 0 {
+		padding = 0
+	}
+	return bar + strings.Repeat(" ", padding)
 }
+
+// --- Tasks tab ---
 
 func (p *worktreeDetailPane) renderTasks(w, h int) string {
 	if len(p.tasks) == 0 {
@@ -266,13 +480,212 @@ func (p *worktreeDetailPane) renderTasks(w, h int) string {
 	return lipgloss.NewStyle().MaxWidth(w).Render(strings.Join(lines, "\n"))
 }
 
-func (p *worktreeDetailPane) renderAgentCards(w int) string {
+// --- Git tab ---
+
+func (p *worktreeDetailPane) renderGitTab(w, h int) string {
 	if p.worktreeID == "" {
-		return lipgloss.NewStyle().MaxWidth(w).Foreground(styles.Subtle).Render("  Agents: —  (select a worktree first)")
+		return lipgloss.NewStyle().MaxWidth(w).Render("  No worktree selected.")
 	}
+
+	var lines []string
+	lines = append(lines, detailMetaStyle.Render("  Git Status"))
+	lines = append(lines, "")
+
+	if p.adapter != nil {
+		status, err := p.adapter.GetWorktreeStatus(p.worktreeID)
+		if err != nil {
+			lines = append(lines, detailMetaStyle.Render(fmt.Sprintf("  Error: %v", err)))
+		} else if status != nil {
+			lines = append(lines, fmt.Sprintf("  Branch: %s", status.Branch))
+			if status.Upstream != "" {
+				lines = append(lines, fmt.Sprintf("  Upstream: %s  +%d -%d", status.Upstream, status.Ahead, status.Behind))
+			}
+			if status.IsMerge {
+				lines = append(lines, lipgloss.NewStyle().Foreground(styles.StateBlocked).Render("  ⚠ MERGE IN PROGRESS"))
+			}
+			if status.IsRebase {
+				lines = append(lines, lipgloss.NewStyle().Foreground(styles.StateBlocked).Render("  ⚠ REBASE IN PROGRESS"))
+			}
+			lines = append(lines, "")
+			if len(status.StagedFiles) > 0 {
+				lines = append(lines, lipgloss.NewStyle().Foreground(styles.StateActive).Render(fmt.Sprintf("  Staged: %d", len(status.StagedFiles))))
+			}
+			if len(status.UnstagedFiles) > 0 {
+				lines = append(lines, lipgloss.NewStyle().Foreground(styles.StatePaused).Render(fmt.Sprintf("  Unstaged: %d", len(status.UnstagedFiles))))
+			}
+			if len(status.UntrackedFiles) > 0 {
+				lines = append(lines, lipgloss.NewStyle().Foreground(styles.StateReady).Render(fmt.Sprintf("  Untracked: %d", len(status.UntrackedFiles))))
+			}
+			if len(status.ConflictedFiles) > 0 {
+				lines = append(lines, lipgloss.NewStyle().Foreground(styles.StateBlocked).Render(fmt.Sprintf("  Conflicts: %d", len(status.ConflictedFiles))))
+			}
+			if len(status.StagedFiles)+len(status.UnstagedFiles)+len(status.UntrackedFiles)+len(status.ConflictedFiles) == 0 {
+				lines = append(lines, lipgloss.NewStyle().Foreground(styles.StateDone).Render("  Working tree clean"))
+			}
+		}
+	}
+
+	lines = append(lines, "")
+	lines = append(lines, detailMetaStyle.Render("  [o] open full Git overlay"))
+	return lipgloss.NewStyle().MaxWidth(w).MaxHeight(h).Render(strings.Join(lines, "\n"))
+}
+
+// --- Files tab ---
+
+func (p *worktreeDetailPane) renderFilesTab(w, h int) string {
+	if p.worktreeID == "" {
+		return lipgloss.NewStyle().MaxWidth(w).Render("  No worktree selected.")
+	}
+
+	var lines []string
+	lines = append(lines, detailMetaStyle.Render(fmt.Sprintf("  Files in %s", filepath.Base(p.worktreeID))))
+	lines = append(lines, "")
+
+	entries, err := os.ReadDir(p.worktreeID)
+	if err != nil {
+		lines = append(lines, detailMetaStyle.Render(fmt.Sprintf("  Error: %v", err)))
+	} else {
+		visible := h - len(lines) - 1 // reserve 1 line for hint
+		if visible < 1 {
+			visible = 1
+		}
+		count := 0
+		for _, e := range entries {
+			name := e.Name()
+			if strings.HasPrefix(name, ".") {
+				continue
+			}
+			prefix := "  📄 "
+			if e.IsDir() {
+				prefix = "  📁 "
+			}
+			lines = append(lines, ansi.Truncate(prefix+name, w, "…"))
+			count++
+			if count >= visible {
+				lines = append(lines, detailMetaStyle.Render(fmt.Sprintf("  … %d more", len(entries)-count)))
+				break
+			}
+		}
+		if count == 0 {
+			lines = append(lines, "  (empty)")
+		}
+	}
+
+	lines = append(lines, "")
+	lines = append(lines, detailMetaStyle.Render("  [o] open full Git overlay"))
+	return lipgloss.NewStyle().MaxWidth(w).MaxHeight(h).Render(strings.Join(lines, "\n"))
+}
+
+// --- Context tab ---
+
+func (p *worktreeDetailPane) renderContextTab(w, h int) string {
+	if p.worktreeID == "" {
+		return lipgloss.NewStyle().MaxWidth(w).Render("  No worktree selected.")
+	}
+
+	var lines []string
+	lines = append(lines, detailMetaStyle.Render("  Context (Trellis)"))
+	if p.trellisBridge != nil {
+		if v := p.trellisBridge.Version(); v != "" {
+			lines = append(lines, detailMetaStyle.Render(fmt.Sprintf("  Trellis v%s", v)))
+		}
+	}
+	lines = append(lines, "")
+
+	// Show current task info if available
+	if len(p.tasks) > 0 && p.taskCursor >= 0 && p.taskCursor < len(p.tasks) {
+		t := p.tasks[p.taskCursor]
+		lines = append(lines, fmt.Sprintf("  Task: %s", clipDisplayText(t.Title, w-8)))
+		lines = append(lines, fmt.Sprintf("  State: %s  Priority: %s", t.State, t.Priority))
+		if t.Goal != "" {
+			goal := clipDisplayText(t.Goal, w-8)
+			lines = append(lines, fmt.Sprintf("  Goal: %s", goal))
+		}
+		lines = append(lines, "")
+
+		// Trellis extended context
+		if p.trellisBridge != nil {
+			extCtx, err := p.trellisBridge.GetTaskContextExtended(t.ID)
+			if err == nil && extCtx != nil {
+				// Status comparison: Focus vs Trellis
+				if extCtx.Task != nil && extCtx.Task.Status != "" {
+					trellisState := trellisToFocusState(extCtx.Task.Status)
+					if trellisState != t.State {
+						warn := fmt.Sprintf("  ⚠ Status mismatch: Focus=%s | Trellis=%s", t.State, extCtx.Task.Status)
+						lines = append(lines, lipgloss.NewStyle().Foreground(styles.StateBlocked).Render(warn))
+						lines = append(lines, "")
+					}
+				}
+				if extCtx.PRD != "" {
+					lines = append(lines, lipgloss.NewStyle().Foreground(styles.Accent).Render("  PRD"))
+					prdPreview := firstNLines(extCtx.PRD, 10)
+					for _, prdLine := range strings.Split(prdPreview, "\n") {
+						lines = append(lines, "  "+ansi.Truncate(prdLine, w-4, "…"))
+					}
+					lines = append(lines, "")
+				}
+				// List specs from .trellis/spec/
+				if specs, err := p.trellisBridge.ListSpecs(); err == nil && len(specs) > 0 {
+					lines = append(lines, lipgloss.NewStyle().Foreground(styles.Accent).Render(fmt.Sprintf("  Specs (%d)", len(specs))))
+					for _, spec := range specs {
+						marker := "○"
+						if extCtx.Task != nil && containsString(extCtx.Task.RelatedFiles, spec) {
+							marker = "●"
+						}
+						lines = append(lines, fmt.Sprintf("  %s %s", marker, ansi.Truncate(spec, w-6, "…")))
+					}
+					lines = append(lines, "")
+				}
+				if extCtx.WorkflowState != "" {
+					lines = append(lines, fmt.Sprintf("  Workflow: %s", extCtx.WorkflowState))
+				}
+				if extCtx.Handoff != "" {
+					lines = append(lines, lipgloss.NewStyle().Foreground(styles.Accent).Render("  Handoff"))
+					handoffPreview := firstNLines(extCtx.Handoff, 5)
+					for _, line := range strings.Split(handoffPreview, "\n") {
+						lines = append(lines, "  "+ansi.Truncate(line, w-4, "…"))
+					}
+					lines = append(lines, "")
+				}
+				if extCtx.Journal != "" {
+					lines = append(lines, lipgloss.NewStyle().Foreground(styles.Accent).Render("  Journal"))
+					journalPreview := firstNLines(extCtx.Journal, 5)
+					for _, line := range strings.Split(journalPreview, "\n") {
+						lines = append(lines, "  "+ansi.Truncate(line, w-4, "…"))
+					}
+					lines = append(lines, "")
+				}
+			} else {
+				lines = append(lines, detailMetaStyle.Render("  Trellis context not yet synced."))
+			}
+		} else {
+			lines = append(lines, detailMetaStyle.Render("  Trellis bridge not available."))
+		}
+	} else {
+		lines = append(lines, "  No task selected. Select a task in the Tasks tab.")
+	}
+
+	lines = append(lines, "")
+	lines = append(lines, detailMetaStyle.Render("  [e]edit PRD  [h]handoff  [j]journal"))
+	return lipgloss.NewStyle().MaxWidth(w).MaxHeight(h).Render(strings.Join(lines, "\n"))
+}
+
+// --- Agent tab ---
+
+func (p *worktreeDetailPane) renderAgentTab(w, h int) string {
+	if p.worktreeID == "" {
+		return lipgloss.NewStyle().MaxWidth(w).Render("  No worktree selected.")
+	}
+
+	var lines []string
+	lines = append(lines, detailMetaStyle.Render("  Agent Sessions"))
+	lines = append(lines, "")
+
 	if len(p.sessions) == 0 {
-		return lipgloss.NewStyle().MaxWidth(w).Foreground(styles.Subtle).Render("  Agents: none  [s] start")
+		lines = append(lines, "  No active sessions. Press [s] to start an agent.")
+		return lipgloss.NewStyle().MaxWidth(w).MaxHeight(h).Render(strings.Join(lines, "\n"))
 	}
+
 	sessions := append([]*agents.Session(nil), p.sessions...)
 	sort.SliceStable(sessions, func(i, j int) bool {
 		li, lj := sessions[i], sessions[j]
@@ -287,21 +700,56 @@ func (p *worktreeDetailPane) renderAgentCards(w int) string {
 		return lti.After(ltj)
 	})
 
-	var parts []string
-	for _, s := range sessions {
+	if p.agentCursor >= len(sessions) {
+		p.agentCursor = len(sessions) - 1
+	}
+	if p.agentCursor < 0 {
+		p.agentCursor = 0
+	}
+
+	for i, s := range sessions {
 		icon := "○"
 		if s.State == agents.SessionRunning {
 			icon = "●"
 		}
+		cursor := "  "
+		if i == p.agentCursor {
+			cursor = "▸ "
+		}
 		stateStyle := detailSessionStateStyle(s.State)
-		card := fmt.Sprintf("%s %s | %s | %s", icon, s.Provider, s.State, sessionRecencyLabel(s))
-		parts = append(parts, stateStyle.Render("["+card+"]"))
+		card := fmt.Sprintf("%s%s %s | %s | %s", cursor, icon, s.Provider, s.State, sessionRecencyLabel(s))
+		if i == p.agentCursor {
+			card = stateStyle.Render(ansi.Truncate(card, w, "…"))
+		} else {
+			card = ansi.Truncate(card, w, "…")
+		}
+		lines = append(lines, card)
+		if i == p.agentCursor && s.Summary != "" {
+			lines = append(lines, detailMetaStyle.Render("   "+clipDisplayText(s.Summary, w-5)))
+		}
 	}
-	return lipgloss.NewStyle().MaxWidth(w).Render("  Agents: " + strings.Join(parts, " "))
+
+	lines = append(lines, "")
+	lines = append(lines, detailMetaStyle.Render("  [j/k]nav  [s]tart  [x]stop  [l]log  [f]ocus"))
+
+	// Token budget placeholder (agent SDK does not expose token usage yet).
+	lines = append(lines, "")
+	lines = append(lines, detailMetaStyle.Render("  Tokens: —  (not tracked by agent SDK)"))
+	return lipgloss.NewStyle().MaxWidth(w).MaxHeight(h).Render(strings.Join(lines, "\n"))
 }
 
 func (p *worktreeDetailPane) SetAgentSessions(sessions []*agents.Session) {
 	p.sessions = sessions
+}
+
+// --- helpers ---
+
+func firstNLines(s string, n int) string {
+	lines := strings.Split(s, "\n")
+	if len(lines) <= n {
+		return s
+	}
+	return strings.Join(lines[:n], "\n") + "\n..."
 }
 
 func emptyLine(w, h int) string {
@@ -335,6 +783,8 @@ func detailStateBadge(state string) string {
 		return lipgloss.NewStyle().Foreground(styles.StateBlocked).Bold(true).Render("[" + label + "]")
 	case "done":
 		return lipgloss.NewStyle().Foreground(styles.StateDone).Bold(true).Render("[" + label + "]")
+	case "archived":
+		return lipgloss.NewStyle().Foreground(styles.StateIdle).Bold(true).Render("[" + label + "]")
 	default:
 		return lipgloss.NewStyle().Foreground(styles.StateReady).Bold(true).Render("[" + label + "]")
 	}
@@ -361,7 +811,6 @@ func taskWindow(total, cursor, rowBudget int) (start, end int, showUp, showDown 
 	if total <= 0 {
 		return 0, 0, false, false
 	}
-	// Reserve one line for selected "next step" detail when possible.
 	visible := rowBudget
 	if visible > 3 {
 		visible--
@@ -420,4 +869,29 @@ func sessionRecencyLabel(s *agents.Session) string {
 		return fmt.Sprintf("%dm ago", int(d.Minutes()))
 	}
 	return fmt.Sprintf("%dh ago", int(d.Hours()))
+}
+
+// trellisToFocusState maps Trellis task statuses to Focus task states.
+func trellisToFocusState(trellisStatus string) string {
+	switch trellisStatus {
+	case "in_progress", "reviewing":
+		return "active"
+	case "completed", "done":
+		return "done"
+	case "archived":
+		return "archived"
+	case "planning":
+		return "blocked"
+	default:
+		return trellisStatus
+	}
+}
+
+func containsString(list []string, s string) bool {
+	for _, v := range list {
+		if v == s {
+			return true
+		}
+	}
+	return false
 }

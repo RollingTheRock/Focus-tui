@@ -16,6 +16,7 @@ import (
 	editorplugin "focus/internal/plugins/editor"
 	gitplugin "focus/internal/plugins/git"
 	"focus/internal/store"
+	"focus/internal/trellis"
 	"focus/internal/ui/layout"
 	"focus/internal/ui/shell"
 
@@ -50,6 +51,54 @@ func (p *fakeEditorMetaPanel) FilePath() string { return p.filePath }
 func (p *fakeEditorMetaPanel) Dirty() bool { return p.dirty }
 
 func (p *fakeEditorMetaPanel) DisplayName() string { return p.name }
+
+type fakeTrellisBridge struct {
+	worktreeID           string
+	linkedWorktreePath   string
+	syncedTaskID         string
+	builtSessionTaskID   string
+	builtSessionWorktree string
+}
+
+func (f *fakeTrellisBridge) EnsureInitialized() error {
+	return nil
+}
+
+func (f *fakeTrellisBridge) SetWorktreeID(id string) {
+	f.worktreeID = id
+}
+
+func (f *fakeTrellisBridge) EnsureWorktreeLinks(worktreePath string) error {
+	f.linkedWorktreePath = worktreePath
+	return nil
+}
+
+func (f *fakeTrellisBridge) SyncTaskCreate(task models.TaskContextRecord, plan *models.TaskPlanRecord) (string, error) {
+	f.syncedTaskID = task.ID
+	return ".trellis/tasks/test-task", nil
+}
+
+func (f *fakeTrellisBridge) BuildAgentContext(session *agents.Session) (*agents.AgentSpec, error) {
+	f.builtSessionTaskID = session.TaskID
+	f.builtSessionWorktree = session.WorktreeID
+	return agents.NewAgentSpec(), nil
+}
+
+func (f *fakeTrellisBridge) AddTaskOutput(taskID, output string) error                { return nil }
+func (f *fakeTrellisBridge) AddKnowledgeFact(subject, predicate, object string) error { return nil }
+func (f *fakeTrellisBridge) SyncTaskStart(taskID string) error                        { return nil }
+func (f *fakeTrellisBridge) SyncTaskFinish(taskID string) error                       { return nil }
+func (f *fakeTrellisBridge) SyncTaskArchive(taskID string) error                      { return nil }
+func (f *fakeTrellisBridge) RecordSessionByTitle(title string) error                  { return nil }
+func (f *fakeTrellisBridge) UpdateWorkflowState(planID string, step models.PlanStepRecord) error {
+	return nil
+}
+func (f *fakeTrellisBridge) GetTaskContextExtended(taskID string) (*trellis.ExtendedTaskContext, error) {
+	return nil, nil
+}
+func (f *fakeTrellisBridge) Version() string              { return "" }
+func (f *fakeTrellisBridge) Update() error                { return nil }
+func (f *fakeTrellisBridge) ListSpecs() ([]string, error) { return nil, nil }
 
 func TestShortenPath(t *testing.T) {
 	tests := []struct {
@@ -142,7 +191,7 @@ func TestRenderHelpLineForGitStatusIncludesReviewShortcuts(t *testing.T) {
 	m.activePage.focused = paneWorktreeDetail
 
 	help := m.renderHelpLine(140)
-	for _, want := range []string{"1-3", "tabs", "j/k", "nav", "enter", "open"} {
+	for _, want := range []string{"1-5", "tabs", "j/k", "nav", "enter", "open"} {
 		if !strings.Contains(help, want) {
 			t.Fatalf("expected help line to contain %q, got %q", want, help)
 		}
@@ -598,8 +647,46 @@ func TestLaunchAgentExternalModePersistsEnvSnapshot(t *testing.T) {
 	if !strings.Contains(records[0].EnvSnapshot, agents.SessionIDEnvVar+"=") {
 		t.Fatalf("expected env snapshot to contain session id env, got %+v", records[0])
 	}
+	if !strings.Contains(records[0].EnvSnapshot, "TRELLIS_CONTEXT_ID=") {
+		t.Fatalf("expected env snapshot to contain trellis context id env, got %+v", records[0])
+	}
 	if records[0].State != string(agents.SessionWaiting) {
 		t.Fatalf("expected waiting state before launch result, got %+v", records[0])
+	}
+}
+
+func TestPrepareAgentProfileEnsuresWorktreeLinks(t *testing.T) {
+	cfg := config.DefaultConfig()
+	st, _ := store.New(":memory:")
+	m := New(cfg, st).(model)
+	bridge := &fakeTrellisBridge{}
+	m.trellisBridge = bridge
+
+	if err := st.SaveTaskContext(models.TaskContextRecord{
+		ID:       "task-profile",
+		RepoID:   m.gitRepoPath(),
+		Title:    "Profile Task",
+		State:    "active",
+		Priority: "medium",
+	}); err != nil {
+		t.Fatalf("save task: %v", err)
+	}
+
+	session := &agents.Session{
+		ID:         "session-profile",
+		WorktreeID: "/tmp/focus-profile-wt",
+		RepoID:     m.gitRepoPath(),
+		TaskID:     "task-profile",
+	}
+	if err := m.prepareAgentProfile(session); err != nil {
+		t.Fatalf("prepare agent profile: %v", err)
+	}
+
+	if bridge.linkedWorktreePath != session.WorktreeID {
+		t.Fatalf("expected worktree links for %q, got %q", session.WorktreeID, bridge.linkedWorktreePath)
+	}
+	if bridge.builtSessionTaskID != session.TaskID {
+		t.Fatalf("expected context build for task %q, got %q", session.TaskID, bridge.builtSessionTaskID)
 	}
 }
 
@@ -2021,6 +2108,49 @@ func TestWorktreeCreatedRefreshesAndOpensShell(t *testing.T) {
 	}
 	if worktreePanel == nil {
 		t.Fatalf("expected worktree pane to remain present")
+	}
+}
+
+func TestWorktreeCreatedForExistingTaskPreparesTrellisContext(t *testing.T) {
+	cfg := config.DefaultConfig()
+	st, _ := store.New(":memory:")
+	m := New(cfg, st).(model)
+	bridge := &fakeTrellisBridge{}
+	m.trellisBridge = bridge
+
+	task := models.TaskContextRecord{
+		ID:       "task-existing",
+		RepoID:   m.gitRepoPath(),
+		Title:    "Existing Task",
+		State:    "active",
+		Priority: "medium",
+	}
+	if err := st.SaveTaskContext(task); err != nil {
+		t.Fatalf("save task: %v", err)
+	}
+
+	cmd := m.createTaskForWorktree(gitplugin.WorktreeCreatedMsg{
+		Worktree:  gitplugin_testWorktree("/tmp/focus-existing-task-wt", "existing-task"),
+		TaskTitle: task.Title,
+		TaskID:    task.ID,
+		IsPhase:   true,
+	})
+	if cmd == nil {
+		t.Fatalf("expected dag refresh command")
+	}
+	_ = cmd()
+
+	if bridge.worktreeID != "/tmp/focus-existing-task-wt" {
+		t.Fatalf("expected bridge worktree id to be set, got %q", bridge.worktreeID)
+	}
+	if bridge.linkedWorktreePath != "/tmp/focus-existing-task-wt" {
+		t.Fatalf("expected worktree links to be prepared, got %q", bridge.linkedWorktreePath)
+	}
+	if bridge.syncedTaskID != task.ID {
+		t.Fatalf("expected task sync for %q, got %q", task.ID, bridge.syncedTaskID)
+	}
+	if bridge.builtSessionTaskID != task.ID || bridge.builtSessionWorktree != "/tmp/focus-existing-task-wt" {
+		t.Fatalf("expected agent context build for task/worktree, got task=%q worktree=%q", bridge.builtSessionTaskID, bridge.builtSessionWorktree)
 	}
 }
 

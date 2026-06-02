@@ -16,13 +16,13 @@ import (
 	"focus/internal/orchestrator"
 	"focus/internal/plugins"
 	agentsplugin "focus/internal/plugins/agents"
-	"focus/internal/trellis"
 	editorplugin "focus/internal/plugins/editor"
 	filebrowser "focus/internal/plugins/filebrowser"
-	gitfiletree "focus/internal/plugins/gitfiletree"
 	gitplugin "focus/internal/plugins/git"
+	gitfiletree "focus/internal/plugins/gitfiletree"
 	dbstore "focus/internal/store"
 	"focus/internal/styles"
+	"focus/internal/trellis"
 	"focus/internal/ui/footer"
 	"focus/internal/ui/header"
 	"focus/internal/ui/layout"
@@ -160,7 +160,26 @@ type model struct {
 	helpModel help.Model
 
 	// trellisBridge connects Focus to the Trellis context layer.
-	trellisBridge *trellis.Bridge
+	trellisBridge trellisBridge
+}
+
+type trellisBridge interface {
+	EnsureInitialized() error
+	SetWorktreeID(id string)
+	EnsureWorktreeLinks(worktreePath string) error
+	SyncTaskCreate(task models.TaskContextRecord, plan *models.TaskPlanRecord) (string, error)
+	BuildAgentContext(session *agents.Session) (*agents.AgentSpec, error)
+	AddTaskOutput(taskID, output string) error
+	AddKnowledgeFact(subject, predicate, object string) error
+	SyncTaskStart(taskID string) error
+	SyncTaskFinish(taskID string) error
+	SyncTaskArchive(taskID string) error
+	RecordSessionByTitle(title string) error
+	UpdateWorkflowState(planID string, step models.PlanStepRecord) error
+	GetTaskContextExtended(taskID string) (*trellis.ExtendedTaskContext, error)
+	Version() string
+	Update() error
+	ListSpecs() ([]string, error)
 }
 
 type editorMetaProvider interface {
@@ -216,6 +235,13 @@ func New(cfg config.Config, store models.Store) tea.Model {
 	// Initialize Trellis bridge if trellis is installed.
 	if repoRoot != "" {
 		m.trellisBridge = trellis.NewBridge(repoRoot, "", store)
+		// Trigger async initialization so .trellis/ and platform files are
+		// ready before the user launches an agent.
+		go func() {
+			if err := m.trellisBridge.EnsureInitialized(); err != nil {
+				log.Printf("trellis bridge init: %v", err)
+			}
+		}()
 	}
 
 	m.registerMCPTools()
@@ -243,6 +269,13 @@ func New(cfg config.Config, store models.Store) tea.Model {
 
 	m.activePage = newOverviewPage(cm, m.pluginRegistry, m.adapterManager, cfg, store, cwd, repoRoot)
 	m.pages[""] = m.activePage
+
+	// Wire trellis bridge into the worktree detail pane for Context tab.
+	if m.trellisBridge != nil {
+		if dp, ok := m.activePage.pane(paneWorktreeDetail).(*worktreeDetailPane); ok {
+			dp.SetTrellisBridge(m.trellisBridge)
+		}
+	}
 
 	// Phase 3: initialise command bus when backed by the concrete store.
 	if st, ok := store.(*dbstore.Store); ok {
@@ -806,6 +839,21 @@ func (m *model) mcpContextGetForTaskTool(params map[string]any) (map[string]any,
 		"worktree_info":    worktreeInfo,
 		"adr_constraints":  []any{},
 	}
+
+	// Overlay Trellis extended context.
+	if m.trellisBridge != nil {
+		extCtx, err := m.trellisBridge.GetTaskContextExtended(taskID)
+		if err == nil && extCtx != nil {
+			result["trellis_task"] = extCtx.Task
+			result["trellis_prd"] = extCtx.PRD
+			result["trellis_specs"] = extCtx.Specs
+			result["trellis_handoff"] = extCtx.Handoff
+			result["trellis_journal"] = extCtx.Journal
+			result["trellis_workflow_state"] = extCtx.WorkflowState
+			result["trellis_implement_jsonl"] = extCtx.ImplementJSONL
+		}
+	}
+
 	return result, nil
 }
 
@@ -1113,6 +1161,20 @@ func (m *model) mcpPlanAddStepTool(params map[string]any) (map[string]any, error
 	}); err != nil {
 		return nil, err
 	}
+
+	// Sync to Trellis workflow.
+	if m.trellisBridge != nil {
+		step := models.PlanStepRecord{
+			ID:         stepID,
+			PlanID:     planID,
+			Title:      title,
+			Notes:      strings.TrimSpace(toolStringParam(params, "notes")),
+			OrderIndex: orderIndex,
+			State:      "ready",
+		}
+		_ = m.trellisBridge.UpdateWorkflowState(planID, step)
+	}
+
 	return map[string]any{
 		"success":     true,
 		"step_id":     stepID,
@@ -1178,6 +1240,7 @@ func (m *model) mcpPlanExpandToTasksTool(params map[string]any) (map[string]any,
 		}); err != nil {
 			return nil, fmt.Errorf("save task for step %q: %w", step.Title, err)
 		}
+		m.syncTaskCreateToTrellis(taskID)
 
 		// Update step with expanded task ID
 		step.ExpandedTaskID = taskID
@@ -1641,7 +1704,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		session := m.newAgentSession(msg.WorktreeID, msg.Provider)
 		session.ExtraArgs = extraArgs
 		m.saveAgentSession(session)
-		_ = m.prepareAgentProfile(session)
+		if err := m.prepareAgentProfile(session); err != nil {
+			log.Printf("prepareAgentProfile: %v", err)
+		}
 		if m.agentRegistry != nil {
 			m.agentRegistry.Register(session)
 		}
@@ -2048,7 +2113,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			session.ExtraArgs = append(session.ExtraArgs, "--continue")
 		}
 		m.saveAgentSession(session)
-		_ = m.prepareAgentProfile(session)
+		if err := m.prepareAgentProfile(session); err != nil {
+			log.Printf("prepareAgentProfile: %v", err)
+		}
 		if m.agentRegistry != nil {
 			m.agentRegistry.Register(session)
 		}
@@ -2365,7 +2432,8 @@ func (m model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		default:
 			if m.activePage.paneMeta[m.activePage.focused].Type == models.PaneTypeShell {
-				return m, m.routeToPane(m.activePage.focused, msg)}
+				return m, m.routeToPane(m.activePage.focused, msg)
+			}
 			m.mode = ModeNormal
 		}
 	}
@@ -2395,7 +2463,8 @@ func (m model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	case "w":
 		if _, ok := m.activePage.paneMeta[paneCityPicker]; ok {
-			m.closePane(paneCityPicker)} else {
+			m.closePane(paneCityPicker)
+		} else {
 			m.activePage.openCityPickerOverlay()
 		}
 		m.invalidateView()
@@ -2646,7 +2715,11 @@ func (m *model) createTaskForWorktree(msg gitplugin.WorktreeCreatedMsg) tea.Cmd 
 			log.Printf("createTaskForWorktree: link task to worktree: %v", err)
 			return nil
 		}
+		trellisCmd := m.prepareTrellisWorktreeContext(msg.Worktree.Path, repoID, msg.TaskID)
 		return func() tea.Msg {
+			if trellisCmd != nil {
+				_ = trellisCmd()
+			}
 			return dagRefreshMsg{repoID: repoID}
 		}
 	}
@@ -2662,6 +2735,7 @@ func (m *model) createTaskForWorktree(msg gitplugin.WorktreeCreatedMsg) tea.Cmd 
 		log.Printf("createTaskForWorktree: create task %q: %v", msg.TaskTitle, err)
 		return nil
 	}
+	trellisCmd := m.prepareTrellisWorktreeContext(msg.Worktree.Path, repoID, taskID)
 	taskMode := "single"
 	if msg.IsPhase {
 		taskMode = "mixed"
@@ -2690,7 +2764,46 @@ func (m *model) createTaskForWorktree(msg gitplugin.WorktreeCreatedMsg) tea.Cmd 
 		return nil
 	}
 	return func() tea.Msg {
+		if trellisCmd != nil {
+			_ = trellisCmd()
+		}
 		return dagRefreshMsg{repoID: repoID}
+	}
+}
+
+func (m *model) prepareTrellisWorktreeContext(worktreePath, repoID, taskID string) tea.Cmd {
+	if m.trellisBridge == nil || m.common == nil || m.common.Store == nil || worktreePath == "" || taskID == "" {
+		return nil
+	}
+	return func() tea.Msg {
+		m.trellisBridge.SetWorktreeID(worktreePath)
+		if err := m.trellisBridge.EnsureWorktreeLinks(worktreePath); err != nil {
+			log.Printf("prepareTrellisWorktreeContext: ensure worktree links: %v", err)
+		}
+
+		task, err := m.common.Store.GetTaskContext(taskID)
+		if err != nil || task == nil {
+			log.Printf("prepareTrellisWorktreeContext: task %q not found: %v", taskID, err)
+			return nil
+		}
+		plans, _ := m.common.Store.ListTaskPlans(taskID)
+		var plan *models.TaskPlanRecord
+		if len(plans) > 0 {
+			plan = &plans[0]
+		}
+		if _, err := m.trellisBridge.SyncTaskCreate(*task, plan); err != nil {
+			log.Printf("prepareTrellisWorktreeContext: sync task to trellis: %v", err)
+			return nil
+		}
+		session := &agents.Session{
+			WorktreeID: worktreePath,
+			RepoID:     repoID,
+			TaskID:     taskID,
+		}
+		if _, err := m.trellisBridge.BuildAgentContext(session); err != nil {
+			log.Printf("prepareTrellisWorktreeContext: build agent context: %v", err)
+		}
+		return nil
 	}
 }
 
@@ -2724,7 +2837,9 @@ func (m *model) launchAgent(msg agents.LaunchAgentMsg) tea.Cmd {
 	}
 
 	// Trellis-style: auto-inject per-worktree agent profile.
-	_ = m.prepareAgentProfile(session)
+	if err := m.prepareAgentProfile(session); err != nil {
+		log.Printf("prepareAgentProfile: %v", err)
+	}
 
 	pageCmd := m.switchToWorktreePage(worktreeID, "")
 	if m.common != nil && m.common.Cfg.Agent.ExternalTerminal {
@@ -2767,6 +2882,7 @@ func (m *model) launchExternalAgent(session *agents.Session) tea.Cmd {
 	envVars := []string{
 		agents.SessionIDEnvVar + "=" + session.ID,
 		agents.LegacySessionIDEnvVar + "=" + session.ID,
+		agents.TrellisContextIDEnvVar + "=" + session.ID,
 	}
 	if session.TaskID != "" {
 		envVars = append(envVars, agents.TaskIDEnvVar+"="+session.TaskID)
@@ -3043,12 +3159,10 @@ func gitRepoRoot(path string) (string, bool) {
 	if err != nil {
 		return "", false
 	}
-
 	root := strings.TrimSpace(string(output))
 	if root == "" {
 		return "", false
 	}
-
 	return root, true
 }
 
@@ -3202,7 +3316,7 @@ func (m model) renderPaneTitle(id models.PaneID, contentWidth int) string {
 // staticKeyMap adapts a slice of bubblesKey.Binding to the help.KeyMap interface.
 type staticKeyMap []bubblesKey.Binding
 
-func (k staticKeyMap) ShortHelp() []bubblesKey.Binding { return k }
+func (k staticKeyMap) ShortHelp() []bubblesKey.Binding  { return k }
 func (k staticKeyMap) FullHelp() [][]bubblesKey.Binding { return [][]bubblesKey.Binding{k} }
 
 func helpBindingsForState(m model, compact bool) []bubblesKey.Binding {
@@ -3319,33 +3433,48 @@ func helpBindingsForState(m model, compact bool) []bubblesKey.Binding {
 			}
 		}
 	case paneWorktreeDetail:
-		if _, ok := m.activePage.pane(paneWorktreeDetail).(*worktreeDetailPane); ok {
-			
-				if compact {
-					bindings = []bubblesKey.Binding{
-						bubblesKey.NewBinding(bubblesKey.WithKeys("j", "k"), bubblesKey.WithHelp("j/k", "nav")),
-						bubblesKey.NewBinding(bubblesKey.WithKeys("enter", "e"), bubblesKey.WithHelp("enter/e", "edit")),
-						bubblesKey.NewBinding(bubblesKey.WithKeys("s"), bubblesKey.WithHelp("s", "agent")),
-					}
-				} else {
-					bindings = []bubblesKey.Binding{
-						bubblesKey.NewBinding(bubblesKey.WithKeys("j", "k"), bubblesKey.WithHelp("j/k", "nav")),
-						bubblesKey.NewBinding(bubblesKey.WithKeys("enter", "e"), bubblesKey.WithHelp("enter/e", "edit task")),
-						bubblesKey.NewBinding(bubblesKey.WithKeys("s"), bubblesKey.WithHelp("s", "start agent")),
-						bubblesKey.NewBinding(bubblesKey.WithKeys("1", "2", "3"), bubblesKey.WithHelp("1-3", "tabs")),
-						bubblesKey.NewBinding(bubblesKey.WithKeys("tab"), bubblesKey.WithHelp("tab", "cycle focus")),
-					}
-				}
+		if dp, ok := m.activePage.pane(paneWorktreeDetail).(*worktreeDetailPane); ok {
+			bindings = []bubblesKey.Binding{
+				bubblesKey.NewBinding(bubblesKey.WithKeys("1", "2", "3", "4", "5"), bubblesKey.WithHelp("1-5", "tabs")),
+			}
+			switch dp.activeTab {
+			case detailTabTasks:
+				bindings = append(bindings,
+					bubblesKey.NewBinding(bubblesKey.WithKeys("j", "k"), bubblesKey.WithHelp("j/k", "nav")),
+					bubblesKey.NewBinding(bubblesKey.WithKeys("enter", "e"), bubblesKey.WithHelp("enter/e", "edit task")),
+					bubblesKey.NewBinding(bubblesKey.WithKeys("s"), bubblesKey.WithHelp("s", "start agent")),
+				)
+			case detailTabGit, detailTabFiles:
+				bindings = append(bindings,
+					bubblesKey.NewBinding(bubblesKey.WithKeys("o"), bubblesKey.WithHelp("o", "open overlay")),
+				)
+			case detailTabContext:
+				bindings = append(bindings,
+					bubblesKey.NewBinding(bubblesKey.WithKeys("e"), bubblesKey.WithHelp("e", "edit PRD")),
+					bubblesKey.NewBinding(bubblesKey.WithKeys("h"), bubblesKey.WithHelp("h", "handoff")),
+					bubblesKey.NewBinding(bubblesKey.WithKeys("j"), bubblesKey.WithHelp("j", "journal")),
+					bubblesKey.NewBinding(bubblesKey.WithKeys("u"), bubblesKey.WithHelp("u", "trellis update")),
+				)
+			case detailTabAgent:
+				bindings = append(bindings,
+					bubblesKey.NewBinding(bubblesKey.WithKeys("j", "k"), bubblesKey.WithHelp("j/k", "nav")),
+					bubblesKey.NewBinding(bubblesKey.WithKeys("s"), bubblesKey.WithHelp("s", "start")),
+					bubblesKey.NewBinding(bubblesKey.WithKeys("x"), bubblesKey.WithHelp("x", "stop")),
+				)
+			}
+			if !compact {
+				bindings = append(bindings, bubblesKey.NewBinding(bubblesKey.WithKeys("tab"), bubblesKey.WithHelp("tab", "cycle focus")))
+			}
 		} else {
 			if compact {
 				bindings = []bubblesKey.Binding{
-					bubblesKey.NewBinding(bubblesKey.WithKeys("1", "2", "3"), bubblesKey.WithHelp("1-3", "tabs")),
+					bubblesKey.NewBinding(bubblesKey.WithKeys("1", "2", "3", "4", "5"), bubblesKey.WithHelp("1-5", "tabs")),
 					bubblesKey.NewBinding(bubblesKey.WithKeys("j", "k"), bubblesKey.WithHelp("j/k", "nav")),
 					bubblesKey.NewBinding(bubblesKey.WithKeys("enter"), bubblesKey.WithHelp("enter", "open")),
 				}
 			} else {
 				bindings = []bubblesKey.Binding{
-					bubblesKey.NewBinding(bubblesKey.WithKeys("1", "2", "3"), bubblesKey.WithHelp("1-3", "tabs")),
+					bubblesKey.NewBinding(bubblesKey.WithKeys("1", "2", "3", "4", "5"), bubblesKey.WithHelp("1-5", "tabs")),
 					bubblesKey.NewBinding(bubblesKey.WithKeys("j", "k"), bubblesKey.WithHelp("j/k", "nav")),
 					bubblesKey.NewBinding(bubblesKey.WithKeys("enter"), bubblesKey.WithHelp("enter", "open")),
 					bubblesKey.NewBinding(bubblesKey.WithKeys("tab"), bubblesKey.WithHelp("tab", "cycle focus")),
@@ -4180,10 +4309,14 @@ func (s appOrchestratorStore) ListPlanSteps(planID string) ([]orchestrator.PlanS
 }
 
 func (s appOrchestratorStore) UpdateTaskState(taskID string, newState string) error {
-	return s.model.cmdBus.Send(context.Background(), &commands.UpdateTaskState{
+	if err := s.model.cmdBus.Send(context.Background(), &commands.UpdateTaskState{
 		TaskID:   taskID,
 		NewState: newState,
-	})
+	}); err != nil {
+		return err
+	}
+	s.model.syncTaskStateToTrellis(taskID, newState)
+	return nil
 }
 
 type appOrchestratorLauncher struct {
@@ -4221,7 +4354,9 @@ func (l *protocolOrchestratorLauncher) LaunchTask(task orchestrator.Task) error 
 	provider := l.model.resolveOrchestratedProvider(task)
 	session := l.model.newProtocolAgentSession(task.ID, worktreeID, provider)
 	l.model.saveAgentSession(session)
-	_ = l.model.prepareAgentProfile(session)
+	if err := l.model.prepareAgentProfile(session); err != nil {
+		log.Printf("prepareAgentProfile: %v", err)
+	}
 	if l.model.common != nil && l.model.common.Cfg.Agent.ExternalTerminal {
 		cmd := l.model.launchExternalAgent(session)
 		if cmd != nil {
@@ -5443,6 +5578,9 @@ func (m *model) prepareAgentProfile(session *agents.Session) error {
 	// Use Trellis Bridge to assemble context if available.
 	if m.trellisBridge != nil {
 		m.trellisBridge.SetWorktreeID(session.WorktreeID)
+		if err := m.trellisBridge.EnsureWorktreeLinks(session.WorktreeID); err != nil {
+			return fmt.Errorf("ensure trellis worktree links: %w", err)
+		}
 		_, err := m.trellisBridge.BuildAgentContext(session)
 		if err != nil {
 			return fmt.Errorf("build trellis context: %w", err)
@@ -5451,6 +5589,7 @@ func (m *model) prepareAgentProfile(session *agents.Session) error {
 	}
 
 	// Fallback to legacy spec loader (should not reach here after full migration).
+	log.Printf("prepareAgentProfile: trellis bridge unavailable, falling back to deprecated spec loader for worktree %s", session.WorktreeID)
 	pm := agents.NewProfileManager(session.WorktreeID)
 	if err := pm.Prepare(); err != nil {
 		return err
@@ -5687,10 +5826,10 @@ func (m *model) backflowAgentSession(record models.AgentSessionRecord) {
 	if updatedTask != nil {
 		_ = m.cmdBus.Send(context.Background(), &commands.UpdateTask{Record: *updatedTask})
 		planID := record.PlanID
-		doneSummary := "Completed: " + currentTitle
+		doneSummary := currentTitle
 		remainingSummary := "Plan complete"
 		if nextTitle != "" {
-			remainingSummary = "Next: " + nextTitle
+			remainingSummary = nextTitle
 		}
 		decisionSummary := "Auto-advanced to next plan step"
 		entrypoint := record.Summary
@@ -5711,9 +5850,9 @@ func (m *model) backflowAgentSession(record models.AgentSessionRecord) {
 		// Write per-worktree handoff file for the next agent session.
 		pm := agents.NewProfileManager(record.WorktreeID)
 		handoffMD := "# Session Handoff\n\n" +
-			"## Completed\n" + doneSummary + "\n\n" +
+			"## Completed\nCompleted: " + doneSummary + "\n\n" +
 			"## Key Decisions\n" + decisionSummary + "\n\n" +
-			"## Remaining\n" + remainingSummary + "\n\n" +
+			"## Remaining\nNext: " + remainingSummary + "\n\n" +
 			"## Entrypoint\n" + entrypoint + "\n"
 		if err := pm.WriteHandoff(record.ID, handoffMD); err != nil {
 			log.Printf("backflow: write handoff for session %s: %v", record.ID, err)
@@ -5809,4 +5948,48 @@ func shortenSegments(prefix, rest string) string {
 		return filepath.Join("~", short)
 	}
 	return prefix + short
+}
+
+// syncTaskCreateToTrellis asynchronously syncs a newly created task to Trellis.
+func (m *model) syncTaskCreateToTrellis(taskID string) {
+	if m.trellisBridge == nil || m.common.Store == nil {
+		return
+	}
+	go func() {
+		task, err := m.common.Store.GetTaskContext(taskID)
+		if err != nil || task == nil {
+			return
+		}
+		plans, _ := m.common.Store.ListTaskPlans(taskID)
+		var plan *models.TaskPlanRecord
+		if len(plans) > 0 {
+			plan = &plans[0]
+		}
+		if _, err := m.trellisBridge.SyncTaskCreate(*task, plan); err != nil {
+			log.Printf("syncTaskCreateToTrellis: %v", err)
+		}
+	}()
+}
+
+// syncTaskStateToTrellis asynchronously syncs a task state change to Trellis.
+func (m *model) syncTaskStateToTrellis(taskID string, newState string) {
+	if m.trellisBridge == nil {
+		return
+	}
+	go func() {
+		switch newState {
+		case "active":
+			if err := m.trellisBridge.SyncTaskStart(taskID); err != nil {
+				log.Printf("syncTaskStateToTrellis start: %v", err)
+			}
+		case "done":
+			if err := m.trellisBridge.SyncTaskFinish(taskID); err != nil {
+				log.Printf("syncTaskStateToTrellis finish: %v", err)
+			}
+		case "archived":
+			if err := m.trellisBridge.SyncTaskArchive(taskID); err != nil {
+				log.Printf("syncTaskStateToTrellis archive: %v", err)
+			}
+		}
+	}()
 }

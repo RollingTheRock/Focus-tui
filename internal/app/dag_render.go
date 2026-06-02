@@ -744,6 +744,8 @@ func nodeStyle(state string, focus bool) lipgloss.Style {
 		return lipgloss.NewStyle().Bold(true).Foreground(styles.StateBlocked)
 	case "done":
 		return lipgloss.NewStyle().Bold(true).Foreground(styles.StateDone)
+	case "archived":
+		return lipgloss.NewStyle().Foreground(styles.StateIdle) // archived = gray/muted
 	case "ready":
 		return lipgloss.NewStyle().Bold(true).Foreground(styles.StateReady)
 	default:

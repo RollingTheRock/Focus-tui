@@ -1654,6 +1654,12 @@ func (m *model) switchToWorktreePage(worktreeID, preferredPane string) tea.Cmd {
 		sh.SetCWD(worktreeID)
 	}
 
+	// Update Trellis bridge worktree ID so BuildAgentContext writes
+	// AGENTS.md / CLAUDE.md to the correct worktree directory.
+	if m.trellisBridge != nil {
+		m.trellisBridge.SetWorktreeID(worktreeID)
+	}
+
 	// Notify worktree detail pane of the selection via message routing
 	// so Init commands (git watcher, file tree ticker) are returned to the runtime.
 	var cmd tea.Cmd
