@@ -251,3 +251,122 @@ func max(a, b int) int {
 	}
 	return b
 }
+
+// TestEnsureWorktreeLinksIntegration verifies that EnsureWorktreeLinks
+// correctly creates symlinks for .trellis/ and platform config directories
+// in a git worktree subdirectory, and handles pre-existing directories.
+func TestEnsureWorktreeLinksIntegration(t *testing.T) {
+	// Use the real repo root which already has .trellis/ initialized.
+	repoRoot, _ := filepath.Abs("../..")
+	bridge := NewBridge(repoRoot, "test-wt-links", nil)
+
+	// Create a temp worktree directory under /tmp.
+	worktreeDir := t.TempDir()
+
+	t.Run("CreatesTrellisSymlink", func(t *testing.T) {
+		if err := bridge.EnsureWorktreeLinks(worktreeDir); err != nil {
+			t.Fatalf("EnsureWorktreeLinks: %v", err)
+		}
+		link := filepath.Join(worktreeDir, ".trellis")
+		info, err := os.Lstat(link)
+		if err != nil {
+			t.Fatalf(".trellis symlink not created: %v", err)
+		}
+		if info.Mode()&os.ModeSymlink == 0 {
+			t.Fatalf(".trellis is not a symlink")
+		}
+		target, err := os.Readlink(link)
+		if err != nil {
+			t.Fatalf("readlink .trellis: %v", err)
+		}
+		want := filepath.Join(repoRoot, ".trellis")
+		if target != want {
+			t.Fatalf(".trellis symlink target = %q, want %q", target, want)
+		}
+		t.Logf(".trellis symlink -> %s", target)
+	})
+
+	t.Run("ReplacesExistingDirectoryWithSymlink", func(t *testing.T) {
+		// Simulate trellis init creating a standalone .trellis/ inside a worktree.
+		wt2 := t.TempDir()
+		staleTrellis := filepath.Join(wt2, ".trellis")
+		if err := os.MkdirAll(filepath.Join(staleTrellis, "scripts"), 0755); err != nil {
+			t.Fatalf("mkdir stale .trellis: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(staleTrellis, "scripts", "dummy.py"), []byte("pass"), 0644); err != nil {
+			t.Fatalf("write dummy file: %v", err)
+		}
+
+		bridge2 := NewBridge(repoRoot, "test-wt-stale", nil)
+		if err := bridge2.EnsureWorktreeLinks(wt2); err != nil {
+			t.Fatalf("EnsureWorktreeLinks: %v", err)
+		}
+
+		// .trellis should now be a symlink, not a directory.
+		info, err := os.Lstat(staleTrellis)
+		if err != nil {
+			t.Fatalf("stale .trellis lstat: %v", err)
+		}
+		if info.Mode()&os.ModeSymlink == 0 {
+			t.Fatalf("stale .trellis was not replaced with a symlink")
+		}
+		target, _ := os.Readlink(staleTrellis)
+		if target != filepath.Join(repoRoot, ".trellis") {
+			t.Fatalf("stale .trellis symlink target wrong: %s", target)
+		}
+		t.Log("stale directory correctly replaced with symlink")
+	})
+
+	t.Run("UpdatesWrongSymlink", func(t *testing.T) {
+		// Create a worktree with a .trellis symlink pointing to a wrong location.
+		wt3 := t.TempDir()
+		wrongLink := filepath.Join(wt3, ".trellis")
+		wrongTarget := "/dev/null"
+		if err := os.Symlink(wrongTarget, wrongLink); err != nil {
+			t.Fatalf("create wrong symlink: %v", err)
+		}
+
+		bridge3 := NewBridge(repoRoot, "test-wt-wrong", nil)
+		if err := bridge3.EnsureWorktreeLinks(wt3); err != nil {
+			t.Fatalf("EnsureWorktreeLinks: %v", err)
+		}
+
+		// The symlink should now point to the correct target.
+		info, err := os.Lstat(wrongLink)
+		if err != nil {
+			t.Fatalf("wrongLink lstat: %v", err)
+		}
+		if info.Mode()&os.ModeSymlink == 0 {
+			t.Fatalf("wrongLink is not a symlink after update")
+		}
+		target, _ := os.Readlink(wrongLink)
+		if target != filepath.Join(repoRoot, ".trellis") {
+			t.Fatalf("wrongLink target = %q, want repoRoot/.trellis", target)
+		}
+		t.Log("wrong symlink correctly updated")
+	})
+
+	t.Run("PlatformConfigSymlinks", func(t *testing.T) {
+		// Verify that at least one platform config symlink is created
+		// if the corresponding directory exists in the repo root.
+		for _, dir := range []string{".kimi", ".claude", ".codex", ".gemini", ".opencode"} {
+			target := filepath.Join(repoRoot, dir)
+			if _, err := os.Stat(target); os.IsNotExist(err) {
+				continue // platform not initialized, skip
+			}
+			link := filepath.Join(worktreeDir, dir)
+			info, err := os.Lstat(link)
+			if err != nil {
+				t.Fatalf("%s symlink not created: %v", dir, err)
+			}
+			if info.Mode()&os.ModeSymlink == 0 {
+				t.Fatalf("%s is not a symlink", dir)
+			}
+			gotTarget, _ := os.Readlink(link)
+			if gotTarget != target {
+				t.Fatalf("%s symlink target = %q, want %q", dir, gotTarget, target)
+			}
+			t.Logf("%s symlink -> %s", dir, gotTarget)
+		}
+	})
+}

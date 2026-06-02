@@ -210,11 +210,12 @@ type TaskCreateOpts struct {
 
 // TrellisTask represents a task as returned by task.py list.
 type TrellisTask struct {
-	ID       string `json:"id"`
-	Name     string `json:"name"`
-	Title    string `json:"title"`
-	Status   string `json:"status"`
-	Priority string `json:"priority"`
+	ID           string   `json:"id"`
+	Name         string   `json:"name"`
+	Title        string   `json:"title"`
+	Status       string   `json:"status"`
+	Priority     string   `json:"priority"`
+	RelatedFiles []string `json:"relatedFiles"`
 }
 
 // runWithTimeout executes a command with a timeout.
@@ -246,7 +247,6 @@ func copyDir(src, dst string) error {
 	})
 }
 
-// appendToFile appends content to a file, creating parent directories if necessary.
 func appendToFile(path, content string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return err

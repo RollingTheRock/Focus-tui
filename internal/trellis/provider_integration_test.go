@@ -131,7 +131,7 @@ func TestTrellisPlatformFilesExist(t *testing.T) {
 			name: "OpenCode",
 			paths: []string{
 				".opencode/agents/trellis-implement.md",
-				".opencode/hooks/session-start.py",
+				".opencode/plugins/session-start.js",
 				".opencode/skills/trellis-check/SKILL.md",
 			},
 		},

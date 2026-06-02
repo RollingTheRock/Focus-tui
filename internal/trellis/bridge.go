@@ -3,6 +3,7 @@ package trellis
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -44,6 +45,237 @@ func (b *Bridge) SetWorktreeID(id string) {
 	b.worktreeID = id
 }
 
+// SetRepoRoot switches the bridge to a different repository / worktree root.
+// This resets trellisReady so EnsureInitialized re-runs for the new path.
+func (b *Bridge) SetRepoRoot(repoRoot string) {
+	if b.repoRoot == repoRoot {
+		return
+	}
+	b.repoRoot = repoRoot
+	b.trellisReady = false
+	b.client = nil
+}
+
+// EnsureWorktreeLinks creates symlinks in the given worktree directory
+// pointing to the main repo's .trellis/ and platform config directories
+// (.kimi, .claude, .codex, .gemini, .opencode).
+// This allows agent CLI tools launched inside a git worktree to discover
+// Trellis and platform configurations even though the configs live in the
+// main repository root.
+func (b *Bridge) EnsureWorktreeLinks(worktreePath string) error {
+	if b.repoRoot == "" || b.repoRoot == worktreePath {
+		return nil // same directory, nothing to link
+	}
+
+	// Ensure worktree directory exists.
+	if err := os.MkdirAll(worktreePath, 0755); err != nil {
+		return fmt.Errorf("create worktree dir: %w", err)
+	}
+
+	// Link .trellis — critical for Claude SessionStart hook which does
+	// NOT walk up the directory tree; it uses project_dir / ".trellis" directly.
+	trellisLink := filepath.Join(worktreePath, ".trellis")
+	trellisTarget := filepath.Join(b.repoRoot, ".trellis")
+	if err := ensureSymlink(trellisLink, trellisTarget); err != nil {
+		return fmt.Errorf("trellis link %s -> %s: %w", trellisLink, trellisTarget, err)
+	}
+
+	// Link platform config directories.
+	for _, dir := range []string{".kimi", ".claude", ".codex", ".gemini", ".opencode"} {
+		link := filepath.Join(worktreePath, dir)
+		target := filepath.Join(b.repoRoot, dir)
+		if info, err := os.Stat(target); err == nil && info.IsDir() {
+			if err := ensureSymlink(link, target); err != nil {
+				log.Printf("platform link %s -> %s: %v", link, target, err)
+			}
+		}
+	}
+	return nil
+}
+
+// ensureSymlink creates a symlink at linkPath pointing to targetPath.
+// If linkPath already exists as a directory (e.g. trellis init created it),
+// it is removed and replaced with a symlink. If linkPath already exists as
+// a symlink pointing to a different target, it is updated.
+func ensureSymlink(linkPath, targetPath string) error {
+	if linkPath == "" || targetPath == "" {
+		return nil
+	}
+	if _, err := os.Stat(targetPath); err != nil {
+		return fmt.Errorf("target does not exist: %w", err)
+	}
+
+	info, err := os.Lstat(linkPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return os.Symlink(targetPath, linkPath)
+		}
+		return err
+	}
+
+	// Already a symlink — check if it points to the right target.
+	if info.Mode()&os.ModeSymlink != 0 {
+		currentTarget, err := os.Readlink(linkPath)
+		if err == nil && currentTarget == targetPath {
+			return nil // already correct
+		}
+		// Wrong target — remove and recreate.
+		if err := os.Remove(linkPath); err != nil {
+			return fmt.Errorf("remove stale symlink: %w", err)
+		}
+		return os.Symlink(targetPath, linkPath)
+	}
+
+	// Exists but is a regular file or directory — remove and replace with symlink.
+	// This handles the case where trellis init (or another tool) created a
+	// standalone config directory inside the worktree before we linked it.
+	if err := os.RemoveAll(linkPath); err != nil {
+		return fmt.Errorf("remove existing path for symlink: %w", err)
+	}
+	return os.Symlink(targetPath, linkPath)
+}
+
+// Version returns the installed trellis CLI version, or an empty string if
+// trellis is not installed.
+func (b *Bridge) Version() string {
+	if b.client == nil {
+		b.client = NewClient(b.repoRoot, "")
+	}
+	v, _ := b.client.Version()
+	return v
+}
+
+// Update runs `trellis update -f` to update trellis configuration to the latest version.
+func (b *Bridge) Update() error {
+	if b.client == nil {
+		b.client = NewClient(b.repoRoot, "")
+	}
+	cmd := exec.Command("trellis", "update", "-f")
+	cmd.Dir = b.repoRoot
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("trellis update: %w\n%s", err, string(out))
+	}
+	return nil
+}
+
+// MigrateLegacyFocus copies legacy .focus/ files into .trellis/ directories.
+// It migrates: .focus/spec/ → .trellis/spec/ and .focus/handoff/ + .focus/journal/
+// → .trellis/workspace/{developer}/journal/. Returns the number of files migrated.
+func (b *Bridge) MigrateLegacyFocus() (int, error) {
+	migrated := 0
+	devName := b.gitUserName()
+
+	// Migrate .focus/spec/*.md → .trellis/spec/
+	legacySpecDir := filepath.Join(b.repoRoot, ".focus", "spec")
+	if entries, err := os.ReadDir(legacySpecDir); err == nil {
+		targetDir := filepath.Join(b.repoRoot, ".trellis", "spec")
+		for _, e := range entries {
+			if e.IsDir() {
+				continue
+			}
+			src := filepath.Join(legacySpecDir, e.Name())
+			dst := filepath.Join(targetDir, e.Name())
+			if _, err := os.Stat(dst); os.IsNotExist(err) {
+				data, _ := os.ReadFile(src)
+				if len(data) > 0 {
+					_ = os.MkdirAll(targetDir, 0755)
+					_ = os.WriteFile(dst, data, 0644)
+					migrated++
+				}
+			}
+		}
+	}
+
+	// Migrate .focus/handoff/*.md → .trellis/workspace/{dev}/journal/
+	legacyHandoffDir := filepath.Join(b.repoRoot, ".focus", "handoff")
+	if entries, err := os.ReadDir(legacyHandoffDir); err == nil {
+		targetDir := filepath.Join(b.repoRoot, ".trellis", "workspace", devName, "journal")
+		for _, e := range entries {
+			if e.IsDir() {
+				continue
+			}
+			src := filepath.Join(legacyHandoffDir, e.Name())
+			dst := filepath.Join(targetDir, e.Name())
+			if _, err := os.Stat(dst); os.IsNotExist(err) {
+				data, _ := os.ReadFile(src)
+				if len(data) > 0 {
+					_ = os.MkdirAll(targetDir, 0755)
+					_ = os.WriteFile(dst, data, 0644)
+					migrated++
+				}
+			}
+		}
+	}
+
+	// Migrate .focus/journal/*.md → .trellis/workspace/{dev}/journal/
+	legacyJournalDir := filepath.Join(b.repoRoot, ".focus", "journal")
+	if entries, err := os.ReadDir(legacyJournalDir); err == nil {
+		targetDir := filepath.Join(b.repoRoot, ".trellis", "workspace", devName, "journal")
+		for _, e := range entries {
+			if e.IsDir() {
+				continue
+			}
+			src := filepath.Join(legacyJournalDir, e.Name())
+			dst := filepath.Join(targetDir, e.Name())
+			if _, err := os.Stat(dst); os.IsNotExist(err) {
+				data, _ := os.ReadFile(src)
+				if len(data) > 0 {
+					_ = os.MkdirAll(targetDir, 0755)
+					_ = os.WriteFile(dst, data, 0644)
+					migrated++
+				}
+			}
+		}
+	}
+
+	return migrated, nil
+}
+
+// ListSpecs returns the paths of all Markdown spec files under .trellis/spec/.
+func (b *Bridge) ListSpecs() ([]string, error) {
+	specDir := filepath.Join(b.repoRoot, ".trellis", "spec")
+	entries, err := os.ReadDir(specDir)
+	if err != nil {
+		return nil, err
+	}
+	var specs []string
+	for _, e := range entries {
+		if e.IsDir() {
+			// Read sub-directory for domain specs.
+			subDir := filepath.Join(specDir, e.Name())
+			subEntries, err := os.ReadDir(subDir)
+			if err != nil {
+				continue
+			}
+			for _, se := range subEntries {
+				if !se.IsDir() && strings.HasSuffix(se.Name(), ".md") {
+					specs = append(specs, filepath.Join(".trellis/spec", e.Name(), se.Name()))
+				}
+			}
+		} else if strings.HasSuffix(e.Name(), ".md") {
+			specs = append(specs, filepath.Join(".trellis/spec", e.Name()))
+		}
+	}
+	return specs, nil
+}
+
+// LegacyFocusMigrationNeeded reports whether legacy .focus/ files exist that
+// should be migrated to .trellis/.
+func (b *Bridge) LegacyFocusMigrationNeeded() bool {
+	focusDir := filepath.Join(b.repoRoot, ".focus")
+	if _, err := os.Stat(focusDir); os.IsNotExist(err) {
+		return false
+	}
+	// Check for spec or handoff subdirectories.
+	for _, sub := range []string{"spec", "handoff", "journal"} {
+		if _, err := os.Stat(filepath.Join(focusDir, sub)); err == nil {
+			return true
+		}
+	}
+	return false
+}
+
 // EnsureInitialized checks that Trellis is installed and the .trellis/ directory
 // exists, running `trellis init` if necessary. It also generates Kimi-specific
 // adapters since Trellis does not natively support Kimi as a platform.
@@ -54,12 +286,14 @@ func (b *Bridge) EnsureInitialized() error {
 
 	// 1. Detect trellis CLI.
 	if _, err := exec.LookPath("trellis"); err != nil {
+		log.Printf("trellis not found in PATH: %v", err)
 		return ErrTrellisNotInstalled
 	}
 
 	// 2. Detect python3.
 	python, err := resolvePythonCommand()
 	if err != nil {
+		log.Printf("python3 not found: %v", err)
 		return err
 	}
 	b.pythonCmd = python
@@ -72,6 +306,7 @@ func (b *Bridge) EnsureInitialized() error {
 		flags := b.buildTrellisInitFlags(platforms)
 		devName := b.gitUserName()
 		if err := b.client.Init(devName, flags); err != nil {
+			log.Printf("trellis init failed: %v", err)
 			return fmt.Errorf("%w: %v", ErrTrellisInitFailed, err)
 		}
 	}
@@ -122,14 +357,19 @@ func (b *Bridge) BuildAgentContext(session *agents.Session) (*agents.AgentSpec, 
 
 	// Layer C: write entry files.
 	pm := agents.NewProfileManager(b.worktreeID)
-	pm.WriteRootFiles(spec)
-	pm.WriteAGENTSMD(spec)
+	if err := pm.WriteRootFiles(spec); err != nil {
+		return nil, fmt.Errorf("write root agent files: %w", err)
+	}
+	if err := pm.WriteAGENTSMD(spec); err != nil {
+		return nil, fmt.Errorf("write focus agent spec: %w", err)
+	}
 
 	return spec, nil
 }
 
 // SyncTaskCreate creates a Trellis task from a Focus task record.
-// If a task with the same slug already exists, it returns the existing directory.
+// If a Trellis task already has meta.focus_task_id for this Focus task, it
+// returns that existing directory.
 func (b *Bridge) SyncTaskCreate(task models.TaskContextRecord, plan *models.TaskPlanRecord) (string, error) {
 	if err := b.EnsureInitialized(); err != nil {
 		return "", err
@@ -144,7 +384,7 @@ func (b *Bridge) SyncTaskCreate(task models.TaskContextRecord, plan *models.Task
 	existingTasks, _ := b.client.TaskList()
 	expectedSlug := taskSlugFromTitle(task.Title)
 	for _, et := range existingTasks {
-		if strings.Contains(et.Name, expectedSlug) {
+		if et.ID == task.ID {
 			b.taskSlugMap[task.ID] = et.Name
 			return et.Name, nil
 		}
@@ -298,6 +538,9 @@ func (b *Bridge) UpdateWorkflowState(planID string, step models.PlanStepRecord) 
 
 // GetTaskContextExtended returns extended task context from Trellis.
 func (b *Bridge) GetTaskContextExtended(taskID string) (*ExtendedTaskContext, error) {
+	if err := b.EnsureInitialized(); err != nil {
+		return nil, err
+	}
 	slug, err := b.resolveTaskSlug(taskID)
 	if err != nil {
 		return nil, err
@@ -477,5 +720,3 @@ func isPythonVersionOK(ver string) bool {
 	}
 	return major > 3 || (major == 3 && minor >= 9)
 }
-
-
