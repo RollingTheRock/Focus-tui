@@ -3125,6 +3125,24 @@ func helpBindingsForState(m model, compact bool) []bubblesKey.Binding {
 				bubblesKey.NewBinding(bubblesKey.WithKeys("ctrl+s"), bubblesKey.WithHelp("ctrl+s", "save")),
 				bubblesKey.NewBinding(bubblesKey.WithKeys("esc"), bubblesKey.WithHelp("esc", "cancel")),
 			}
+		case models.PaneTypeDiffView:
+			if compact {
+				return []bubblesKey.Binding{
+					bubblesKey.NewBinding(bubblesKey.WithKeys("enter"), bubblesKey.WithHelp("enter", "open")),
+					bubblesKey.NewBinding(bubblesKey.WithKeys("s"), bubblesKey.WithHelp("s", "toggle")),
+					bubblesKey.NewBinding(bubblesKey.WithKeys("v"), bubblesKey.WithHelp("v", "layout")),
+					bubblesKey.NewBinding(bubblesKey.WithKeys("wheel"), bubblesKey.WithHelp("wheel", "scroll")),
+				}
+			}
+			return []bubblesKey.Binding{
+				bubblesKey.NewBinding(bubblesKey.WithKeys("enter"), bubblesKey.WithHelp("enter", "open file")),
+				bubblesKey.NewBinding(bubblesKey.WithKeys("s"), bubblesKey.WithHelp("s", "toggle staged")),
+				bubblesKey.NewBinding(bubblesKey.WithKeys("[", "]"), bubblesKey.WithHelp("[ / ]", "files")),
+				bubblesKey.NewBinding(bubblesKey.WithKeys("j", "k"), bubblesKey.WithHelp("j/k", "scroll")),
+				bubblesKey.NewBinding(bubblesKey.WithKeys("v"), bubblesKey.WithHelp("v", "toggle layout")),
+				bubblesKey.NewBinding(bubblesKey.WithKeys("wheel"), bubblesKey.WithHelp("wheel", "scroll")),
+				bubblesKey.NewBinding(bubblesKey.WithKeys("q", "esc"), bubblesKey.WithHelp("q/esc", "close review")),
+			}
 		}
 	}
 	if m.mode == ModeInput {
@@ -3328,14 +3346,16 @@ func helpBindingsForState(m model, compact bool) []bubblesKey.Binding {
 				bindings = []bubblesKey.Binding{
 					bubblesKey.NewBinding(bubblesKey.WithKeys("enter"), bubblesKey.WithHelp("enter", "open")),
 					bubblesKey.NewBinding(bubblesKey.WithKeys("s"), bubblesKey.WithHelp("s", "toggle")),
+					bubblesKey.NewBinding(bubblesKey.WithKeys("v"), bubblesKey.WithHelp("v", "layout")),
 					bubblesKey.NewBinding(bubblesKey.WithKeys("wheel"), bubblesKey.WithHelp("wheel", "scroll")),
 				}
 			} else {
 				bindings = []bubblesKey.Binding{
 					bubblesKey.NewBinding(bubblesKey.WithKeys("enter"), bubblesKey.WithHelp("enter", "open file")),
 					bubblesKey.NewBinding(bubblesKey.WithKeys("s"), bubblesKey.WithHelp("s", "toggle staged")),
-					bubblesKey.NewBinding(bubblesKey.WithKeys("[", "]"), bubblesKey.WithHelp("[]/[]", "files")),
+					bubblesKey.NewBinding(bubblesKey.WithKeys("[", "]"), bubblesKey.WithHelp("[ / ]", "files")),
 					bubblesKey.NewBinding(bubblesKey.WithKeys("j", "k"), bubblesKey.WithHelp("j/k", "scroll")),
+					bubblesKey.NewBinding(bubblesKey.WithKeys("v"), bubblesKey.WithHelp("v", "toggle layout")),
 					bubblesKey.NewBinding(bubblesKey.WithKeys("wheel"), bubblesKey.WithHelp("wheel", "scroll")),
 					bubblesKey.NewBinding(bubblesKey.WithKeys("q", "esc"), bubblesKey.WithHelp("q/esc", "close review")),
 				}

@@ -416,9 +416,15 @@ func TestRenderHelpLineForDiffOverlayIncludesReviewCloseShortcut(t *testing.T) {
 	m.activePage.focused = paneGitDiff
 
 	help := m.renderHelpLine(120)
-	for _, want := range []string{"enter", "open file", "s", "toggle staged", "[]/[]", "files", "wheel", "scroll", "q/esc", "close review"} {
+	for _, want := range []string{"enter", "open file", "s", "toggle staged", "[ / ]", "files", "v", "toggle layout", "wheel", "scroll", "q/esc", "close review"} {
 		if !strings.Contains(help, want) {
 			t.Fatalf("expected diff help line to contain %q, got %q", want, help)
+		}
+	}
+	// Global hints should NOT appear when diff overlay is active
+	for _, avoid := range []string{"weather", "refresh", "quit"} {
+		if strings.Contains(help, avoid) {
+			t.Fatalf("expected diff overlay help to exclude global hint %q, got %q", avoid, help)
 		}
 	}
 }
