@@ -695,3 +695,542 @@ For the workflow state machine's runtime contract, the locations of all status w
 - **State:** active
 - **Updated:** 2026-06-02T18:03:17+08:00
 - **Notes:** Running integration tests
+
+## Step A
+
+- **Step:** 7f454506-ef2a-45fa-b20e-f361aca88048 (order 0)
+- **State:** ready
+- **Updated:** 2026-06-02T18:37:51+08:00
+- **Notes:** First step
+
+## Step B
+
+- **Step:** dee27b7d-eec3-4388-ac57-88ff76d23e9e (order 1)
+- **State:** ready
+- **Updated:** 2026-06-02T18:37:51+08:00
+- **Notes:** Second step
+
+## Step A
+
+- **Step:** 613748a3-8b04-4695-9a17-6166f81d8afe (order 0)
+- **State:** ready
+- **Updated:** 2026-06-02T18:38:01+08:00
+- **Notes:** First step
+
+## Step B
+
+- **Step:** 176bbfce-098b-4a75-a760-9bdf8cad24b2 (order 1)
+- **State:** ready
+- **Updated:** 2026-06-02T18:38:01+08:00
+- **Notes:** Second step
+
+## Verify Bridge Integration
+
+- **Step:** step-test-001 (order 1)
+- **State:** active
+- **Updated:** 2026-06-02T18:38:14+08:00
+- **Notes:** Running integration tests
+
+## Step A
+
+- **Step:** 116bfb03-f587-419b-b216-542969f3ffca (order 0)
+- **State:** ready
+- **Updated:** 2026-06-02T18:38:38+08:00
+- **Notes:** First step
+
+## Step B
+
+- **Step:** bd3da696-4108-4f35-99fa-e0723a9af05c (order 1)
+- **State:** ready
+- **Updated:** 2026-06-02T18:38:38+08:00
+- **Notes:** Second step
+
+## Step A
+
+- **Step:** 7b6be515-e62d-443d-8c90-7fb15b4c3c73 (order 0)
+- **State:** ready
+- **Updated:** 2026-06-02T18:41:40+08:00
+- **Notes:** First step
+
+## Step B
+
+- **Step:** cabd7c67-4c6a-4143-ac45-06247df43718 (order 1)
+- **State:** ready
+- **Updated:** 2026-06-02T18:41:40+08:00
+- **Notes:** Second step
+
+## Verify Bridge Integration
+
+- **Step:** step-test-001 (order 1)
+- **State:** active
+- **Updated:** 2026-06-02T18:47:39+08:00
+- **Notes:** Running integration tests
+
+## Verify Bridge Integration
+
+- **Step:** step-test-001 (order 1)
+- **State:** active
+- **Updated:** 2026-06-02T23:04:31+08:00
+- **Notes:** Running integration tests
+
+## Verify Bridge Integration
+
+- **Step:** step-test-001 (order 1)
+- **State:** active
+- **Updated:** 2026-06-02T23:04:57+08:00
+- **Notes:** Running integration tests
+
+## Verify Bridge Integration
+
+- **Step:** step-test-001 (order 1)
+- **State:** active
+- **Updated:** 2026-06-02T23:07:36+08:00
+- **Notes:** Running integration tests
+
+## Verify Bridge Integration
+
+- **Step:** step-test-001 (order 1)
+- **State:** active
+- **Updated:** 2026-06-02T23:09:05+08:00
+- **Notes:** Running integration tests
+
+## Verify Bridge Integration
+
+- **Step:** step-test-001 (order 1)
+- **State:** active
+- **Updated:** 2026-06-02T23:09:13+08:00
+- **Notes:** Running integration tests
+
+## Step A
+
+- **Step:** 155ea058-b29a-4652-b429-2757de98baa2 (order 0)
+- **State:** ready
+- **Updated:** 2026-06-02T23:09:23+08:00
+- **Notes:** First step
+
+## Step B
+
+- **Step:** eee7eebb-a4d8-4d80-9321-9877773bff22 (order 1)
+- **State:** ready
+- **Updated:** 2026-06-02T23:09:23+08:00
+- **Notes:** Second step
+
+## Verify Bridge Integration
+
+- **Step:** step-test-001 (order 1)
+- **State:** active
+- **Updated:** 2026-06-02T23:10:10+08:00
+- **Notes:** Running integration tests
+
+## Verify Bridge Integration
+
+- **Step:** step-test-001 (order 1)
+- **State:** active
+- **Updated:** 2026-06-02T23:11:28+08:00
+- **Notes:** Running integration tests
+
+## Verify Bridge Integration
+
+- **Step:** step-test-001 (order 1)
+- **State:** active
+- **Updated:** 2026-06-02T23:11:38+08:00
+- **Notes:** Running integration tests
+
+## Step A
+
+- **Step:** f130088d-23fa-4513-89c0-ab8419f39a51 (order 0)
+- **State:** ready
+- **Updated:** 2026-06-02T23:11:48+08:00
+- **Notes:** First step
+
+## Step B
+
+- **Step:** 04688f59-3161-461d-a024-51b25af19008 (order 1)
+- **State:** ready
+- **Updated:** 2026-06-02T23:11:48+08:00
+- **Notes:** Second step
+
+## Verify Bridge Integration
+
+- **Step:** step-test-001 (order 1)
+- **State:** active
+- **Updated:** 2026-06-02T23:23:38+08:00
+- **Notes:** Running integration tests
+
+## Step A
+
+- **Step:** 2b8b5b3f-2418-451a-bd95-01389748f0ea (order 0)
+- **State:** ready
+- **Updated:** 2026-06-02T23:23:48+08:00
+- **Notes:** First step
+
+## Step B
+
+- **Step:** 99d37eb2-2668-4bdb-bd76-b756f83af125 (order 1)
+- **State:** ready
+- **Updated:** 2026-06-02T23:23:48+08:00
+- **Notes:** Second step
+
+## Step A
+
+- **Step:** 19bf1aaa-1a38-46cf-b263-fd631483a608 (order 0)
+- **State:** ready
+- **Updated:** 2026-06-02T23:24:15+08:00
+- **Notes:** First step
+
+## Step B
+
+- **Step:** b3404356-da9c-4981-bcaf-32798f2590df (order 1)
+- **State:** ready
+- **Updated:** 2026-06-02T23:24:15+08:00
+- **Notes:** Second step
+
+## Step A
+
+- **Step:** 1cb7b2b7-1206-4790-816e-4b21f3c81cab (order 0)
+- **State:** ready
+- **Updated:** 2026-06-02T23:24:39+08:00
+- **Notes:** First step
+
+## Step B
+
+- **Step:** 000134d1-016b-49c7-a889-8170a303cc71 (order 1)
+- **State:** ready
+- **Updated:** 2026-06-02T23:24:39+08:00
+- **Notes:** Second step
+
+## Step A
+
+- **Step:** b206299d-e3c1-4199-9223-3b85ce618356 (order 0)
+- **State:** ready
+- **Updated:** 2026-06-02T23:24:51+08:00
+- **Notes:** First step
+
+## Step B
+
+- **Step:** a5c8830a-cd3b-422e-81a8-44ed4c85aa61 (order 1)
+- **State:** ready
+- **Updated:** 2026-06-02T23:24:51+08:00
+- **Notes:** Second step
+
+## Verify Bridge Integration
+
+- **Step:** step-test-001 (order 1)
+- **State:** active
+- **Updated:** 2026-06-02T23:24:59+08:00
+- **Notes:** Running integration tests
+
+## Verify Bridge Integration
+
+- **Step:** step-test-001 (order 1)
+- **State:** active
+- **Updated:** 2026-06-02T23:25:15+08:00
+- **Notes:** Running integration tests
+
+## Verify Bridge Integration
+
+- **Step:** step-test-001 (order 1)
+- **State:** active
+- **Updated:** 2026-06-02T23:48:34+08:00
+- **Notes:** Running integration tests
+
+## Verify Bridge Integration
+
+- **Step:** step-test-001 (order 1)
+- **State:** active
+- **Updated:** 2026-06-02T23:48:56+08:00
+- **Notes:** Running integration tests
+
+## Verify Bridge Integration
+
+- **Step:** step-test-001 (order 1)
+- **State:** active
+- **Updated:** 2026-06-02T23:49:29+08:00
+- **Notes:** Running integration tests
+
+## Verify Bridge Integration
+
+- **Step:** step-test-001 (order 1)
+- **State:** active
+- **Updated:** 2026-06-02T23:51:16+08:00
+- **Notes:** Running integration tests
+
+## Verify Bridge Integration
+
+- **Step:** step-test-001 (order 1)
+- **State:** active
+- **Updated:** 2026-06-03T00:11:17+08:00
+- **Notes:** Running integration tests
+
+## Verify Bridge Integration
+
+- **Step:** step-test-001 (order 1)
+- **State:** active
+- **Updated:** 2026-06-03T00:26:40+08:00
+- **Notes:** Running integration tests
+
+## Verify Bridge Integration
+
+- **Step:** step-test-001 (order 1)
+- **State:** active
+- **Updated:** 2026-06-03T00:31:54+08:00
+- **Notes:** Running integration tests
+
+## Verify Bridge Integration
+
+- **Step:** step-test-001 (order 1)
+- **State:** active
+- **Updated:** 2026-06-03T00:38:31+08:00
+- **Notes:** Running integration tests
+
+## Step A
+
+- **Step:** 06dd2a12-cdca-4d8b-9110-1d6b7525933e (order 0)
+- **State:** ready
+- **Updated:** 2026-06-03T00:38:43+08:00
+- **Notes:** First step
+
+## Step B
+
+- **Step:** f0da3f4d-3211-43fb-b9b2-36ee56858d01 (order 1)
+- **State:** ready
+- **Updated:** 2026-06-03T00:38:43+08:00
+- **Notes:** Second step
+
+## Verify Bridge Integration
+
+- **Step:** step-test-001 (order 1)
+- **State:** active
+- **Updated:** 2026-06-03T00:55:09+08:00
+- **Notes:** Running integration tests
+
+## Step A
+
+- **Step:** 346eade9-48c8-4b6b-b596-8656f05f7e5a (order 0)
+- **State:** ready
+- **Updated:** 2026-06-03T00:55:19+08:00
+- **Notes:** First step
+
+## Step B
+
+- **Step:** 26ae85f2-fb1a-449e-a361-1be45295fe80 (order 1)
+- **State:** ready
+- **Updated:** 2026-06-03T00:55:19+08:00
+- **Notes:** Second step
+
+## Verify Bridge Integration
+
+- **Step:** step-test-001 (order 1)
+- **State:** active
+- **Updated:** 2026-06-03T00:55:27+08:00
+- **Notes:** Running integration tests
+
+## Step A
+
+- **Step:** 9f2135cc-00ad-43ee-b24a-c76413010e88 (order 0)
+- **State:** ready
+- **Updated:** 2026-06-03T00:55:36+08:00
+- **Notes:** First step
+
+## Step B
+
+- **Step:** 337badd9-1c38-4bbe-b74a-f102c02784eb (order 1)
+- **State:** ready
+- **Updated:** 2026-06-03T00:55:36+08:00
+- **Notes:** Second step
+
+## Verify Bridge Integration
+
+- **Step:** step-test-001 (order 1)
+- **State:** active
+- **Updated:** 2026-06-03T01:05:29+08:00
+- **Notes:** Running integration tests
+
+## Step A
+
+- **Step:** 4c0477a9-5e69-4261-a7b1-72bb2527241f (order 0)
+- **State:** ready
+- **Updated:** 2026-06-03T01:05:38+08:00
+- **Notes:** First step
+
+## Step B
+
+- **Step:** 9daacd1a-276b-4818-bcab-09b9228857d8 (order 1)
+- **State:** ready
+- **Updated:** 2026-06-03T01:05:38+08:00
+- **Notes:** Second step
+
+## Step A
+
+- **Step:** 3ebcc4aa-b5d7-40b6-bbc9-27d9d16d6b62 (order 0)
+- **State:** ready
+- **Updated:** 2026-06-03T01:05:57+08:00
+- **Notes:** First step
+
+## Step B
+
+- **Step:** 6abfdeac-2351-4b47-b267-607b4f366744 (order 1)
+- **State:** ready
+- **Updated:** 2026-06-03T01:05:57+08:00
+- **Notes:** Second step
+
+## Verify Bridge Integration
+
+- **Step:** step-test-001 (order 1)
+- **State:** active
+- **Updated:** 2026-06-03T01:06:05+08:00
+- **Notes:** Running integration tests
+
+## Verify Bridge Integration
+
+- **Step:** step-test-001 (order 1)
+- **State:** active
+- **Updated:** 2026-06-03T01:25:22+08:00
+- **Notes:** Running integration tests
+
+## Step A
+
+- **Step:** db3e2e89-e118-4e30-aeb2-2efdb808491a (order 0)
+- **State:** ready
+- **Updated:** 2026-06-03T01:25:25+08:00
+- **Notes:** First step
+
+## Step B
+
+- **Step:** dc996923-cd0c-4ff4-90ce-9b38870342f6 (order 1)
+- **State:** ready
+- **Updated:** 2026-06-03T01:25:25+08:00
+- **Notes:** Second step
+
+## Verify Bridge Integration
+
+- **Step:** step-test-001 (order 1)
+- **State:** active
+- **Updated:** 2026-06-03T01:41:54+08:00
+- **Notes:** Running integration tests
+
+## Verify Bridge Integration
+
+- **Step:** step-test-001 (order 1)
+- **State:** active
+- **Updated:** 2026-06-03T01:43:05+08:00
+- **Notes:** Running integration tests
+
+## Step A
+
+- **Step:** b1a09953-5e79-486f-99ac-3adf2032ab81 (order 0)
+- **State:** ready
+- **Updated:** 2026-06-03T01:43:57+08:00
+- **Notes:** First step
+
+## Step B
+
+- **Step:** ac23bfd0-29b1-4b0a-8aeb-818efb24ad22 (order 1)
+- **State:** ready
+- **Updated:** 2026-06-03T01:43:57+08:00
+- **Notes:** Second step
+
+## Step A
+
+- **Step:** 10461249-f3cb-491a-ba24-57369bb13771 (order 0)
+- **State:** ready
+- **Updated:** 2026-06-03T01:45:17+08:00
+- **Notes:** First step
+
+## Step B
+
+- **Step:** fb25f4e9-4176-46dd-be01-8093d3089d8b (order 1)
+- **State:** ready
+- **Updated:** 2026-06-03T01:45:17+08:00
+- **Notes:** Second step
+
+## Verify Bridge Integration
+
+- **Step:** step-test-001 (order 1)
+- **State:** active
+- **Updated:** 2026-06-03T01:45:39+08:00
+- **Notes:** Running integration tests
+
+## Verify Bridge Integration
+
+- **Step:** step-test-001 (order 1)
+- **State:** active
+- **Updated:** 2026-06-03T01:46:45+08:00
+- **Notes:** Running integration tests
+
+## Step A
+
+- **Step:** 0ac3ea6b-f875-43a7-8d28-9e5f21cb0823 (order 0)
+- **State:** ready
+- **Updated:** 2026-06-03T01:55:22+08:00
+- **Notes:** First step
+
+## Step B
+
+- **Step:** eb3fea0e-c04e-4b79-842a-a86353d0da57 (order 1)
+- **State:** ready
+- **Updated:** 2026-06-03T01:55:22+08:00
+- **Notes:** Second step
+
+## Verify Bridge Integration
+
+- **Step:** step-test-001 (order 1)
+- **State:** active
+- **Updated:** 2026-06-03T01:55:37+08:00
+- **Notes:** Running integration tests
+
+## Verify Bridge Integration
+
+- **Step:** step-test-001 (order 1)
+- **State:** active
+- **Updated:** 2026-06-03T02:19:38+08:00
+- **Notes:** Running integration tests
+
+## Verify Bridge Integration
+
+- **Step:** step-test-001 (order 1)
+- **State:** active
+- **Updated:** 2026-06-03T02:19:47+08:00
+- **Notes:** Running integration tests
+
+## Step A
+
+- **Step:** fa3a2e4b-f89d-4b5e-91b5-f6da74ff4948 (order 0)
+- **State:** ready
+- **Updated:** 2026-06-03T02:29:22+08:00
+- **Notes:** First step
+
+## Step B
+
+- **Step:** f2aba681-a7f2-4481-9b75-9fffafd73da7 (order 1)
+- **State:** ready
+- **Updated:** 2026-06-03T02:29:22+08:00
+- **Notes:** Second step
+
+## Verify Bridge Integration
+
+- **Step:** step-test-001 (order 1)
+- **State:** active
+- **Updated:** 2026-06-03T02:29:34+08:00
+- **Notes:** Running integration tests
+
+## Step A
+
+- **Step:** 61922e86-cd10-471a-92e2-17fd272d253f (order 0)
+- **State:** ready
+- **Updated:** 2026-06-03T02:34:46+08:00
+- **Notes:** First step
+
+## Step B
+
+- **Step:** ca49961e-ddab-4bf5-a1c1-269f70e8a179 (order 1)
+- **State:** ready
+- **Updated:** 2026-06-03T02:34:46+08:00
+- **Notes:** Second step
+
+## Verify Bridge Integration
+
+- **Step:** step-test-001 (order 1)
+- **State:** active
+- **Updated:** 2026-06-03T02:34:59+08:00
+- **Notes:** Running integration tests
