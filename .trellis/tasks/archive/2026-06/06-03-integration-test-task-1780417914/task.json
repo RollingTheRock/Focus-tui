@@ -4,7 +4,7 @@
   "branch": null,
   "children": [],
   "commit": null,
-  "completedAt": null,
+  "completedAt": "2026-06-03",
   "createdAt": "2026-06-03",
   "creator": "developer",
   "description": "1. Create task\n2. Verify files\n3. Clean up",
@@ -21,7 +21,7 @@
   "priority": "P1",
   "relatedFiles": [],
   "scope": null,
-  "status": "planning",
+  "status": "completed",
   "subtasks": [],
   "title": "Integration Test Task 1780417914",
   "worktree_path": null
