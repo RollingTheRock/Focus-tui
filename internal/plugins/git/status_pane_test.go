@@ -537,6 +537,12 @@ func (f *fakeGitAdapter) DiscardChanges(repoPath string, path string) error {
 	return f.discardErr
 }
 
+func (f *fakeGitAdapter) GetStashList(repoPath string) ([]adapters.StashEntry, error) { return nil, nil }
+func (f *fakeGitAdapter) StashApply(repoPath string, index int) error { return nil }
+func (f *fakeGitAdapter) StashPop(repoPath string, index int) error { return nil }
+func (f *fakeGitAdapter) StashDrop(repoPath string, index int) error { return nil }
+func (f *fakeGitAdapter) CheckoutBranch(repoPath string, branch string) error { return nil }
+
 func TestStatusPaneStageAll(t *testing.T) {
 	status := &gitmodel.Status{
 		Branch:        "main",

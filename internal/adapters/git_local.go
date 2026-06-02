@@ -598,6 +598,7 @@ func (g *GitLocalAdapter) Commit(repoPath, message string) error {
 		return fmt.Errorf("git commit failed: %s", detail)
 	}
 
+	g.invalidateStatusCache(repoPath)
 	return nil
 }
 
@@ -652,6 +653,7 @@ func (g *GitLocalAdapter) StageFile(repoPath string, path string) error {
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("git add failed: %w", err)
 	}
+	g.invalidateStatusCache(repoPath)
 	return nil
 }
 
@@ -661,6 +663,7 @@ func (g *GitLocalAdapter) StageAll(repoPath string) error {
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("git add --all failed: %w", err)
 	}
+	g.invalidateStatusCache(repoPath)
 	return nil
 }
 
@@ -670,6 +673,7 @@ func (g *GitLocalAdapter) UnstageFile(repoPath string, path string) error {
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("git reset failed: %w", err)
 	}
+	g.invalidateStatusCache(repoPath)
 	return nil
 }
 
@@ -679,6 +683,7 @@ func (g *GitLocalAdapter) UnstageAll(repoPath string) error {
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("git reset HEAD -- . failed: %w", err)
 	}
+	g.invalidateStatusCache(repoPath)
 	return nil
 }
 
@@ -727,6 +732,7 @@ func (g *GitLocalAdapter) DiscardChanges(repoPath string, path string) error {
 		return fmt.Errorf("git checkout failed: %w", err)
 	}
 
+	g.invalidateStatusCache(repoPath)
 	return nil
 }
 
@@ -942,6 +948,70 @@ func (g *GitLocalAdapter) mainWorktreeRoot(repoPath string) (string, error) {
 
 func samePath(a, b string) bool {
 	return filepath.Clean(a) == filepath.Clean(b)
+}
+
+// --- Stash operations ---
+
+func (g *GitLocalAdapter) GetStashList(repoPath string) ([]StashEntry, error) {
+	cmd := exec.Command("git", "-C", repoPath, "stash", "list", "--format=%gd %s")
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("git stash list failed: %w", err)
+	}
+
+	var entries []StashEntry
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, " ", 2)
+		idx := 0
+		fmt.Sscanf(parts[0], "stash@{%d}", &idx)
+		msg := ""
+		if len(parts) > 1 {
+			msg = parts[1]
+		}
+		entries = append(entries, StashEntry{Index: idx, Message: msg})
+	}
+	return entries, nil
+}
+
+func (g *GitLocalAdapter) StashApply(repoPath string, index int) error {
+	cmd := exec.Command("git", "-C", repoPath, "stash", "apply", fmt.Sprintf("stash@{%d}", index))
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("git stash apply failed: %s", strings.TrimSpace(string(out)))
+	}
+	g.invalidateStatusCache(repoPath)
+	return nil
+}
+
+func (g *GitLocalAdapter) StashPop(repoPath string, index int) error {
+	cmd := exec.Command("git", "-C", repoPath, "stash", "pop", fmt.Sprintf("stash@{%d}", index))
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("git stash pop failed: %s", strings.TrimSpace(string(out)))
+	}
+	g.invalidateStatusCache(repoPath)
+	return nil
+}
+
+func (g *GitLocalAdapter) StashDrop(repoPath string, index int) error {
+	cmd := exec.Command("git", "-C", repoPath, "stash", "drop", fmt.Sprintf("stash@{%d}", index))
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("git stash drop failed: %s", strings.TrimSpace(string(out)))
+	}
+	g.invalidateStatusCache(repoPath)
+	return nil
+}
+
+func (g *GitLocalAdapter) CheckoutBranch(repoPath string, branch string) error {
+	cmd := exec.Command("git", "-C", repoPath, "checkout", branch)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("git checkout failed: %s", strings.TrimSpace(string(out)))
+	}
+	g.invalidateStatusCache(repoPath)
+	g.invalidateWorktreeCache(repoPath)
+	return nil
 }
 
 // RefreshStatus returns a Bubble Tea command that refreshes the status.

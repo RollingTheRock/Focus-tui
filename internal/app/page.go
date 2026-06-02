@@ -783,6 +783,27 @@ func (p *page) largeOverlayContentSize() (int, int) {
 	return width, height
 }
 
+func (p *page) gitFileTreeOverlayContentSize() (int, int) {
+	bounds := p.bodyBoundsSize()
+	width := bounds.W - 4
+	if width > bounds.W {
+		width = bounds.W
+	}
+	if width < 60 {
+		width = 60
+	}
+
+	height := bounds.H - 2
+	if height > bounds.H {
+		height = bounds.H
+	}
+	if height < 20 {
+		height = 20
+	}
+
+	return width, height
+}
+
 func (p *page) isLargeOverlayPane(id models.PaneID) bool {
 	if id == paneGitDiff {
 		return true
@@ -815,7 +836,9 @@ func (p *page) renderOverlayPane(base string, id models.PaneID) string {
 	}
 
 	var overlayW, overlayH int
-	if p.isLargeOverlayPane(id) {
+	if id == paneGitFileTree {
+		overlayW, overlayH = p.gitFileTreeOverlayContentSize()
+	} else if p.isLargeOverlayPane(id) {
 		overlayW, overlayH = p.largeOverlayContentSize()
 	} else {
 		overlayW, overlayH = p.overlayContentSize()
@@ -841,7 +864,9 @@ func (p *page) renderOverlayPaneToCanvas(canvas *render.Canvas, id models.PaneID
 	}
 
 	var overlayW, overlayH int
-	if p.isLargeOverlayPane(id) {
+	if id == paneGitFileTree {
+		overlayW, overlayH = p.gitFileTreeOverlayContentSize()
+	} else if p.isLargeOverlayPane(id) {
 		overlayW, overlayH = p.largeOverlayContentSize()
 	} else {
 		overlayW, overlayH = p.overlayContentSize()

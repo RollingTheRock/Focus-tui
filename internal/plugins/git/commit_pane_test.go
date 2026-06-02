@@ -239,3 +239,9 @@ func (f *fakeCommitAdapter) UnstageFile(repoPath string, path string) error { re
 func (f *fakeCommitAdapter) UnstageAll(repoPath string) error { return nil }
 
 func (f *fakeCommitAdapter) DiscardChanges(repoPath string, path string) error { return nil }
+
+func (f *fakeCommitAdapter) GetStashList(repoPath string) ([]adapters.StashEntry, error) { return nil, nil }
+func (f *fakeCommitAdapter) StashApply(repoPath string, index int) error { return nil }
+func (f *fakeCommitAdapter) StashPop(repoPath string, index int) error { return nil }
+func (f *fakeCommitAdapter) StashDrop(repoPath string, index int) error { return nil }
+func (f *fakeCommitAdapter) CheckoutBranch(repoPath string, branch string) error { return nil }
