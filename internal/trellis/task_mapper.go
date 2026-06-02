@@ -59,10 +59,32 @@ func focusPriorityToTrellis(p string) string {
 // taskSlugFromTitle generates a Trellis-compatible task slug from a title.
 func taskSlugFromTitle(title string) string {
 	// Trellis uses {MM-DD}-{slugified-title} format.
-	// For now, return a simple slug; date prefix is added by task.py.
+	// task.py adds the date prefix; we just need a clean slug.
 	slug := strings.ToLower(title)
-	slug = strings.ReplaceAll(slug, " ", "-")
-	// TODO: remove special characters, limit length.
+	var b strings.Builder
+	for _, r := range slug {
+		if r >= 'a' && r <= 'z' || r >= '0' && r <= '9' {
+			b.WriteRune(r)
+		} else if r == ' ' || r == '-' || r == '_' {
+			b.WriteRune('-')
+		}
+		// skip all other special characters
+	}
+	slug = b.String()
+	// collapse multiple dashes
+	for strings.Contains(slug, "--") {
+		slug = strings.ReplaceAll(slug, "--", "-")
+	}
+	slug = strings.Trim(slug, "-")
+	// limit length
+	const maxLen = 50
+	if len(slug) > maxLen {
+		slug = slug[:maxLen]
+		slug = strings.TrimRight(slug, "-")
+	}
+	if slug == "" {
+		slug = "task"
+	}
 	return slug
 }
 

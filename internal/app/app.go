@@ -215,7 +215,7 @@ func New(cfg config.Config, store models.Store) tea.Model {
 
 	// Initialize Trellis bridge if trellis is installed.
 	if repoRoot != "" {
-		m.trellisBridge = trellis.NewBridge(repoRoot, "")
+		m.trellisBridge = trellis.NewBridge(repoRoot, "", store)
 	}
 
 	m.registerMCPTools()
@@ -546,6 +546,13 @@ func (m *model) mcpTaskCreateOutputTool(params map[string]any) (map[string]any, 
 	}); err != nil {
 		return nil, err
 	}
+	// Async Trellis sync — best-effort.
+	if m.trellisBridge != nil {
+		go func(tid, out string) {
+			_ = m.trellisBridge.AddTaskOutput(tid, out)
+		}(taskID, output)
+	}
+
 	return map[string]any{
 		"success":    true,
 		"task_id":    taskID,
@@ -604,6 +611,23 @@ func (m *model) mcpTaskUpdateStatusTool(params map[string]any) (map[string]any, 
 	if sessionID := toolStringParam(params, "session_id"); sessionID != "" && nextState == "done" {
 		m.markSessionCompleted(sessionID, toolStringParam(params, "summary"))
 	}
+
+	// Async Trellis sync — best-effort, non-blocking.
+	if m.trellisBridge != nil {
+		go func(taskID, prevState, nextState string) {
+			switch nextState {
+			case "active":
+				if prevState != "active" {
+					_ = m.trellisBridge.SyncTaskStart(taskID)
+				}
+			case "done":
+				_ = m.trellisBridge.SyncTaskFinish(taskID)
+			case "archived":
+				_ = m.trellisBridge.SyncTaskArchive(taskID)
+			}
+		}(taskID, prevState, nextState)
+	}
+
 	return map[string]any{
 		"success":             true,
 		"task_id":             taskID,
@@ -642,6 +666,13 @@ func (m *model) mcpKnowledgeAddFactTool(params map[string]any) (map[string]any, 
 	}); err != nil {
 		return nil, err
 	}
+	// Async Trellis sync — best-effort.
+	if m.trellisBridge != nil {
+		go func(subj, pred, obj string) {
+			_ = m.trellisBridge.AddKnowledgeFact(subj, pred, obj)
+		}(subject, predicate, object)
+	}
+
 	return map[string]any{
 		"success": true,
 		"fact_id": factID,
@@ -845,6 +876,24 @@ func (m *model) mcpTaskCreateTool(params map[string]any) (map[string]any, error)
 	}
 	m.invalidateView()
 	m.syncWorktreeActivities()
+
+	// Sync to Trellis (async, best-effort).
+	if m.trellisBridge != nil && m.common != nil && m.common.Store != nil {
+		go func() {
+			task, _ := m.common.Store.GetTaskContext(cmd.ID)
+			if task == nil {
+				return
+			}
+			var plan *models.TaskPlanRecord
+			if taskPlans, _ := m.common.Store.ListTaskPlans(cmd.ID); len(taskPlans) > 0 {
+				plan = &taskPlans[0]
+			}
+			if _, err := m.trellisBridge.SyncTaskCreate(*task, plan); err != nil {
+				log.Printf("trellis sync task create: %v", err)
+			}
+		}()
+	}
+
 	return map[string]any{
 		"success": true,
 		"task_id": cmd.ID,
@@ -1352,6 +1401,17 @@ func (m *model) markSessionCompleted(sessionID, summary string) {
 		record.Summary = strings.TrimSpace(summary)
 	}
 	m.saveAgentSessionRecord(record)
+
+	// Async Trellis session sync — best-effort.
+	if m.trellisBridge != nil {
+		title := record.Summary
+		if title == "" {
+			title = "Session " + sessionID
+		}
+		go func(t string) {
+			_ = m.trellisBridge.RecordSessionByTitle(t)
+		}(title)
+	}
 }
 
 func (m *model) resolvePlanIDForTask(taskID string) string {

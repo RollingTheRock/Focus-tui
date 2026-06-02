@@ -42,22 +42,105 @@ func (b *Bridge) buildFocusMetadataLayer(session *agents.Session) (agents.SpecLa
 func (b *Bridge) renderTaskSection(taskID string) string {
 	var parts []string
 	parts = append(parts, "## Task")
-	// TODO: lookup task from Focus DB via store.
-	parts = append(parts, fmt.Sprintf("**TaskID:** %s", taskID))
+	if b.store != nil {
+		task, err := b.store.GetTaskContext(taskID)
+		if err == nil && task != nil {
+			parts = append(parts, fmt.Sprintf("**Title:** %s", task.Title))
+			if task.Goal != "" {
+				parts = append(parts, fmt.Sprintf("**Goal:** %s", task.Goal))
+			}
+			if task.NextStep != "" {
+				parts = append(parts, fmt.Sprintf("**Next Step:** %s", task.NextStep))
+			}
+			parts = append(parts, fmt.Sprintf("**State:** %s | **Priority:** %s", task.State, task.Priority))
+		} else {
+			parts = append(parts, fmt.Sprintf("**TaskID:** %s", taskID))
+		}
+	} else {
+		parts = append(parts, fmt.Sprintf("**TaskID:** %s", taskID))
+	}
 	return strings.Join(parts, "\n")
 }
 
 func (b *Bridge) renderStepSection(stepID string) string {
 	var parts []string
 	parts = append(parts, "## Current Step")
-	parts = append(parts, fmt.Sprintf("**StepID:** %s", stepID))
+	if b.store != nil {
+		// Steps are PlanStepRecords; look up via all plans.
+		stepFound := false
+		// We don't have a direct GetPlanStep API, so search through plans.
+		// This is best-effort; if the store does not expose list-all-plan-steps,
+		// we fall back to just the ID.
+		if step, err := b.lookupPlanStep(stepID); err == nil && step != nil {
+			parts = append(parts, fmt.Sprintf("**Title:** %s", step.Title))
+			if step.Notes != "" {
+				parts = append(parts, fmt.Sprintf("**Notes:** %s", step.Notes))
+			}
+			parts = append(parts, fmt.Sprintf("**Order:** %d | **State:** %s", step.OrderIndex, step.State))
+			stepFound = true
+		}
+		if !stepFound {
+			parts = append(parts, fmt.Sprintf("**StepID:** %s", stepID))
+		}
+	} else {
+		parts = append(parts, fmt.Sprintf("**StepID:** %s", stepID))
+	}
 	return strings.Join(parts, "\n")
+}
+
+func (b *Bridge) lookupPlanStep(stepID string) (*models.PlanStepRecord, error) {
+	// Brute-force: list all task contexts, then list plans for each, then list steps.
+	if b.store == nil {
+		return nil, fmt.Errorf("no store")
+	}
+	ctxs, err := b.store.ListTaskContexts("")
+	if err != nil {
+		return nil, err
+	}
+	for _, ctx := range ctxs {
+		plans, err := b.store.ListTaskPlans(ctx.ID)
+		if err != nil {
+			continue
+		}
+		for _, plan := range plans {
+			steps, err := b.store.ListPlanSteps(plan.ID)
+			if err != nil {
+				continue
+			}
+			for _, step := range steps {
+				if step.ID == stepID {
+					return &step, nil
+				}
+			}
+		}
+	}
+	return nil, fmt.Errorf("step %s not found", stepID)
 }
 
 func (b *Bridge) renderDAGSection(taskID string) string {
 	var parts []string
 	parts = append(parts, "## DAG Dependencies")
-	parts = append(parts, fmt.Sprintf("**TaskID:** %s", taskID))
+	if b.store != nil {
+		upstream, _ := b.store.ListUpstreamTaskContexts(taskID)
+		downstream, _ := b.store.ListDownstreamTaskContexts(taskID)
+		if len(upstream) > 0 {
+			parts = append(parts, "**Upstream:**")
+			for _, t := range upstream {
+				parts = append(parts, fmt.Sprintf("- [%s] %s", t.State, t.Title))
+			}
+		}
+		if len(downstream) > 0 {
+			parts = append(parts, "**Downstream:**")
+			for _, t := range downstream {
+				parts = append(parts, fmt.Sprintf("- [%s] %s", t.State, t.Title))
+			}
+		}
+		if len(upstream) == 0 && len(downstream) == 0 {
+			parts = append(parts, "No dependencies.")
+		}
+	} else {
+		parts = append(parts, fmt.Sprintf("**TaskID:** %s", taskID))
+	}
 	return strings.Join(parts, "\n")
 }
 

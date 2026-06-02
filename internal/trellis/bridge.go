@@ -1,10 +1,13 @@
 package trellis
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
+	"time"
 
 	"focus/internal/agents"
 	"focus/internal/models"
@@ -17,13 +20,17 @@ type Bridge struct {
 	pythonCmd    string
 	trellisReady bool
 	client       *Client
+	store        models.Store
+	taskSlugMap  map[string]string // Focus taskID → Trellis task dir
 }
 
 // NewBridge creates a new Trellis Bridge for the given repository and worktree.
-func NewBridge(repoRoot, worktreeID string) *Bridge {
+func NewBridge(repoRoot, worktreeID string, store models.Store) *Bridge {
 	return &Bridge{
-		repoRoot:   repoRoot,
-		worktreeID: worktreeID,
+		repoRoot:    repoRoot,
+		worktreeID:  worktreeID,
+		store:       store,
+		taskSlugMap: make(map[string]string),
 	}
 }
 
@@ -143,6 +150,7 @@ func (b *Bridge) SyncTaskCreate(task models.TaskContextRecord, plan *models.Task
 		b.WritePRD(dir, task, plan)
 	}
 
+	b.taskSlugMap[task.ID] = dir
 	return dir, nil
 }
 
@@ -190,6 +198,33 @@ func (b *Bridge) RecordSession(session *agents.Session, handoff *models.SessionH
 	return b.client.AddSession(session.DisplayTitle, []string{})
 }
 
+// RecordSessionByTitle appends a session entry using just a title.
+func (b *Bridge) RecordSessionByTitle(title string) error {
+	if err := b.EnsureInitialized(); err != nil {
+		return err
+	}
+	return b.client.AddSession(title, []string{})
+}
+
+// AddTaskOutput appends an output note to a Trellis task directory.
+func (b *Bridge) AddTaskOutput(taskID, output string) error {
+	if err := b.EnsureInitialized(); err != nil {
+		return err
+	}
+	slug, err := b.resolveTaskSlug(taskID)
+	if err != nil {
+		return err
+	}
+	notesPath := filepath.Join(b.repoRoot, slug, "notes.md")
+	entry := fmt.Sprintf("\n## Output (%s)\n\n%s\n", time.Now().Format(time.RFC3339), output)
+	return appendToFile(notesPath, entry)
+}
+
+// AddKnowledgeFact writes a knowledge fact into the auto-discovered spec file.
+func (b *Bridge) AddKnowledgeFact(subject, predicate, object string) error {
+	return b.WriteSpecFact("general", subject, predicate, object)
+}
+
 // WriteSpecFact writes a knowledge fact into the auto-discovered spec file.
 func (b *Bridge) WriteSpecFact(domain, subject, predicate, object string) error {
 	if domain == "" {
@@ -207,39 +242,118 @@ func (b *Bridge) WritePRD(taskDir string, task models.TaskContextRecord, plan *m
 	return os.WriteFile(prdPath, []byte(content), 0644)
 }
 
-// UpdateWorkflowState updates the workflow.md with the current step state.
+// UpdateWorkflowState appends the current step state to workflow.md.
 func (b *Bridge) UpdateWorkflowState(planID string, step models.PlanStepRecord) error {
-	// TODO: read workflow.md, update [workflow-state:...] blocks.
-	return nil
+	workflowPath := filepath.Join(b.repoRoot, ".trellis", "workflow.md")
+	entry := fmt.Sprintf("\n## %s\n\n- **Step:** %s (order %d)\n- **State:** %s\n- **Updated:** %s\n",
+		step.Title, step.ID, step.OrderIndex, step.State, time.Now().Format(time.RFC3339))
+	if step.Notes != "" {
+		entry += fmt.Sprintf("- **Notes:** %s\n", step.Notes)
+	}
+	return appendToFile(workflowPath, entry)
 }
 
 // GetTaskContextExtended returns extended task context from Trellis.
 func (b *Bridge) GetTaskContextExtended(taskID string) (*ExtendedTaskContext, error) {
-	// TODO: read task.json, prd.md, implement.jsonl from .trellis/tasks/{slug}/
-	return nil, nil
+	slug, err := b.resolveTaskSlug(taskID)
+	if err != nil {
+		return nil, err
+	}
+	taskDir := filepath.Join(b.repoRoot, slug)
+
+	ext := &ExtendedTaskContext{}
+
+	// task.json
+	taskJSONPath := filepath.Join(taskDir, "task.json")
+	if data, err := os.ReadFile(taskJSONPath); err == nil {
+		_ = json.Unmarshal(data, &ext.Task)
+	}
+
+	// prd.md
+	prdPath := filepath.Join(taskDir, "prd.md")
+	if data, err := os.ReadFile(prdPath); err == nil {
+		ext.PRD = string(data)
+	}
+
+	// implement.jsonl
+	implPath := filepath.Join(taskDir, "implement.jsonl")
+	if data, err := os.ReadFile(implPath); err == nil {
+		ext.ImplementJSONL = string(data)
+	}
+
+	// journal.md if present
+	journalPath := filepath.Join(taskDir, "journal.md")
+	if data, err := os.ReadFile(journalPath); err == nil {
+		ext.Journal = string(data)
+	}
+
+	return ext, nil
 }
 
 // ExtendedTaskContext holds the full Trellis context for a task.
 type ExtendedTaskContext struct {
-	Task          *TrellisTask
-	PRD           string
-	Specs         []string
-	Handoff       string
-	Journal       string
-	WorkflowState string
+	Task           *TrellisTask
+	PRD            string
+	Specs          []string
+	Handoff        string
+	Journal        string
+	WorkflowState  string
+	ImplementJSONL string
 }
 
 // --- helpers ---
 
 func (b *Bridge) syncTaskIfNeeded(taskID string) (string, error) {
-	// TODO: maintain an in-memory or DB mapping from Focus task ID -> Trellis slug.
-	// For now, return empty to let get_context.py use the default active task.
-	return "", nil
+	// 1. Fast path: in-memory map.
+	if dir, ok := b.taskSlugMap[taskID]; ok && dir != "" {
+		return dir, nil
+	}
+	// 2. Fallback: scan Trellis task list.
+	tasks, err := b.client.TaskList()
+	if err == nil {
+		for _, t := range tasks {
+			if t.ID == taskID {
+				b.taskSlugMap[taskID] = t.Name
+				return t.Name, nil
+			}
+		}
+	}
+	// 3. No mapping found: create Trellis task from Focus record.
+	if b.store != nil {
+		task, err := b.store.GetTaskContext(taskID)
+		if err != nil || task == nil {
+			return "", fmt.Errorf("focus task %s not found: %w", taskID, err)
+		}
+		var plan *models.TaskPlanRecord
+		if plans, _ := b.store.ListTaskPlans(taskID); len(plans) > 0 {
+			plan = &plans[0]
+		}
+		dir, err := b.SyncTaskCreate(*task, plan)
+		if err != nil {
+			return "", fmt.Errorf("sync task create: %w", err)
+		}
+		return dir, nil
+	}
+	return "", fmt.Errorf("no store available to sync task %s", taskID)
 }
 
 func (b *Bridge) resolveTaskSlug(taskID string) (string, error) {
-	// TODO: lookup mapping.
-	return "", nil
+	if dir, ok := b.taskSlugMap[taskID]; ok && dir != "" {
+		return dir, nil
+	}
+	// Fallback: scan Trellis task list for a task whose directory name
+	// or metadata contains the Focus task ID.
+	tasks, err := b.client.TaskList()
+	if err != nil {
+		return "", fmt.Errorf("list trellis tasks: %w", err)
+	}
+	for _, t := range tasks {
+		if t.ID == taskID {
+			b.taskSlugMap[taskID] = t.Name
+			return t.Name, nil
+		}
+	}
+	return "", fmt.Errorf("no trellis task found for focus task %s", taskID)
 }
 
 func (b *Bridge) detectInstalledPlatforms() []agents.Provider {
@@ -299,11 +413,26 @@ func resolvePythonCommand() (string, error) {
 			// Verify version >= 3.9.
 			verCmd := exec.Command(path, "--version")
 			out, _ := verCmd.Output()
-			_ = out // TODO: parse version.
-			return path, nil
+			ver := strings.TrimSpace(string(out))
+			if isPythonVersionOK(ver) {
+				return path, nil
+			}
 		}
 	}
 	return "", ErrPythonNotFound
+}
+
+func isPythonVersionOK(ver string) bool {
+	// Expected format: "Python 3.11.4" or "Python 3.9.0"
+	parts := strings.Fields(ver)
+	if len(parts) < 2 {
+		return false
+	}
+	var major, minor int
+	if _, err := fmt.Sscanf(parts[1], "%d.%d", &major, &minor); err != nil {
+		return false
+	}
+	return major > 3 || (major == 3 && minor >= 9)
 }
 
 

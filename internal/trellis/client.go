@@ -3,6 +3,7 @@ package trellis
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -192,17 +193,16 @@ func runWithTimeout(cmd *exec.Cmd, timeout time.Duration) ([]byte, error) {
 
 // copyDir recursively copies a directory tree.
 func copyDir(src, dst string) error {
-	// Implementation using filepath.Walk or os.ReadDir.
-	// Placeholder: in practice use a helper from internal/util or stdlib.
-	return nil
+	return os.CopyFS(dst, os.DirFS(src))
 }
 
 // appendToFile appends content to a file, creating it if necessary.
 func appendToFile(path, content string) error {
-	// Implementation: open with O_APPEND|O_CREATE|O_WRONLY.
-	return nil
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	_, err = f.WriteString(content)
+	return err
 }
-
-var _ = runWithTimeout // silence unused warning until fully implemented
-var _ = copyDir
-var _ = appendToFile
