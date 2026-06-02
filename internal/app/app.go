@@ -27,6 +27,7 @@ import (
 	"focus/internal/ui/layout"
 	"focus/internal/ui/shell"
 	"focus/internal/ui/todo"
+	"focus/internal/x/vt"
 	"hash/fnv"
 	"log"
 	"os"
@@ -2205,13 +2206,6 @@ func batchCmds(cmds []tea.Cmd) tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
-// adjustedMouse wraps a tea.Mouse to implement tea.MouseMsg with modified coordinates.
-type adjustedMouse struct {
-	m tea.Mouse
-}
-
-func (a adjustedMouse) Mouse() tea.Mouse { return a.m }
-
 func (m model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	m.invalidateView()
 	if m.activeOverlayPane() != "" {
@@ -2245,7 +2239,24 @@ func (m model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	if adjX < 0 || adjX >= contentW || adjY < 0 || adjY >= contentH {
 		return m, nil
 	}
-	return m, m.routeToPane(clicked, adjustedMouse{m: tea.Mouse{X: adjX, Y: adjY, Button: mouse.Button, Mod: mouse.Mod}})
+
+	// Preserve the original mouse message type so the shell pane can
+	// distinguish clicks, releases, wheel events, and motion.
+	adj := tea.Mouse{X: adjX, Y: adjY, Button: mouse.Button, Mod: mouse.Mod}
+	var paneMsg tea.Msg
+	switch msg.(type) {
+	case tea.MouseClickMsg:
+		paneMsg = tea.MouseClickMsg(adj)
+	case tea.MouseReleaseMsg:
+		paneMsg = tea.MouseReleaseMsg(adj)
+	case tea.MouseWheelMsg:
+		paneMsg = tea.MouseWheelMsg(adj)
+	case tea.MouseMotionMsg:
+		paneMsg = tea.MouseMotionMsg(adj)
+	default:
+		paneMsg = tea.MouseClickMsg(adj)
+	}
+	return m, m.routeToPane(clicked, paneMsg)
 }
 
 // handleKey routes keyboard input based on overlay, mode, and focused pane.
@@ -3002,16 +3013,37 @@ func (m model) View() tea.View {
 	if m.mode == ModeShell && m.activePage.paneMeta[m.activePage.focused].Type == models.PaneTypeShell {
 		if sh, ok := m.pane(m.activePage.focused).(*shell.Model); ok {
 			if frame, exists := m.activePage.frames[m.activePage.focused]; exists {
-				if cx, cy, vis := sh.CursorPos(); vis {
+				if cx, cy, vis, style, steady, curColor := sh.CursorInfo(); vis {
 					cursorY := dims.HeaderH + frame.Y + 1 + cy
 					cursorX := frame.X + 2 + cx
-					v.Cursor = tea.NewCursor(cursorX, cursorY)
+					v.Cursor = &tea.Cursor{
+						Position: tea.Position{X: cursorX, Y: cursorY},
+						Shape:    mapVTCursorStyle(style),
+						Blink:    !steady,
+					}
+					if curColor != nil {
+						v.Cursor.Color = curColor
+					}
 				}
 			}
 		}
 	}
 
 	return v
+}
+
+// mapVTCursorStyle converts a VT emulator cursor style to a Bubble Tea cursor shape.
+func mapVTCursorStyle(style vt.CursorStyle) tea.CursorShape {
+	switch style {
+	case vt.CursorBlock:
+		return tea.CursorBlock
+	case vt.CursorUnderline:
+		return tea.CursorUnderline
+	case vt.CursorBar:
+		return tea.CursorBar
+	default:
+		return tea.CursorBlock
+	}
 }
 
 func (m model) buildView(dims layout.Dimensions, w, h int) string {

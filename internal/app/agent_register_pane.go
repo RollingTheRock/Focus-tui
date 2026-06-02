@@ -17,14 +17,14 @@ type CloseAgentRegisterMsg struct{}
 type AgentRegisteredMsg struct{}
 
 type agentRegisterPane struct {
-	id       models.PaneID
-	meta     models.PaneMeta
-	common   models.CommonModel
-	width    int
-	height   int
-	fields   []field
-	cursor   int
-	errMsg   string
+	id     models.PaneID
+	meta   models.PaneMeta
+	common models.CommonModel
+	width  int
+	height int
+	fields []field
+	cursor int
+	errMsg string
 }
 
 type field struct {
@@ -66,10 +66,9 @@ func (p *agentRegisterPane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 				p.fields[p.cursor].value = p.fields[p.cursor].value[:len(p.fields[p.cursor].value)-1]
 			}
 		default:
-			s := msg.String()
-			if len([]rune(s)) == 1 {
-				p.fields[p.cursor].value += s
-			}
+				if text := msg.Key().Text; text != "" {
+					p.fields[p.cursor].value += text
+				}
 		}
 	}
 	return p, nil
@@ -95,11 +94,11 @@ func (p *agentRegisterPane) save() tea.Cmd {
 	}
 
 	def := models.AgentDefinition{
-		ID:          id,
-		Name:        name,
-		Description: desc,
-		Binary:      binary,
-		Tags:        tags,
+		ID:           id,
+		Name:         name,
+		Description:  desc,
+		Binary:       binary,
+		Tags:         tags,
 		ProviderType: "generic",
 	}
 

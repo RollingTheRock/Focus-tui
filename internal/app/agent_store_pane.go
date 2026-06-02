@@ -56,16 +56,16 @@ var storeTabs = []agentStoreTab{
 }
 
 type agentStorePane struct {
-	id       models.PaneID
-	meta     models.PaneMeta
-	common   models.CommonModel
-	width    int
-	height   int
-	tab      agentStoreTab
-	cursor   int
-	items    []models.AgentDefinition
-	loading  bool
-	errMsg   string
+	id      models.PaneID
+	meta    models.PaneMeta
+	common  models.CommonModel
+	width   int
+	height  int
+	tab     agentStoreTab
+	cursor  int
+	items   []models.AgentDefinition
+	loading bool
+	errMsg  string
 }
 
 func newAgentStorePane(id models.PaneID, meta models.PaneMeta, common models.CommonModel) *agentStorePane {
@@ -176,7 +176,7 @@ func (p *agentStorePane) View() tea.View {
 	if p.loading {
 		b.WriteString(appstyles.StyleCache.MaxWidth(w).Render("Loading..."))
 	} else if p.errMsg != "" {
-		b.WriteString(appstyles.StyleCache.MaxWidth(w).Render("Error: "+p.errMsg))
+		b.WriteString(appstyles.StyleCache.MaxWidth(w).Render("Error: " + p.errMsg))
 	} else if len(p.items) == 0 {
 		b.WriteString(appstyles.StyleCache.MaxWidth(w).Render("No agents registered."))
 	} else {

@@ -4,6 +4,7 @@ import (
 	"image/color"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
@@ -13,6 +14,11 @@ import (
 type SafeEmulator struct {
 	*Emulator
 	mu sync.RWMutex
+
+	// Cached mouse state to avoid RLock contention with the readPtyLoop
+	// writer during high-frequency scroll events.
+	mouseReporting atomic.Bool
+	mouseSgr       atomic.Bool
 }
 
 var _ Terminal = (*SafeEmulator)(nil)
@@ -22,6 +28,52 @@ func NewSafeEmulator(w, h int) *SafeEmulator {
 	return &SafeEmulator{
 		Emulator: NewEmulator(w, h),
 	}
+}
+
+// SyncMouseState updates the cached mouse reporting mode and encoding from
+// the emulator's current state. Call this periodically (e.g. on the shell
+// refresh tick) so that FastMouseSequence and IsMouseReportingFast stay
+// accurate without needing a lock on every event.
+func (se *SafeEmulator) SyncMouseState() {
+	se.mu.RLock()
+	defer se.mu.RUnlock()
+	se.mouseReporting.Store(
+		se.Emulator.isModeSet(ansi.ModeMouseX10) ||
+			se.Emulator.isModeSet(ansi.ModeMouseNormal) ||
+			se.Emulator.isModeSet(ansi.ModeMouseHighlight) ||
+			se.Emulator.isModeSet(ansi.ModeMouseButtonEvent) ||
+			se.Emulator.isModeSet(ansi.ModeMouseAnyEvent))
+	se.mouseSgr.Store(se.Emulator.isModeSet(ansi.ModeMouseExtSgr))
+}
+
+// IsMouseReportingFast returns the cached mouse-reporting state without
+// acquiring a lock. The cache is refreshed by SyncMouseState.
+func (se *SafeEmulator) IsMouseReportingFast() bool {
+	return se.mouseReporting.Load()
+}
+
+// FastMouseSequence returns the ANSI escape sequence for a mouse event using
+// the cached mouse mode and encoding state. It does not acquire any lock, so
+// it can be called from the Bubble Tea event loop during high-frequency
+// scrolling without contending with readPtyLoop's Write lock.
+// The second return value is false when mouse reporting is disabled.
+func (se *SafeEmulator) FastMouseSequence(m Mouse) (string, bool) {
+	if !se.mouseReporting.Load() {
+		return "", false
+	}
+
+	mouse := m.Mouse()
+	_, isMotion := m.(MouseMotion)
+	_, isRelease := m.(MouseRelease)
+	b := ansi.EncodeMouseButton(mouse.Button, isMotion,
+		mouse.Mod.Contains(ModShift),
+		mouse.Mod.Contains(ModAlt),
+		mouse.Mod.Contains(ModCtrl))
+
+	if se.mouseSgr.Load() {
+		return ansi.MouseSgr(b, mouse.X, mouse.Y, isRelease), true
+	}
+	return ansi.MouseX10(b, mouse.X, mouse.Y), true
 }
 
 // Write writes data to the emulator in a concurrency-safe manner.
@@ -76,6 +128,56 @@ func (se *SafeEmulator) SendMouse(mouse uv.MouseEvent) {
 	se.mu.Lock()
 	defer se.mu.Unlock()
 	se.Emulator.SendMouse(mouse)
+}
+
+// MouseSequence returns the ANSI escape sequence for a mouse event based on
+// the terminal's current mouse reporting mode and encoding. The second return
+// value is false when mouse reporting is disabled.
+func (se *SafeEmulator) MouseSequence(m Mouse) (string, bool) {
+	se.mu.RLock()
+	defer se.mu.RUnlock()
+
+	var (
+		enc  ansi.Mode
+		mode ansi.Mode
+	)
+	for _, mm := range []ansi.DECMode{
+		ansi.ModeMouseX10,
+		ansi.ModeMouseNormal,
+		ansi.ModeMouseHighlight,
+		ansi.ModeMouseButtonEvent,
+		ansi.ModeMouseAnyEvent,
+	} {
+		if se.Emulator.isModeSet(mm) {
+			mode = mm
+		}
+	}
+	if mode == nil {
+		return "", false
+	}
+	for _, mm := range []ansi.DECMode{
+		ansi.ModeMouseExtSgr,
+	} {
+		if se.Emulator.isModeSet(mm) {
+			enc = mm
+		}
+	}
+
+	mouse := m.Mouse()
+	_, isMotion := m.(MouseMotion)
+	_, isRelease := m.(MouseRelease)
+	b := ansi.EncodeMouseButton(mouse.Button, isMotion,
+		mouse.Mod.Contains(ModShift),
+		mouse.Mod.Contains(ModAlt),
+		mouse.Mod.Contains(ModCtrl))
+
+	switch enc {
+	case nil:
+		return ansi.MouseX10(b, mouse.X, mouse.Y), true
+	case ansi.ModeMouseExtSgr:
+		return ansi.MouseSgr(b, mouse.X, mouse.Y, isRelease), true
+	}
+	return "", false
 }
 
 // SendText sends text input to the emulator in a concurrency-safe manner.
@@ -176,6 +278,18 @@ func (se *SafeEmulator) CursorPosition() uv.Position {
 	return se.Emulator.CursorPosition()
 }
 
+// CursorState returns the cursor's position, visibility, style, steady state,
+// and color in a concurrency-safe manner.
+func (se *SafeEmulator) CursorState() (x, y int, visible bool, style CursorStyle, steady bool, curColor color.Color) {
+	se.mu.RLock()
+	defer se.mu.RUnlock()
+	if se.Emulator.scr == nil {
+		return 0, 0, false, CursorBlock, true, nil
+	}
+	cur := se.Emulator.scr.Cursor()
+	return cur.X, cur.Y, !cur.Hidden, cur.Style, cur.Steady, se.Emulator.CursorColor()
+}
+
 // Draw draws the emulator's content onto a given surface in a concurrency-safe manner.
 func (se *SafeEmulator) Draw(s uv.Screen, a uv.Rectangle) {
 	se.mu.RLock()
@@ -242,8 +356,8 @@ func (se *SafeEmulator) IsCursorHidden() bool {
 }
 
 func (se *SafeEmulator) RenderScrolled(offset, width, height int) string {
-	se.mu.Lock()
-	defer se.mu.Unlock()
+	se.mu.RLock()
+	defer se.mu.RUnlock()
 
 	sb := se.Emulator.Scrollback()
 	maxOffset := 0
@@ -261,7 +375,9 @@ func (se *SafeEmulator) RenderScrolled(offset, width, height int) string {
 		return se.Emulator.Render()
 	}
 
-	var result string
+	var b strings.Builder
+	b.Grow(width * height * 2) // rough pre-allocation, leaves headroom for ANSI
+
 	scrollbackLines := offset
 	if scrollbackLines > height {
 		scrollbackLines = height
@@ -270,12 +386,12 @@ func (se *SafeEmulator) RenderScrolled(offset, width, height int) string {
 	if sb != nil {
 		startIdx := maxOffset - offset
 		for i := 0; i < scrollbackLines && (startIdx+i) < sb.Len(); i++ {
+			if i > 0 {
+				b.WriteByte('\n')
+			}
 			line := sb.Line(startIdx + i)
 			if line != nil {
-				result += renderLine(line, width)
-			}
-			if i < scrollbackLines-1 {
-				result += "\n"
+				b.WriteString(line.Render())
 			}
 		}
 	}
@@ -283,58 +399,16 @@ func (se *SafeEmulator) RenderScrolled(offset, width, height int) string {
 	screenLines := height - scrollbackLines
 	if screenLines > 0 {
 		if scrollbackLines > 0 {
-			result += "\n"
+			b.WriteByte('\n')
 		}
-		screenContent := se.Emulator.Render()
-		lines := splitLines(screenContent)
+		lines := se.Emulator.scr.buf.Lines
 		for i := 0; i < screenLines && i < len(lines); i++ {
 			if i > 0 {
-				result += "\n"
+				b.WriteByte('\n')
 			}
-			result += truncateOrPad(lines[i], width)
+			b.WriteString(lines[i].Render())
 		}
 	}
 
-	return result
-}
-
-func renderLine(line uv.Line, width int) string {
-	var result strings.Builder
-	for i := 0; i < width && i < len(line); i++ {
-		cell := &line[i]
-		if cell != nil && cell.Content != "" {
-			result.WriteString(cell.Content)
-		} else {
-			result.WriteByte(' ')
-		}
-	}
-	for i := len(line); i < width; i++ {
-		result.WriteByte(' ')
-	}
-	return result.String()
-}
-
-func splitLines(s string) []string {
-	var lines []string
-	start := 0
-	for i, c := range s {
-		if c == '\n' {
-			lines = append(lines, s[start:i])
-			start = i + 1
-		}
-	}
-	if start < len(s) {
-		lines = append(lines, s[start:])
-	}
-	return lines
-}
-
-func truncateOrPad(s string, width int) string {
-	if len(s) > width {
-		return s[:width]
-	}
-	if len(s) < width {
-		return s + strings.Repeat(" ", width-len(s))
-	}
-	return s
+	return b.String()
 }

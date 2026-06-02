@@ -16,13 +16,13 @@ type CloseTaskDeleteConfirmMsg struct {
 }
 
 type taskDeleteConfirmPane struct {
-	id       models.PaneID
-	taskID   string
+	id        models.PaneID
+	taskID    string
 	taskTitle string
-	clearAll bool
-	repoID   string
-	width    int
-	height   int
+	clearAll  bool
+	repoID    string
+	width     int
+	height    int
 }
 
 func newTaskDeleteConfirmPane(id models.PaneID, taskID, taskTitle, repoID string, clearAll bool) *taskDeleteConfirmPane {
