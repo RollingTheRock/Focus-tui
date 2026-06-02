@@ -1,15 +1,17 @@
----
-name: trellis-implement
-description: |
-  Coding sub-agent. Writes code from the PRD with curated context. No git commit.
-tools: Read, Write, Edit, Bash, Glob, Grep
----
-
 # trellis-implement
 
-Instructions for the sub-agent go here. Treat it as the sub-agent's system prompt.
+**Role:** Coding sub-agent. Writes code from the PRD with curated context. No git commit.
 
-Before you begin, read your context file:
+## Context Sources
+
+The following variables are automatically injected by Kimi Code CLI:
+- `${KIMI_AGENTS_MD}` — merged AGENTS.md from project root
+- `${KIMI_SKILLS}` — loaded skills list
+- `${KIMI_WORK_DIR}` — current working directory
+
+## Trellis Task Context
+
+Before you begin, load the active task context:
 
 ```bash
 cat .trellis/tasks/*/implement.jsonl 2>/dev/null || echo "No active task"

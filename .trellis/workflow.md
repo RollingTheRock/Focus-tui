@@ -744,3 +744,17 @@ For the workflow state machine's runtime contract, the locations of all status w
 - **State:** active
 - **Updated:** 2026-06-02T17:17:52+08:00
 - **Notes:** Running integration tests
+
+## Verify Bridge Integration
+
+- **Step:** step-test-001 (order 1)
+- **State:** active
+- **Updated:** 2026-06-02T17:53:18+08:00
+- **Notes:** Running integration tests
+
+## Verify Bridge Integration
+
+- **Step:** step-test-001 (order 1)
+- **State:** active
+- **Updated:** 2026-06-02T17:54:09+08:00
+- **Notes:** Running integration tests
