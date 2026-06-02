@@ -1,0 +1,28 @@
+{
+  "assignee": "developer",
+  "base_branch": "feat-agent-detail",
+  "branch": null,
+  "children": [],
+  "commit": null,
+  "completedAt": null,
+  "createdAt": "2026-06-02",
+  "creator": "developer",
+  "description": "1. Create task\n2. Verify files\n3. Clean up",
+  "dev_type": null,
+  "id": "integration-test-task-1780413915",
+  "meta": {
+    "focus_task_id": "focus-task-test-1780413915"
+  },
+  "name": "integration-test-task-1780413915",
+  "notes": "",
+  "package": null,
+  "parent": null,
+  "pr_url": null,
+  "priority": "P1",
+  "relatedFiles": [],
+  "scope": null,
+  "status": "planning",
+  "subtasks": [],
+  "title": "Integration Test Task 1780413915",
+  "worktree_path": null
+}
