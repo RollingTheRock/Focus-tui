@@ -107,21 +107,54 @@ func (c *Client) TaskArchive(taskName string) error {
 	return nil
 }
 
-// TaskList runs `task.py list` and returns the JSON array of tasks.
+// TaskList scans .trellis/tasks/ and returns active tasks by reading task.json.
 func (c *Client) TaskList() ([]TrellisTask, error) {
-	cmd := exec.Command(c.pythonCmd,
-		filepath.Join(".trellis", "scripts", "task.py"),
-		"list",
-	)
-	cmd.Dir = c.repoRoot
-	out, err := cmd.Output()
+	tasksDir := filepath.Join(c.repoRoot, ".trellis", "tasks")
+	entries, err := os.ReadDir(tasksDir)
 	if err != nil {
-		return nil, fmt.Errorf("task.py list: %w", err)
+		return nil, fmt.Errorf("read tasks dir: %w", err)
 	}
-
 	var tasks []TrellisTask
-	if err := json.Unmarshal(out, &tasks); err != nil {
-		return nil, fmt.Errorf("parse task list: %w", err)
+	for _, e := range entries {
+		if !e.IsDir() || e.Name() == "archive" {
+			continue
+		}
+		taskJSON := filepath.Join(tasksDir, e.Name(), "task.json")
+		data, err := os.ReadFile(taskJSON)
+		if err != nil {
+			continue
+		}
+		var raw map[string]any
+		if err := json.Unmarshal(data, &raw); err != nil {
+			continue
+		}
+		var t TrellisTask
+		if id, ok := raw["id"].(string); ok {
+			t.ID = id
+		}
+		if name, ok := raw["name"].(string); ok {
+			t.Name = name
+		}
+		if title, ok := raw["title"].(string); ok {
+			t.Title = title
+		}
+		if status, ok := raw["status"].(string); ok {
+			t.Status = status
+		}
+		if priority, ok := raw["priority"].(string); ok {
+			t.Priority = priority
+		}
+		// Check meta.focus_task_id for Focus → Trellis mapping.
+		if meta, ok := raw["meta"].(map[string]any); ok {
+			if focusID, ok := meta["focus_task_id"].(string); ok && focusID != "" {
+				t.ID = focusID
+			}
+		}
+		// Backfill Name from directory if missing.
+		if t.Name == "" {
+			t.Name = e.Name()
+		}
+		tasks = append(tasks, t)
 	}
 	return tasks, nil
 }
@@ -191,13 +224,33 @@ func runWithTimeout(cmd *exec.Cmd, timeout time.Duration) ([]byte, error) {
 	return cmd.CombinedOutput()
 }
 
-// copyDir recursively copies a directory tree.
+// copyDir recursively copies a directory tree, overwriting existing files.
 func copyDir(src, dst string) error {
-	return os.CopyFS(dst, os.DirFS(src))
+	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		dstPath := filepath.Join(dst, rel)
+		if info.IsDir() {
+			return os.MkdirAll(dstPath, info.Mode())
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(dstPath, data, info.Mode())
+	})
 }
 
-// appendToFile appends content to a file, creating it if necessary.
+// appendToFile appends content to a file, creating parent directories if necessary.
 func appendToFile(path, content string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return err
+	}
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		return err

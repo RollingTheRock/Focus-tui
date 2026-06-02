@@ -129,12 +129,29 @@ func (b *Bridge) BuildAgentContext(session *agents.Session) (*agents.AgentSpec, 
 }
 
 // SyncTaskCreate creates a Trellis task from a Focus task record.
+// If a task with the same slug already exists, it returns the existing directory.
 func (b *Bridge) SyncTaskCreate(task models.TaskContextRecord, plan *models.TaskPlanRecord) (string, error) {
 	if err := b.EnsureInitialized(); err != nil {
 		return "", err
 	}
+
+	// Check if already mapped.
+	if existing := b.taskSlugMap[task.ID]; existing != "" {
+		return existing, nil
+	}
+
+	// Check if task already exists in Trellis (by scanning task list).
+	existingTasks, _ := b.client.TaskList()
+	expectedSlug := taskSlugFromTitle(task.Title)
+	for _, et := range existingTasks {
+		if strings.Contains(et.Name, expectedSlug) {
+			b.taskSlugMap[task.ID] = et.Name
+			return et.Name, nil
+		}
+	}
+
 	opts := TaskCreateOpts{
-		Slug:     taskSlugFromTitle(task.Title),
+		Slug:     expectedSlug,
 		Priority: focusPriorityToTrellis(task.Priority),
 	}
 	if plan != nil {
@@ -150,8 +167,34 @@ func (b *Bridge) SyncTaskCreate(task models.TaskContextRecord, plan *models.Task
 		b.WritePRD(dir, task, plan)
 	}
 
+	// Write Focus task ID into task.json meta so resolveTaskSlug can find it later.
+	_ = b.writeFocusTaskIDMeta(dir, task.ID)
+
 	b.taskSlugMap[task.ID] = dir
 	return dir, nil
+}
+
+func (b *Bridge) writeFocusTaskIDMeta(taskDir, focusTaskID string) error {
+	taskJSONPath := filepath.Join(b.repoRoot, taskDir, "task.json")
+	data, err := os.ReadFile(taskJSONPath)
+	if err != nil {
+		return err
+	}
+	var obj map[string]any
+	if err := json.Unmarshal(data, &obj); err != nil {
+		return err
+	}
+	meta, ok := obj["meta"].(map[string]any)
+	if !ok {
+		meta = make(map[string]any)
+		obj["meta"] = meta
+	}
+	meta["focus_task_id"] = focusTaskID
+	out, err := json.MarshalIndent(obj, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(taskJSONPath, out, 0644)
 }
 
 // SyncTaskStart marks a task as in_progress in Trellis.
@@ -237,7 +280,7 @@ func (b *Bridge) WriteSpecFact(domain, subject, predicate, object string) error 
 
 // WritePRD generates or updates the PRD for a task directory.
 func (b *Bridge) WritePRD(taskDir string, task models.TaskContextRecord, plan *models.TaskPlanRecord) error {
-	prdPath := filepath.Join(taskDir, "prd.md")
+	prdPath := filepath.Join(b.repoRoot, taskDir, "prd.md")
 	content := b.renderPRD(task, plan)
 	return os.WriteFile(prdPath, []byte(content), 0644)
 }
