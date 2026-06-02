@@ -11,8 +11,8 @@ import (
 	"focus/internal/models"
 	appstyles "focus/internal/styles"
 
-	"charm.land/huh/v2"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/huh/v2"
 )
 
 type OpenCreateWorktreeMsg struct {
@@ -49,11 +49,12 @@ type WorktreeCreatePane struct {
 	common  models.CommonModel
 	adapter adapters.GitAdapter
 
-	repoPath     string
-	width        int
-	height       int
-	editForm     *huh.Form
-	formValues   struct {
+	repoPath   string
+	width      int
+	height     int
+	editForm   *huh.Form
+	pathInput  *huh.Input
+	formValues struct {
 		task, branch, baseRef, path string
 	}
 	err          error
@@ -62,6 +63,7 @@ type WorktreeCreatePane struct {
 	taskName     string
 	taskID       string
 	isPhase      bool
+	lastAutoPath string
 }
 
 var worktreeSlugRE = regexp.MustCompile(`[^a-zA-Z0-9._-]+`)
@@ -93,9 +95,17 @@ func NewWorktreeCreatePane(id models.PaneID, meta models.PaneMeta, common models
 	p.formValues.branch = ""
 	p.formValues.baseRef = baseRef
 	p.formValues.path = defaultWorktreePath(repoPath, "")
+	p.lastAutoPath = p.formValues.path
 
 	km := huh.NewDefaultKeyMap()
 	km.Quit.SetEnabled(false)
+
+	p.pathInput = huh.NewInput().
+		Key("path").
+		Title("Path").
+		Placeholder(defaultWorktreePath(repoPath, "")).
+		Value(&p.formValues.path).
+		Validate(huh.ValidateNotEmpty())
 
 	p.editForm = huh.NewForm(
 		huh.NewGroup(
@@ -115,12 +125,7 @@ func NewWorktreeCreatePane(id models.PaneID, meta models.PaneMeta, common models
 				Title("Base ref").
 				Placeholder("HEAD").
 				Value(&p.formValues.baseRef),
-			huh.NewInput().
-				Key("path").
-				Title("Path").
-				Placeholder(defaultWorktreePath(repoPath, "")).
-				Value(&p.formValues.path).
-				Validate(huh.ValidateNotEmpty()),
+			p.pathInput,
 		),
 	).WithKeyMap(km)
 
@@ -170,6 +175,7 @@ func (p *WorktreeCreatePane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 	if f, ok := m.(*huh.Form); ok {
 		p.editForm = f
 	}
+	p.syncAutoPathWithBranch()
 	if p.editForm.State == huh.StateCompleted {
 		return p.submit()
 	}
@@ -234,6 +240,8 @@ func (p *WorktreeCreatePane) submit() (models.Panel, tea.Cmd) {
 	}
 	if path == "" {
 		path = defaultWorktreePath(p.repoPath, branch)
+	} else if path == defaultWorktreePath(p.repoPath, "") {
+		path = defaultWorktreePath(p.repoPath, branch)
 	}
 	if baseRef == "" {
 		baseRef = "HEAD"
@@ -248,6 +256,36 @@ func (p *WorktreeCreatePane) submit() (models.Panel, tea.Cmd) {
 	return p, func() tea.Msg {
 		worktree, err := p.adapter.CreateWorktree(p.repoPath, request)
 		return createWorktreeFinishedMsg{worktree: worktree, err: err}
+	}
+}
+
+func (p *WorktreeCreatePane) syncAutoPathWithBranch() {
+	if p.lastAutoPath == "" {
+		p.lastAutoPath = defaultWorktreePath(p.repoPath, "")
+	}
+	if strings.TrimSpace(p.formValues.path) != p.lastAutoPath {
+		return
+	}
+	nextAutoPath := defaultWorktreePath(p.repoPath, p.formValues.branch)
+	p.formValues.path = nextAutoPath
+	p.lastAutoPath = nextAutoPath
+	if p.pathInput != nil {
+		p.pathInput.Value(&p.formValues.path)
+	}
+	if p.editForm != nil {
+		width := p.width
+		if width <= 0 {
+			width = 72
+		}
+		height := p.height
+		if height <= 0 {
+			height = 24
+		}
+		if m, _ := p.editForm.Update(tea.WindowSizeMsg{Width: width, Height: height}); m != nil {
+			if f, ok := m.(*huh.Form); ok {
+				p.editForm = f
+			}
+		}
 	}
 }
 
