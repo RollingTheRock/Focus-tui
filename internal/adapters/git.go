@@ -12,6 +12,7 @@ type GitAdapter interface {
 	RemoveWorktree(repoPath, worktreePath string, opts git.RemoveWorktreeOptions) error
 	PruneWorktrees(repoPath string) error
 	GetDiff(repoPath string, path string, staged bool) (string, error)
+	GetFileContent(repoPath string, path string, ref string) (string, error)
 	Commit(repoPath, message string) error
 	Fetch(repoPath string) error
 	Pull(repoPath string) error

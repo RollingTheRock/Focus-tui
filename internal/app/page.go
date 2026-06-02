@@ -921,6 +921,15 @@ func (p *page) openDiffPane(msg gitplugin.OpenDiffMsg) tea.Cmd {
 	opener := p.focused
 	p.closePane(paneGitCommit)
 	p.closePane(paneGitDiff)
+	// Close any higher-priority overlays so diff receives keyboard focus.
+	p.closePane(paneWorktreeCreate)
+	p.closePane(paneTaskEdit)
+	p.closePane(panePlanEdit)
+	p.closePane(paneAgentSelect)
+	p.closePane(paneProviderSelect)
+	p.closePane(paneAgentInstallHint)
+	p.closePane(paneAgentRegister)
+	p.closePane(paneAgentStore)
 
 	meta := models.PaneMeta{
 		ID:             paneGitDiff,

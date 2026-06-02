@@ -208,6 +208,10 @@ func (f *fakeCommitAdapter) GetDiff(repoPath string, path string, staged bool) (
 	return "", nil
 }
 
+func (f *fakeCommitAdapter) GetFileContent(repoPath string, path string, ref string) (string, error) {
+	return "", nil
+}
+
 func (f *fakeCommitAdapter) Commit(repoPath, message string) error {
 	f.commitCalled = true
 	f.commitRepoPath = repoPath

@@ -422,6 +422,9 @@ type fakeGitAdapter struct {
 	watchCh      chan adapters.StatusEvent
 	diff         string
 	diffErr      error
+	fileContent  string
+	beforeContent string
+	fileContentErr error
 	fetchErr     error
 	pullErr      error
 	pushErr      error
@@ -483,6 +486,13 @@ func (f *fakeGitAdapter) PruneWorktrees(repoPath string) error { return nil }
 
 func (f *fakeGitAdapter) GetDiff(repoPath string, path string, staged bool) (string, error) {
 	return f.diff, f.diffErr
+}
+
+func (f *fakeGitAdapter) GetFileContent(repoPath string, path string, ref string) (string, error) {
+	if ref == "HEAD" && f.beforeContent != "" {
+		return f.beforeContent, f.fileContentErr
+	}
+	return f.fileContent, f.fileContentErr
 }
 
 func (f *fakeGitAdapter) Fetch(repoPath string) error {

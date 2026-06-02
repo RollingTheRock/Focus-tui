@@ -562,6 +562,46 @@ func (g *GitLocalAdapter) PruneWorktrees(repoPath string) error {
 	return nil
 }
 
+// GetFileContent retrieves the content of a file at a specific git ref.
+// ref: "HEAD" for last commit, ":0" for staged/index, "" for working tree (read from disk).
+func (g *GitLocalAdapter) GetFileContent(repoPath string, path string, ref string) (string, error) {
+	switch ref {
+	case "":
+		// Working tree: read directly from disk
+		fullPath := filepath.Join(repoPath, path)
+		data, err := os.ReadFile(fullPath)
+		if err != nil {
+			if os.IsNotExist(err) {
+				return "", nil
+			}
+			return "", fmt.Errorf("read file failed: %w", err)
+		}
+		return string(data), nil
+	case ":0":
+		// Staged/index
+		cmd := exec.Command("git", "-C", repoPath, "show", ":0:"+path)
+		output, err := cmd.Output()
+		if err != nil {
+			if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 128 {
+				return "", nil
+			}
+			return "", fmt.Errorf("git show staged failed: %w", err)
+		}
+		return string(output), nil
+	default:
+		// Any other ref (e.g., "HEAD", commit hash, branch)
+		cmd := exec.Command("git", "-C", repoPath, "show", ref+":"+path)
+		output, err := cmd.Output()
+		if err != nil {
+			if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 128 {
+				return "", nil
+			}
+			return "", fmt.Errorf("git show %s failed: %w", ref, err)
+		}
+		return string(output), nil
+	}
+}
+
 // GetDiff retrieves the diff for a specific file.
 func (g *GitLocalAdapter) GetDiff(repoPath string, path string, staged bool) (string, error) {
 	args := []string{"-C", repoPath, "diff"}

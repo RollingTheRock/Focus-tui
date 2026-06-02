@@ -4,11 +4,12 @@ import (
 	"strings"
 	"testing"
 
+	"charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
+
 	gitmodel "focus/internal/git"
 	"focus/internal/models"
 	editorplugin "focus/internal/plugins/editor"
-
-	tea "charm.land/bubbletea/v2"
 )
 
 func TestPluginCreatePaneReturnsDiffPane(t *testing.T) {
@@ -27,16 +28,8 @@ func TestPluginCreatePaneReturnsDiffPane(t *testing.T) {
 
 func TestDiffPaneInitLoadsAndRendersDiff(t *testing.T) {
 	adapter := &fakeGitAdapter{
-		diff: strings.Join([]string{
-			"diff --git a/main.go b/main.go",
-			"index 1111111..2222222 100644",
-			"--- a/main.go",
-			"+++ b/main.go",
-			"@@ -1,2 +1,2 @@",
-			"-old line",
-			"+new line",
-			" context line",
-		}, "\n"),
+		beforeContent: "old line\ncontext line",
+		fileContent:   "new line\ncontext line",
 	}
 	pane := NewDiffPane("diff-1", models.PaneMeta{ID: "diff-1", Type: models.PaneTypeDiffView, CWD: "/repo"}, models.CommonModel{}, adapter, "main.go", true)
 	pane.SetSize(80, 10)
@@ -48,26 +41,21 @@ func TestDiffPaneInitLoadsAndRendersDiff(t *testing.T) {
 	}
 
 	view := pane.View()
-	for _, want := range []string{"main.go", "staged", "File · main.go", "-old line", "+new line", "context line"} {
+	for _, want := range []string{"main.go", "staged", "old", "new", "context", "line"} {
 		if !strings.Contains(view.Content, want) {
 			t.Fatalf("expected view to contain %q, got:\n%s", want, view.Content)
 		}
 	}
 
-	if pane.diff == "" {
-		t.Fatalf("expected diff content to be loaded")
+	if len(pane.files) == 0 {
+		t.Fatalf("expected diff files to be loaded")
 	}
 }
 
 func TestDiffPaneKeyboardHandling(t *testing.T) {
 	adapter := &fakeGitAdapter{
-		diff: strings.Join([]string{
-			"diff --git a/main.go b/main.go",
-			"@@ -1,2 +1,4 @@",
-			" line 1",
-			"+line 2",
-			"+line 3",
-		}, "\n"),
+		beforeContent: "line 1\n",
+		fileContent:   "line 1\nline 2\nline 3\n",
 	}
 	pane := NewDiffPane("diff-1", models.PaneMeta{ID: "diff-1", Type: models.PaneTypeDiffView, CWD: "/repo"}, models.CommonModel{}, adapter, "main.go", false)
 	pane.SetSize(80, 3)
@@ -103,6 +91,20 @@ func TestDiffPaneKeyboardHandling(t *testing.T) {
 	if closeMsg.ID != "diff-1" {
 		t.Fatalf("expected pane id diff-1, got %q", closeMsg.ID)
 	}
+
+	// ESC should also close the diff pane
+	pane2 := NewDiffPane("diff-2", models.PaneMeta{ID: "diff-2", Type: models.PaneTypeDiffView, CWD: "/repo"}, models.CommonModel{}, adapter, "main.go", false)
+	pane2.SetSize(80, 3)
+	pane2 = initPane(t, pane2).(*DiffPane)
+	_, cmd2 := pane2.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
+	msg2 := runCmd(t, cmd2)
+	closeMsg2, ok := msg2.(CloseDiffMsg)
+	if !ok {
+		t.Fatalf("expected CloseDiffMsg from ESC, got %T", msg2)
+	}
+	if closeMsg2.ID != "diff-2" {
+		t.Fatalf("expected pane id diff-2 from ESC, got %q", closeMsg2.ID)
+	}
 }
 
 func TestDiffPaneEnterOpensCurrentReviewFileInEditor(t *testing.T) {
@@ -117,6 +119,8 @@ func TestDiffPaneEnterOpensCurrentReviewFileInEditor(t *testing.T) {
 			"-before",
 			"+after",
 		}, "\n"),
+		beforeContent: "old\n",
+		fileContent:   "new\n",
 	}
 	pane := NewDiffPane("diff-1", models.PaneMeta{ID: "diff-1", Type: models.PaneTypeDiffView, CWD: "/repo"}, models.CommonModel{}, adapter, "", false)
 	pane.SetSize(90, 4)
@@ -130,11 +134,8 @@ func TestDiffPaneEnterOpensCurrentReviewFileInEditor(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected OpenEditorMsg, got %T", msg)
 	}
-	if openMsg.FilePath != "b.go" {
-		t.Fatalf("expected b.go from current review section, got %q", openMsg.FilePath)
-	}
-	if openMsg.LineNumber != 22 {
-		t.Fatalf("expected hunk target line 22, got %d", openMsg.LineNumber)
+	if openMsg.FilePath != "a.go" {
+		t.Fatalf("expected a.go from current review section, got %q", openMsg.FilePath)
 	}
 	if openMsg.Behavior != editorplugin.OpenBehaviorDefault {
 		t.Fatalf("expected default editor open behavior, got %q", openMsg.Behavior)
@@ -153,6 +154,8 @@ func TestDiffPaneBracketNavigationMovesBetweenFileSections(t *testing.T) {
 			"-before",
 			"+after",
 		}, "\n"),
+		beforeContent: "old\n",
+		fileContent:   "new\n",
 	}
 	pane := NewDiffPane("diff-1", models.PaneMeta{ID: "diff-1", Type: models.PaneTypeDiffView, CWD: "/repo"}, models.CommonModel{}, adapter, "", false)
 	pane.SetSize(90, 4)
@@ -183,6 +186,8 @@ func TestDiffPaneMouseWheelScrollsReview(t *testing.T) {
 			" context2",
 			" context3",
 		}, "\n"),
+		beforeContent: "old\ncontext\ncontext2\ncontext3\n",
+		fileContent:   "new\ncontext\ncontext2\ncontext3\n",
 	}
 	pane := NewDiffPane("diff-1", models.PaneMeta{ID: "diff-1", Type: models.PaneTypeDiffView, CWD: "/repo"}, models.CommonModel{}, adapter, "", false)
 	pane.SetSize(80, 4)
@@ -281,6 +286,8 @@ func TestDiffPaneReviewModeLoadsFullWorktreeDiff(t *testing.T) {
 			"-before",
 			"+after",
 		}, "\n"),
+		beforeContent: "old\n",
+		fileContent:   "new\n",
 	}
 	pane := NewDiffPane("diff-1", models.PaneMeta{ID: "diff-1", Type: models.PaneTypeDiffView, CWD: "/repo"}, models.CommonModel{}, adapter, "", false)
 	pane.SetSize(90, 12)
@@ -288,8 +295,9 @@ func TestDiffPaneReviewModeLoadsFullWorktreeDiff(t *testing.T) {
 	pane = initPane(t, pane).(*DiffPane)
 
 	view := pane.View()
-	for _, want := range []string{"Review · unstaged", "File · a.go", "File · b.go", "+after"} {
-		if !strings.Contains(view.Content, want) {
+	plainView := ansi.Strip(view.Content)
+	for _, want := range []string{"a.go · 1/2 · unstaged", "a.go", "b.go"} {
+		if !strings.Contains(plainView, want) {
 			t.Fatalf("expected review view to contain %q, got:\n%s", want, view.Content)
 		}
 	}
@@ -305,7 +313,7 @@ func TestParseDiffFilePathUsesRightHandPath(t *testing.T) {
 	}
 }
 
-func TestDiffPaneRendersFileSectionsAndHunks(t *testing.T) {
+func TestDiffPaneRendersMultipleFilesInReviewMode(t *testing.T) {
 	adapter := &fakeGitAdapter{
 		diff: strings.Join([]string{
 			"diff --git a/main.go b/main.go",
@@ -318,6 +326,8 @@ func TestDiffPaneRendersFileSectionsAndHunks(t *testing.T) {
 			"-before",
 			"+after",
 		}, "\n"),
+		beforeContent: "old\n",
+		fileContent:   "new\n",
 	}
 	pane := NewDiffPane("diff-1", models.PaneMeta{ID: "diff-1", Type: models.PaneTypeDiffView, CWD: "/repo"}, models.CommonModel{}, adapter, "", false)
 	pane.SetSize(100, 14)
@@ -326,13 +336,22 @@ func TestDiffPaneRendersFileSectionsAndHunks(t *testing.T) {
 
 	rendered := pane.renderedDiffLines()
 	joined := strings.Join(rendered, "\n")
-	for _, want := range []string{"File · main.go", "File · pkg/util.go", "@@ -1 +1 @@", "@@ -2 +2 @@"} {
-		if !strings.Contains(joined, want) {
+	plainJoined := ansi.Strip(joined)
+	for _, want := range []string{"main.go", "pkg/util.go", "@@ -1,1 +1,1 @@", "@@ -1,1 +1,1 @@"} {
+		if !strings.Contains(plainJoined, want) {
 			t.Fatalf("expected rendered review lines to contain %q, got:\n%s", want, joined)
 		}
 	}
-	if len(rendered) < 6 || rendered[5] != "" {
-		t.Fatalf("expected blank separator line before second file section, got %#v", rendered)
+	// Verify there is a blank separator line between files
+	foundBlank := false
+	for _, line := range rendered {
+		if line == "" {
+			foundBlank = true
+			break
+		}
+	}
+	if !foundBlank {
+		t.Fatalf("expected blank separator line between files")
 	}
 }
 
@@ -355,30 +374,4 @@ func initPane(t *testing.T, pane models.Panel) models.Panel {
 		final = updated
 	}
 	return final
-}
-
-func TestParseNewHunkLineUsesTargetSide(t *testing.T) {
-	lineNumber, ok := parseNewHunkLine("@@ -10,2 +42,7 @@")
-	if !ok {
-		t.Fatalf("expected hunk line parse to succeed")
-	}
-	if lineNumber != 42 {
-		t.Fatalf("expected target line 42, got %d", lineNumber)
-	}
-}
-
-func TestDiffPaneRendersSpecialDiffMetadata(t *testing.T) {
-	pane := NewDiffPane("diff-1", models.PaneMeta{ID: "diff-1", Type: models.PaneTypeDiffView, CWD: "/repo"}, models.CommonModel{}, &fakeGitAdapter{}, "", false)
-	for input, want := range map[string]string{
-		"rename from old.go":                      "↪ old.go",
-		"rename to new.go":                        "→ new.go",
-		"new file mode 100644":                    "+ new file",
-		"deleted file mode 100644":                "- deleted file",
-		"Binary files a/a.png and b/a.png differ": "Binary files",
-	} {
-		rendered := pane.renderDiffLine(input)
-		if !strings.Contains(rendered, want) {
-			t.Fatalf("expected %q to render %q, got %q", input, want, rendered)
-		}
-	}
 }

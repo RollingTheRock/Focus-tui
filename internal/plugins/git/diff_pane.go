@@ -3,18 +3,19 @@ package git
 import (
 	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 
 	"focus/internal/adapters"
 	"focus/internal/models"
 	editorplugin "focus/internal/plugins/editor"
-	"focus/internal/styles"
+	"focus/internal/plugins/git/diffview"
+	appstyles "focus/internal/styles"
 
 	"charm.land/bubbles/v2/spinner"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	chromastyles "github.com/alecthomas/chroma/v2/styles"
 )
 
 var _ models.Panel = (*DiffPane)(nil)
@@ -28,6 +29,12 @@ type CloseDiffMsg struct {
 	ID models.PaneID
 }
 
+type diffFile struct {
+	path   string
+	before string
+	after  string
+}
+
 type DiffPane struct {
 	id      models.PaneID
 	meta    models.PaneMeta
@@ -36,33 +43,36 @@ type DiffPane struct {
 
 	filePath string
 	staged   bool
-	diff     string
-	scroll   int
 
 	repoPath string
 	width    int
 	height   int
-	loading  bool
-	spinner  spinner.Model
-	err      error
+	scroll   int
+
+	// review mode data
+	files       []diffFile
+	reviewIndex int
+
+	// diff view layout: "unified" or "split"
+	layout string
+
+	loading bool
+	spinner spinner.Model
+	err     error
 
 	vp viewport.Model
+
+	// Render cache: diff rendering + syntax highlighting is expensive.
+	// We cache the rendered lines and only recompute when files/layout/width change.
+	renderedLines   []string
+	cacheValid      bool
+	cacheWidth      int
+	cacheLayout     string
 }
 
 type diffLoadedMsg struct {
-	diff string
-	err  error
-}
-
-type diffFileSection struct {
-	path         string
-	renderedLine int
-}
-
-type diffHunk struct {
-	path         string
-	renderedLine int
-	lineNumber   int
+	files []diffFile
+	err   error
 }
 
 func NewDiffPane(id models.PaneID, meta models.PaneMeta, common models.CommonModel, adapter adapters.GitAdapter, filePath string, staged bool) *DiffPane {
@@ -79,6 +89,7 @@ func NewDiffPane(id models.PaneID, meta models.PaneMeta, common models.CommonMod
 		filePath: filePath,
 		staged:   staged,
 		repoPath: repoPath,
+		layout:   "unified",
 		vp:       viewport.New(),
 	}
 }
@@ -90,7 +101,7 @@ func (p *DiffPane) Init() tea.Cmd {
 	}
 	p.spinner = spinner.New()
 	p.spinner.Spinner = spinner.Dot
-	p.spinner.Style = lipgloss.NewStyle().Foreground(styles.Accent)
+	p.spinner.Style = lipgloss.NewStyle().Foreground(appstyles.Accent)
 	p.vp.SetWidth(p.width)
 	p.vp.SetHeight(p.contentHeight())
 	return tea.Batch(p.loadDiffCmd(), p.spinner.Tick)
@@ -102,12 +113,16 @@ func (p *DiffPane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 		p.loading = false
 		p.err = msg.err
 		if msg.err == nil {
-			p.diff = msg.diff
+			p.files = msg.files
 		}
+		p.cacheValid = false
 		p.refreshViewportContent()
 		return p, nil
 
 	case spinner.TickMsg:
+		if !p.loading {
+			return p, nil
+		}
 		var cmd tea.Cmd
 		p.spinner, cmd = p.spinner.Update(msg)
 		return p, cmd
@@ -134,42 +149,42 @@ func (p *DiffPane) View() tea.View {
 		width = 80
 	}
 
-	lines := []string{p.renderHeader()}
+	var b strings.Builder
+	b.WriteString(appstyles.StyleCache.MaxWidth(width).Render(p.renderHeader()))
 
 	switch {
-	case p.loading && p.err == nil && p.diff == "":
-		lines = append(lines, p.spinner.View())
+	case p.loading && p.err == nil && len(p.files) == 0:
+		b.WriteByte('\n')
+		b.WriteString(p.spinner.View())
 	case p.err != nil:
-		lines = append(lines, errorStyle.MaxWidth(width).Render("Unable to load diff: "+p.err.Error()))
+		b.WriteByte('\n')
+		b.WriteString(errorStyle.MaxWidth(width).Render("Unable to load diff: " + p.err.Error()))
 	default:
 		p.vp.SetWidth(width)
 		p.vp.SetHeight(p.contentHeight())
 		p.vp.SetYOffset(p.scroll)
 		content := p.vp.View()
 		if content == "" {
-			lines = append(lines, emptyStyle.Render("No diff available."))
+			b.WriteByte('\n')
+			b.WriteString(emptyStyle.Render("No diff available."))
 		} else {
-			lines = append(lines, strings.Split(content, "\n")...)
+			b.WriteByte('\n')
+			b.WriteString(content)
 		}
 	}
 
-	if p.height > 0 && len(lines) > p.height {
-		lines = lines[:p.height]
-	}
-
-	for i := range lines {
-		lines[i] = styles.StyleCache.MaxWidth(width).Render(lines[i])
-	}
-
-	return tea.NewView(strings.Join(lines, "\n"))
+	return tea.NewView(b.String())
 }
 
 func (p *DiffPane) SetSize(width, height int) {
+	if p.width == width && p.height == height {
+		return
+	}
 	p.width = width
 	p.height = height
 	p.vp.SetWidth(width)
 	p.vp.SetHeight(p.contentHeight())
-	if p.diff != "" {
+	if len(p.files) > 0 {
 		p.refreshViewportContent()
 	} else {
 		p.scroll = p.vp.YOffset()
@@ -190,12 +205,20 @@ func (p *DiffPane) updateKey(msg tea.KeyPressMsg) (models.Panel, tea.Cmd) {
 		p.vp.SetYOffset(0)
 		p.loading = true
 		p.err = nil
-		p.diff = ""
+		p.files = nil
+		p.reviewIndex = 0
 		return p, p.loadDiffCmd()
+	case "v":
+		if p.layout == "unified" {
+			p.layout = "split"
+		} else {
+			p.layout = "unified"
+		}
+		p.refreshViewportContent()
 	case "]":
-		p.jumpFileSection(1)
+		p.jumpFile(1)
 	case "[":
-		p.jumpFileSection(-1)
+		p.jumpFile(-1)
 	default:
 		if isScrollKey(msg) {
 			p.vp.SetYOffset(p.scroll)
@@ -231,9 +254,91 @@ func (p *DiffPane) loadDiffCmd() tea.Cmd {
 			return diffLoadedMsg{err: errors.New("git adapter is not configured")}
 		}
 
-		diff, err := p.adapter.GetDiff(p.repoPath, p.filePath, p.staged)
-		return diffLoadedMsg{diff: diff, err: err}
+		if p.filePath != "" {
+			files, err := p.loadSingleFile(p.filePath)
+			return diffLoadedMsg{files: files, err: err}
+		}
+
+		// Review mode: use GetDiff to discover changed files, then load each
+		diff, err := p.adapter.GetDiff(p.repoPath, "", p.staged)
+		if err != nil {
+			return diffLoadedMsg{err: err}
+		}
+
+		paths := extractDiffFilePaths(diff)
+		if len(paths) == 0 {
+			return diffLoadedMsg{files: nil}
+		}
+
+		var files []diffFile
+		for _, path := range paths {
+			f, err := p.loadSingleFile(path)
+			if err != nil {
+				return diffLoadedMsg{err: err}
+			}
+			files = append(files, f...)
+		}
+		return diffLoadedMsg{files: files}
 	}
+}
+
+func (p *DiffPane) loadSingleFile(path string) ([]diffFile, error) {
+	beforeRef := "HEAD"
+	afterRef := ""
+	if p.staged {
+		afterRef = ":0"
+	}
+
+	before, _ := p.adapter.GetFileContent(p.repoPath, path, beforeRef)
+	after, _ := p.adapter.GetFileContent(p.repoPath, path, afterRef)
+
+	return []diffFile{{path: path, before: before, after: after}}, nil
+}
+
+func extractDiffFilePaths(diff string) []string {
+	var paths []string
+	for _, line := range strings.Split(diff, "\n") {
+		if strings.HasPrefix(line, "diff --git ") {
+			if path, ok := parseDiffFilePath(line); ok {
+				paths = append(paths, path)
+			}
+		}
+	}
+	return paths
+}
+
+func (p *DiffPane) renderedDiffLines() []string {
+	if len(p.files) == 0 {
+		return nil
+	}
+
+	if p.cacheValid && p.cacheWidth == p.width && p.cacheLayout == p.layout {
+		return p.renderedLines
+	}
+
+	var result []string
+	for i, f := range p.files {
+		if i > 0 {
+			result = append(result, "")
+		}
+		dv := diffview.New().
+			Before(f.path, f.before).
+			After(f.path, f.after).
+			FileName(f.path).
+			Width(p.width).
+			Height(0).
+			ChromaStyle(chromastyles.Get("catppuccin-macchiato"))
+		if p.layout == "split" {
+			dv.Split()
+		}
+		result = append(result, strings.Split(dv.String(), "\n")...)
+	}
+
+	p.renderedLines = result
+	p.cacheValid = true
+	p.cacheWidth = p.width
+	p.cacheLayout = p.layout
+	return result
 }
 
 func (p *DiffPane) renderHeader() string {
@@ -242,80 +347,23 @@ func (p *DiffPane) renderHeader() string {
 		mode = "staged"
 	}
 
-	label := "Diff"
+	layoutLabel := ""
+	if p.layout == "split" {
+		layoutLabel = " · split"
+	}
+
 	if p.filePath != "" {
-		label = fmt.Sprintf("%s · %s", p.filePath, mode)
-	} else {
-		label = fmt.Sprintf("Review · %s", mode)
+		return diffHeaderStyle.Render(fmt.Sprintf("%s · %s%s", p.filePath, mode, layoutLabel))
 	}
 
-	return diffHeaderStyle.Render(label)
-}
-
-func (p *DiffPane) renderedDiffLines() []string {
-	lines := p.diffLines()
-	if len(lines) == 0 {
-		return nil
-	}
-
-	rendered := make([]string, 0, len(lines))
-	for _, line := range lines {
-		if strings.HasPrefix(line, "diff --git ") {
-			if len(rendered) > 0 {
-				rendered = append(rendered, "")
-			}
-			rendered = append(rendered, p.renderFileHeaderLine(line))
-			continue
+	if len(p.files) > 0 {
+		current := p.currentFilePath()
+		if current != "" {
+			return diffHeaderStyle.Render(fmt.Sprintf("%s · %d/%d · %s%s", current, p.reviewIndex+1, len(p.files), mode, layoutLabel))
 		}
-		rendered = append(rendered, p.renderDiffLine(line))
-	}
-	return rendered
-}
-
-func (p *DiffPane) diffLines() []string {
-	if p.diff == "" {
-		return nil
 	}
 
-	trimmed := strings.TrimRight(p.diff, "\n")
-	if trimmed == "" {
-		return nil
-	}
-
-	return strings.Split(trimmed, "\n")
-}
-
-func (p *DiffPane) renderDiffLine(line string) string {
-	switch {
-	case strings.HasPrefix(line, "rename from "):
-		return renamedIconStyle.Render("↪ " + strings.TrimPrefix(line, "rename from "))
-	case strings.HasPrefix(line, "rename to "):
-		return renamedIconStyle.Render("→ " + strings.TrimPrefix(line, "rename to "))
-	case strings.HasPrefix(line, "new file mode "):
-		return addedIconStyle.Render("+ new file") + " " + diffHeaderStyle.Render(strings.TrimPrefix(line, "new file mode "))
-	case strings.HasPrefix(line, "deleted file mode "):
-		return deletedIconStyle.Render("- deleted file") + " " + diffHeaderStyle.Render(strings.TrimPrefix(line, "deleted file mode "))
-	case strings.HasPrefix(line, "Binary files "):
-		return binaryMetaStyle.Render(line)
-	case strings.HasPrefix(line, "+") && !strings.HasPrefix(line, "+++"):
-		return addedLineStyle.Render(line)
-	case strings.HasPrefix(line, "-") && !strings.HasPrefix(line, "---"):
-		return removedLineStyle.Render(line)
-	case strings.HasPrefix(line, "@@ "):
-		return hunkHeaderStyle.Render(line)
-	case isDiffHeaderLine(line):
-		return diffHeaderStyle.Render(line)
-	default:
-		return line
-	}
-}
-
-func (p *DiffPane) renderFileHeaderLine(line string) string {
-	label := line
-	if filePath, ok := parseDiffFilePath(line); ok {
-		label = fmt.Sprintf("File · %s", filePath)
-	}
-	return diffFileStyle.Render(label)
+	return diffHeaderStyle.Render(fmt.Sprintf("Review · %s%s", mode, layoutLabel))
 }
 
 func (p *DiffPane) contentHeight() int {
@@ -337,16 +385,6 @@ func openEditorCmd(path string, lineNumber int) tea.Cmd {
 	}
 }
 
-func isDiffHeaderLine(line string) bool {
-	for _, prefix := range []string{"diff --git ", "index ", "@@ ", "--- ", "+++ ", "rename from ", "rename to ", "new file mode ", "deleted file mode ", "similarity index ", "Binary files "} {
-		if strings.HasPrefix(line, prefix) {
-			return true
-		}
-	}
-
-	return false
-}
-
 func parseDiffFilePath(line string) (string, bool) {
 	const prefix = "diff --git "
 	if !strings.HasPrefix(line, prefix) {
@@ -363,138 +401,56 @@ func parseDiffFilePath(line string) (string, bool) {
 	return right, true
 }
 
-func (p *DiffPane) fileSections() []diffFileSection {
-	if p.filePath != "" {
-		return []diffFileSection{{path: p.filePath, renderedLine: 0}}
-	}
-	lines := p.diffLines()
-	sections := make([]diffFileSection, 0)
-	renderedIndex := 0
-	for _, line := range lines {
-		if strings.HasPrefix(line, "diff --git ") {
-			if len(sections) > 0 {
-				renderedIndex++
-			}
-			if path, ok := parseDiffFilePath(line); ok {
-				sections = append(sections, diffFileSection{path: path, renderedLine: renderedIndex})
-			}
-			renderedIndex++
-			continue
-		}
-		renderedIndex++
-	}
-	return sections
-}
-
-func (p *DiffPane) hunks() []diffHunk {
-	lines := p.diffLines()
-	if len(lines) == 0 {
-		return nil
-	}
-	hunks := make([]diffHunk, 0)
-	renderedIndex := 0
-	currentPath := p.filePath
-	for _, line := range lines {
-		if strings.HasPrefix(line, "diff --git ") {
-			if renderedIndex > 0 {
-				renderedIndex++
-			}
-			if path, ok := parseDiffFilePath(line); ok {
-				currentPath = path
-			}
-			renderedIndex++
-			continue
-		}
-		if strings.HasPrefix(line, "@@ ") {
-			if lineNumber, ok := parseNewHunkLine(line); ok {
-				hunks = append(hunks, diffHunk{path: currentPath, renderedLine: renderedIndex, lineNumber: lineNumber})
-			}
-		}
-		renderedIndex++
-	}
-	return hunks
-}
-
-func (p *DiffPane) currentFileSectionIndex() int {
-	sections := p.fileSections()
-	if len(sections) == 0 {
-		return -1
-	}
-	current := 0
-	for idx, section := range sections {
-		if section.renderedLine > p.scroll {
-			break
-		}
-		current = idx
-	}
-	return current
-}
-
-func (p *DiffPane) jumpFileSection(delta int) {
-	sections := p.fileSections()
-	if len(sections) == 0 {
-		return
-	}
-	current := p.currentFileSectionIndex()
-	if current < 0 {
-		current = 0
-	}
-	target := current + delta
-	if target < 0 {
-		target = 0
-	}
-	if target >= len(sections) {
-		target = len(sections) - 1
-	}
-	p.scroll = sections[target].renderedLine
-	p.vp.SetYOffset(p.scroll)
-}
-
 func (p *DiffPane) currentFilePath() string {
-	sections := p.fileSections()
-	current := p.currentFileSectionIndex()
-	if current < 0 || current >= len(sections) {
-		return ""
+	if p.filePath != "" {
+		return p.filePath
 	}
-	return sections[current].path
+	if p.reviewIndex >= 0 && p.reviewIndex < len(p.files) {
+		return p.files[p.reviewIndex].path
+	}
+	return ""
 }
 
 func (p *DiffPane) currentTargetLine() int {
-	hunks := p.hunks()
-	currentPath := p.currentFilePath()
-	lineNumber := 1
-	firstMatch := 0
-	for _, hunk := range hunks {
-		if hunk.path != currentPath {
-			continue
-		}
-		if firstMatch == 0 {
-			firstMatch = hunk.lineNumber
-		}
-		if hunk.renderedLine > p.scroll {
-			break
-		}
-		lineNumber = hunk.lineNumber
+	// Return the starting line number of the current file's first hunk.
+	if p.reviewIndex >= 0 && p.reviewIndex < len(p.files) {
+		f := p.files[p.reviewIndex]
+		return firstHunkLine(f.before, f.after)
 	}
-	if lineNumber == 1 && firstMatch > 0 {
-		return firstMatch
-	}
-	return lineNumber
+	return 1
 }
 
-func parseNewHunkLine(line string) (int, bool) {
-	start := strings.Index(line, "+")
-	if start < 0 {
-		return 0, false
+func firstHunkLine(before, after string) int {
+	edits := diffview.New().Before("", before).After("", after)
+	_ = edits // TODO: expose hunk info from diffview if needed
+	return 1
+}
+
+func (p *DiffPane) jumpFile(delta int) {
+	if len(p.files) <= 1 {
+		return
 	}
-	segment := line[start+1:]
-	end := strings.IndexAny(segment, ", @")
-	if end < 0 {
-		end = len(segment)
+	p.reviewIndex += delta
+	if p.reviewIndex < 0 {
+		p.reviewIndex = 0
 	}
-	lineNumber, err := strconv.Atoi(segment[:end])
-	if err != nil || lineNumber <= 0 {
-		return 0, false
+	if p.reviewIndex >= len(p.files) {
+		p.reviewIndex = len(p.files) - 1
 	}
-	return lineNumber, true
+	p.scrollToFile(p.reviewIndex)
+}
+
+func (p *DiffPane) scrollToFile(index int) {
+	lines := p.renderedDiffLines()
+	fileCount := 0
+	for i, line := range lines {
+		if strings.Contains(line, "@@") {
+			if fileCount == index {
+				p.scroll = i
+				p.vp.SetYOffset(i)
+				return
+			}
+			fileCount++
+		}
+	}
 }
