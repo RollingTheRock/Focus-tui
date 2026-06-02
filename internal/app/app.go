@@ -1860,10 +1860,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case editorplugin.OpenEditorMsg:
+		if cmd := m.tryOpenExternalEditor(msg); cmd != nil {
+			return m, cmd
+		}
 		cmd := m.openEditorPane(msg)
 		m.syncWorktreeActivities()
 		m.invalidateView()
 		return m, cmd
+
+	case editorplugin.ExternalEditorExitedMsg:
+		if msg.Err != nil {
+			m.common.Notice = "editor exited: " + msg.Err.Error()
+		}
+		m.syncWorktreeActivities()
+		m.invalidateView()
+		return m, nil
 
 	case openADRDetailMsg:
 		cmd := m.activePage.openADRDetailOverlay(msg.FilePath)
@@ -2873,6 +2884,21 @@ func (m *model) currentWorktreeID() string {
 
 func (m *model) currentBranchSnapshot() string {
 	return m.activePage.currentBranchSnapshot()
+}
+
+func (m *model) tryOpenExternalEditor(msg editorplugin.OpenEditorMsg) tea.Cmd {
+	command := editorplugin.ResolveEditorCommand(m.common.Cfg.Editor.Command)
+	if command == "" {
+		return nil
+	}
+	parts := strings.Fields(command)
+	if len(parts) == 0 {
+		return nil
+	}
+	if _, err := exec.LookPath(parts[0]); err != nil {
+		return nil
+	}
+	return editorplugin.LaunchExternalEditor(command, msg.FilePath, msg.LineNumber)
 }
 
 func (m *model) openEditorPane(msg editorplugin.OpenEditorMsg) tea.Cmd {
