@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 35
+- **Total Sessions**: 36
 - **Last Active**: 2026-06-02
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~1092 | Active |
+| `journal-1.md` | ~1123 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 36 | 2026-06-02 | smoke task done | - | `feat-agent-detail` |
 | 35 | 2026-06-02 | done by a2a | - | `feat-agent-detail` |
 | 34 | 2026-06-02 | upstream done | - | `feat-agent-detail` |
 | 33 | 2026-06-02 | Integration test session | - | `feat-agent-detail` |
