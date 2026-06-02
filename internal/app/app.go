@@ -16,6 +16,7 @@ import (
 	"focus/internal/orchestrator"
 	"focus/internal/plugins"
 	agentsplugin "focus/internal/plugins/agents"
+	"focus/internal/trellis"
 	editorplugin "focus/internal/plugins/editor"
 	filebrowser "focus/internal/plugins/filebrowser"
 	gitfiletree "focus/internal/plugins/gitfiletree"
@@ -157,6 +158,9 @@ type model struct {
 	cmdBus *commands.Bus
 
 	helpModel help.Model
+
+	// trellisBridge connects Focus to the Trellis context layer.
+	trellisBridge *trellis.Bridge
 }
 
 type editorMetaProvider interface {
@@ -208,6 +212,12 @@ func New(cfg config.Config, store models.Store) tea.Model {
 			return h
 		}(),
 	}
+
+	// Initialize Trellis bridge if trellis is installed.
+	if repoRoot != "" {
+		m.trellisBridge = trellis.NewBridge(repoRoot, "")
+	}
+
 	m.registerMCPTools()
 	m.registerMCPResources()
 	if err := m.mcpServer.Start(); err != nil {
@@ -5370,6 +5380,17 @@ func (m *model) prepareAgentProfile(session *agents.Session) error {
 		return nil
 	}
 
+	// Use Trellis Bridge to assemble context if available.
+	if m.trellisBridge != nil {
+		m.trellisBridge.SetWorktreeID(session.WorktreeID)
+		_, err := m.trellisBridge.BuildAgentContext(session)
+		if err != nil {
+			return fmt.Errorf("build trellis context: %w", err)
+		}
+		return nil
+	}
+
+	// Fallback to legacy spec loader (should not reach here after full migration).
 	pm := agents.NewProfileManager(session.WorktreeID)
 	if err := pm.Prepare(); err != nil {
 		return err

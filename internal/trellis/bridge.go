@@ -27,6 +27,16 @@ func NewBridge(repoRoot, worktreeID string) *Bridge {
 	}
 }
 
+// RepoRoot returns the repository root directory.
+func (b *Bridge) RepoRoot() string {
+	return b.repoRoot
+}
+
+// SetWorktreeID updates the worktree ID for this bridge.
+func (b *Bridge) SetWorktreeID(id string) {
+	b.worktreeID = id
+}
+
 // EnsureInitialized checks that Trellis is installed and the .trellis/ directory
 // exists, running `trellis init` if necessary. It also generates Kimi-specific
 // adapters since Trellis does not natively support Kimi as a platform.
