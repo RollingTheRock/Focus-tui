@@ -26,6 +26,111 @@ from .paths import (
 )
 
 
+def _write_initial_journal(workspace_dir: Path, name: str) -> bool:
+    """Create the initial journal file if it does not exist."""
+    journal_file = workspace_dir / f"{FILE_JOURNAL_PREFIX}1.md"
+    if journal_file.exists():
+        return True
+
+    today = datetime.now().strftime("%Y-%m-%d")
+    journal_content = f"""# Journal - {name} (Part 1)
+
+> AI development session journal
+> Started: {today}
+
+---
+
+"""
+    try:
+        journal_file.write_text(journal_content, encoding="utf-8")
+    except (OSError, IOError) as e:
+        print(f"Error: Failed to create journal file: {e}", file=sys.stderr)
+        return False
+    return True
+
+
+def _write_workspace_index(workspace_dir: Path, name: str) -> bool:
+    """Create the workspace index file if it does not exist."""
+    index_file = workspace_dir / "index.md"
+    if index_file.exists():
+        return True
+
+    index_content = f"""# Workspace Index - {name}
+
+> Journal tracking for AI development sessions.
+
+---
+
+## Current Status
+
+<!-- @@@auto:current-status -->
+- **Active File**: `journal-1.md`
+- **Total Sessions**: 0
+- **Last Active**: -
+<!-- @@@/auto:current-status -->
+
+---
+
+## Active Documents
+
+<!-- @@@auto:active-documents -->
+| File | Lines | Status |
+|------|-------|--------|
+| `journal-1.md` | ~0 | Active |
+<!-- @@@/auto:active-documents -->
+
+---
+
+## Session History
+
+<!-- @@@auto:session-history -->
+| # | Date | Title | Commits | Branch |
+|---|------|-------|---------|--------|
+<!-- @@@/auto:session-history -->
+
+---
+
+## Notes
+
+- Sessions are appended to journal files
+- New journal file created when current exceeds 2000 lines
+- Use `add_session.py` to record sessions
+"""
+    try:
+        index_file.write_text(index_content, encoding="utf-8")
+    except (OSError, IOError) as e:
+        print(f"Error: Failed to create index.md: {e}", file=sys.stderr)
+        return False
+    return True
+
+
+def ensure_workspace_files(repo_root: Path | None = None) -> bool:
+    """Ensure the developer workspace runtime files exist.
+
+    The workspace is developer-local runtime state. It may be absent in a
+    clean checkout because .trellis/workspace/<developer>/ is ignored.
+    """
+    if repo_root is None:
+        repo_root = get_repo_root()
+
+    name = get_developer(repo_root)
+    if not name:
+        return False
+
+    workspace_dir = repo_root / DIR_WORKFLOW / DIR_WORKSPACE / name
+    try:
+        workspace_dir.mkdir(parents=True, exist_ok=True)
+    except (OSError, IOError) as e:
+        print(f"Error: Failed to create workspace directory: {e}", file=sys.stderr)
+        return False
+
+    if not any(workspace_dir.glob(f"{FILE_JOURNAL_PREFIX}*.md")):
+        if not _write_initial_journal(workspace_dir, name):
+            return False
+
+    return _write_workspace_index(workspace_dir, name)
+
+
 # =============================================================================
 # Developer Initialization
 # =============================================================================
@@ -73,73 +178,8 @@ def init_developer(name: str, repo_root: Path | None = None) -> bool:
         print(f"Error: Failed to create workspace directory: {e}", file=sys.stderr)
         return False
 
-    # Create initial journal file
-    journal_file = workspace_dir / f"{FILE_JOURNAL_PREFIX}1.md"
-    if not journal_file.exists():
-        today = datetime.now().strftime("%Y-%m-%d")
-        journal_content = f"""# Journal - {name} (Part 1)
-
-> AI development session journal
-> Started: {today}
-
----
-
-"""
-        try:
-            journal_file.write_text(journal_content, encoding="utf-8")
-        except (OSError, IOError) as e:
-            print(f"Error: Failed to create journal file: {e}", file=sys.stderr)
-            return False
-
-    # Create index.md with markers for auto-update
-    index_file = workspace_dir / "index.md"
-    if not index_file.exists():
-        index_content = f"""# Workspace Index - {name}
-
-> Journal tracking for AI development sessions.
-
----
-
-## Current Status
-
-<!-- @@@auto:current-status -->
-- **Active File**: `journal-1.md`
-- **Total Sessions**: 0
-- **Last Active**: -
-<!-- @@@/auto:current-status -->
-
----
-
-## Active Documents
-
-<!-- @@@auto:active-documents -->
-| File | Lines | Status |
-|------|-------|--------|
-| `journal-1.md` | ~0 | Active |
-<!-- @@@/auto:active-documents -->
-
----
-
-## Session History
-
-<!-- @@@auto:session-history -->
-| # | Date | Title | Commits | Branch |
-|---|------|-------|---------|--------|
-<!-- @@@/auto:session-history -->
-
----
-
-## Notes
-
-- Sessions are appended to journal files
-- New journal file created when current exceeds 2000 lines
-- Use `add_session.py` to record sessions
-"""
-        try:
-            index_file.write_text(index_content, encoding="utf-8")
-        except (OSError, IOError) as e:
-            print(f"Error: Failed to create index.md: {e}", file=sys.stderr)
-            return False
+    if not ensure_workspace_files(repo_root):
+        return False
 
     print(f"Developer initialized: {name}")
     print(f"  .developer file: {dev_file}")
@@ -160,6 +200,9 @@ def ensure_developer(repo_root: Path | None = None) -> None:
     if not check_developer(repo_root):
         print("Error: Developer not initialized.", file=sys.stderr)
         print(f"Run: python3 ./{DIR_WORKFLOW}/scripts/init_developer.py <your-name>", file=sys.stderr)
+        sys.exit(1)
+
+    if not ensure_workspace_files(repo_root):
         sys.exit(1)
 
 

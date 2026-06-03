@@ -4,6 +4,12 @@
 # Current task pointer (each dev works on different task)
 .current-task
 
+# Local task records created while using Focus/Trellis
+tasks/
+
+# Developer-scoped session journals and indexes
+workspace/*/
+
 # Session/window scoped runtime state
 .runtime/
 
