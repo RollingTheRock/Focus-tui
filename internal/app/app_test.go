@@ -183,18 +183,85 @@ func TestRenderHelpLineForEditorIncludesSearchShortcuts(t *testing.T) {
 	}
 }
 
-func TestRenderHelpLineForGitStatusIncludesReviewShortcuts(t *testing.T) {
+func TestRenderHelpLineForWorktreeDetailIncludesCoreShortcuts(t *testing.T) {
 	cfg := config.DefaultConfig()
 	st, _ := store.New(":memory:")
 	m := New(cfg, st).(model)
-	m.activePage.panes[paneWorktreeDetail] = &fakePanel{}
 	m.activePage.focused = paneWorktreeDetail
 
 	help := m.renderHelpLine(140)
-	for _, want := range []string{"1-5", "tabs", "j/k", "nav", "enter", "open"} {
+	for _, want := range []string{"1-3", "tabs", "j/k", "nav", "enter", "edit task", "o", "files"} {
 		if !strings.Contains(help, want) {
 			t.Fatalf("expected help line to contain %q, got %q", want, help)
 		}
+	}
+}
+
+func TestWorktreeDetailPaneUsesThreeCoreTabs(t *testing.T) {
+	cfg := config.DefaultConfig()
+	st, _ := store.New(":memory:")
+	m := New(cfg, st).(model)
+
+	detail, ok := m.activePage.pane(paneWorktreeDetail).(*worktreeDetailPane)
+	if !ok {
+		t.Fatalf("expected worktreeDetailPane, got %T", m.activePage.pane(paneWorktreeDetail))
+	}
+
+	if got, want := detailTabNames, []string{"Task", "Context", "Agents"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("expected core detail tabs %v, got %v", want, got)
+	}
+
+	for _, key := range []string{"1", "2", "3"} {
+		updated, _ := detail.Update(tea.KeyPressMsg{Code: rune(key[0]), Text: key})
+		detail = updated.(*worktreeDetailPane)
+	}
+	if detail.activeTab != detailTabAgent {
+		t.Fatalf("expected key 3 to select agents tab, got %v", detail.activeTab)
+	}
+
+	updated, _ := detail.Update(tea.KeyPressMsg{Code: '4', Text: "4"})
+	detail = updated.(*worktreeDetailPane)
+	if detail.activeTab != detailTabAgent {
+		t.Fatalf("expected key 4 to be ignored, got %v", detail.activeTab)
+	}
+}
+
+func TestSyncWorktreeActivitiesUpdatesDetailPaneAgentSessions(t *testing.T) {
+	cfg := config.DefaultConfig()
+	st, _ := store.New(":memory:")
+	m := New(cfg, st).(model)
+
+	worktreeID := "/repo/feature-detail-agent"
+	now := time.Now()
+	if err := st.SaveAgentSession(models.AgentSessionRecord{
+		ID:             "session-running",
+		WorktreeID:     worktreeID,
+		RepoID:         "/repo/main",
+		Provider:       string(agents.ProviderCodex),
+		State:          string(agents.SessionRunning),
+		StartedAt:      now.Add(-time.Minute),
+		LastActivityAt: &now,
+		UpdatedAt:      now,
+	}); err != nil {
+		t.Fatalf("save agent session: %v", err)
+	}
+	m.currentWorktreePage = worktreeID
+
+	detail, ok := m.activePage.pane(paneWorktreeDetail).(*worktreeDetailPane)
+	if !ok {
+		t.Fatalf("expected worktreeDetailPane, got %T", m.activePage.pane(paneWorktreeDetail))
+	}
+	if cmd := detail.setWorktree(worktreeID); cmd != nil {
+		_ = cmd()
+	}
+
+	m.syncWorktreeActivities()
+
+	if len(detail.sessions) != 1 {
+		t.Fatalf("expected detail pane to receive 1 running session, got %d", len(detail.sessions))
+	}
+	if detail.sessions[0].ID != "session-running" {
+		t.Fatalf("expected running session to be shown, got %+v", detail.sessions[0])
 	}
 }
 

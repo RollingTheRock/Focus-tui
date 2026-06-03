@@ -3435,7 +3435,7 @@ func helpBindingsForState(m model, compact bool) []bubblesKey.Binding {
 	case paneWorktreeDetail:
 		if dp, ok := m.activePage.pane(paneWorktreeDetail).(*worktreeDetailPane); ok {
 			bindings = []bubblesKey.Binding{
-				bubblesKey.NewBinding(bubblesKey.WithKeys("1", "2", "3", "4", "5"), bubblesKey.WithHelp("1-5", "tabs")),
+				bubblesKey.NewBinding(bubblesKey.WithKeys("1", "2", "3"), bubblesKey.WithHelp("1-3", "tabs")),
 			}
 			switch dp.activeTab {
 			case detailTabTasks:
@@ -3443,16 +3443,11 @@ func helpBindingsForState(m model, compact bool) []bubblesKey.Binding {
 					bubblesKey.NewBinding(bubblesKey.WithKeys("j", "k"), bubblesKey.WithHelp("j/k", "nav")),
 					bubblesKey.NewBinding(bubblesKey.WithKeys("enter", "e"), bubblesKey.WithHelp("enter/e", "edit task")),
 					bubblesKey.NewBinding(bubblesKey.WithKeys("s"), bubblesKey.WithHelp("s", "start agent")),
-				)
-			case detailTabGit, detailTabFiles:
-				bindings = append(bindings,
-					bubblesKey.NewBinding(bubblesKey.WithKeys("o"), bubblesKey.WithHelp("o", "open overlay")),
+					bubblesKey.NewBinding(bubblesKey.WithKeys("o"), bubblesKey.WithHelp("o", "files")),
 				)
 			case detailTabContext:
 				bindings = append(bindings,
 					bubblesKey.NewBinding(bubblesKey.WithKeys("e"), bubblesKey.WithHelp("e", "edit PRD")),
-					bubblesKey.NewBinding(bubblesKey.WithKeys("h"), bubblesKey.WithHelp("h", "handoff")),
-					bubblesKey.NewBinding(bubblesKey.WithKeys("j"), bubblesKey.WithHelp("j", "journal")),
 					bubblesKey.NewBinding(bubblesKey.WithKeys("u"), bubblesKey.WithHelp("u", "trellis update")),
 				)
 			case detailTabAgent:
@@ -3468,13 +3463,13 @@ func helpBindingsForState(m model, compact bool) []bubblesKey.Binding {
 		} else {
 			if compact {
 				bindings = []bubblesKey.Binding{
-					bubblesKey.NewBinding(bubblesKey.WithKeys("1", "2", "3", "4", "5"), bubblesKey.WithHelp("1-5", "tabs")),
+					bubblesKey.NewBinding(bubblesKey.WithKeys("1", "2", "3"), bubblesKey.WithHelp("1-3", "tabs")),
 					bubblesKey.NewBinding(bubblesKey.WithKeys("j", "k"), bubblesKey.WithHelp("j/k", "nav")),
 					bubblesKey.NewBinding(bubblesKey.WithKeys("enter"), bubblesKey.WithHelp("enter", "open")),
 				}
 			} else {
 				bindings = []bubblesKey.Binding{
-					bubblesKey.NewBinding(bubblesKey.WithKeys("1", "2", "3", "4", "5"), bubblesKey.WithHelp("1-5", "tabs")),
+					bubblesKey.NewBinding(bubblesKey.WithKeys("1", "2", "3"), bubblesKey.WithHelp("1-3", "tabs")),
 					bubblesKey.NewBinding(bubblesKey.WithKeys("j", "k"), bubblesKey.WithHelp("j/k", "nav")),
 					bubblesKey.NewBinding(bubblesKey.WithKeys("enter"), bubblesKey.WithHelp("enter", "open")),
 					bubblesKey.NewBinding(bubblesKey.WithKeys("tab"), bubblesKey.WithHelp("tab", "cycle focus")),
@@ -4768,6 +4763,9 @@ func (m *model) syncWorktreeActivities() {
 			wp.SetAgentSessions(runningSessions)
 			wp.SetResumeSummaries(m.resumeSummaryCache)
 		}
+		if dp, ok := m.activePage.pane(paneWorktreeDetail).(*worktreeDetailPane); ok {
+			dp.SetAgentSessions(agentSessionsForWorktree(visibleSessions, dp.worktreeID))
+		}
 		return
 	}
 
@@ -4802,6 +4800,23 @@ func (m *model) syncWorktreeActivities() {
 		wp.SetAgentSessions(runningSessions)
 		wp.SetResumeSummaries(m.resumeSummaryCache)
 	}
+	if dp, ok := m.activePage.pane(paneWorktreeDetail).(*worktreeDetailPane); ok {
+		dp.SetAgentSessions(agentSessionsForWorktree(visibleSessions, dp.worktreeID))
+	}
+}
+
+func agentSessionsForWorktree(sessions []*agents.Session, worktreeID string) []*agents.Session {
+	if worktreeID == "" {
+		return nil
+	}
+	out := make([]*agents.Session, 0)
+	for _, session := range sessions {
+		if session == nil || session.WorktreeID != worktreeID {
+			continue
+		}
+		out = append(out, session)
+	}
+	return out
 }
 
 func (m *model) refreshResumeSummaryCache(agentSessions map[string]agents.Session) {
