@@ -126,15 +126,13 @@ func TestArchiveNonDoneTask_WithConfirm(t *testing.T) {
 	}
 
 	// Press 'p' → should open archive confirm pane
-	m2, cmd := m.Update(tea.KeyPressMsg{Code: 'p', Text: "p"})
-	m = m2.(model)
+	m = pressKeyAndDrain(t, m, tea.KeyPressMsg{Code: 'p', Text: "p"})
 	if _, ok := m.activePage.paneMeta[paneTaskArchiveConfirm]; !ok {
 		t.Fatal("expected archive confirm pane to open for non-done task")
 	}
 
 	// Press 'y' on the confirm pane (routed because focused)
-	m = drainCmd(t, m, cmd)
-	m, _ = m.Update(tea.KeyPressMsg{Code: 'y', Text: "y"})
+	m = pressKeyAndDrain(t, m, tea.KeyPressMsg{Code: 'y', Text: "y"})
 
 	// Confirm pane should have sent requestArchiveTaskMsg; drain it
 	// We need to find the cmd produced by the 'y' key
@@ -216,8 +214,7 @@ func TestDeleteTask_SoftDelete(t *testing.T) {
 	}
 
 	// Press 'd' → open delete confirm pane
-	m2, _ := m.Update(tea.KeyPressMsg{Code: 'd', Text: "d"})
-	m = m2.(model)
+	m = pressKeyAndDrain(t, m, tea.KeyPressMsg{Code: 'd', Text: "d"})
 	if _, ok := m.activePage.paneMeta[paneTaskDeleteConfirm]; !ok {
 		t.Fatal("expected delete confirm pane to open")
 	}
@@ -318,7 +315,7 @@ func TestRestoreArchivedTask(t *testing.T) {
 // ========== 7. Restore deleted task from deleted pane ==========
 
 func TestRestoreDeletedTask(t *testing.T) {
-	m, st := setupArchiveTestModel(t, models.TaskContextRecord{
+	_, st := setupArchiveTestModel(t, models.TaskContextRecord{
 		ID:     "task-del2",
 		RepoID: "/repo/test",
 		Title:  "Delete Me 2",
@@ -367,7 +364,7 @@ func TestArchivePane_LoadsAndSwitches(t *testing.T) {
 	meta.RepoID = "/repo/test"
 	m.activePage.paneMeta[paneDAG] = meta
 
-	cmd := m.activePage.openTaskArchivePane()
+	cmd := m.activePage.openTaskArchivePane("/repo/test")
 	m = drainCmd(t, m, cmd)
 
 	// Verify pane is open
@@ -390,8 +387,8 @@ func TestArchivePane_LoadsAndSwitches(t *testing.T) {
 	// Switch to deleted tab via 'tab' key
 	newPane, _ := pane.Update(tea.KeyPressMsg{Code: 9, Text: "tab"})
 	pane = newPane.(*taskArchivePane)
-	if pane.tab != tabDeleted {
-		t.Fatalf("expected tab=tabDeleted, got %d", pane.tab)
+	if pane.activeTab != 1 {
+		t.Fatalf("expected activeTab=1 (deleted), got %d", pane.activeTab)
 	}
 	if pane.currentItems()[0].ID != "t-del" {
 		t.Fatalf("expected deleted tab to show t-del, got %+v", pane.currentItems())
@@ -575,8 +572,7 @@ func TestDeleteConfirmPane_RenderedAsOverlay(t *testing.T) {
 	}
 
 	// Press 'd'
-	m2, _ := m.Update(tea.KeyPressMsg{Code: 'd', Text: "d"})
-	m = m2.(model)
+	m = pressKeyAndDrain(t, m, tea.KeyPressMsg{Code: 'd', Text: "d"})
 
 	// Verify overlay is recognized
 	overlayID := m.activePage.activeOverlayPane()
