@@ -49,6 +49,7 @@ func (s *Store) SaveTaskContext(record TaskContextRecord) error {
 			priority = excluded.priority,
 			parent_task_id = excluded.parent_task_id,
 			preferred_worktree_id = excluded.preferred_worktree_id,
+			deleted_at = NULL,
 			updated_at = CURRENT_TIMESTAMP
 	`, s.tbl("task_contexts", "proj_tasks"))
 	_, err := s.exec(q,
@@ -125,9 +126,22 @@ func (s *Store) GetTaskContext(id string) (*TaskContextRecord, error) {
 	q := fmt.Sprintf(`
 		SELECT id, repo_id, title, goal, next_step, state, priority,
 		       parent_task_id, preferred_worktree_id, created_at, updated_at
-		FROM %s WHERE id = ?
+		FROM %s WHERE id = ? AND deleted_at IS NULL AND state != 'archived'
 	`, s.tbl("task_contexts", "proj_tasks"))
 	record, err := scanTaskContext(s.qRow(q, id))
+	if isNoRows(err) {
+		return nil, nil
+	}
+	return record, err
+}
+
+func (s *Store) GetTaskContextIncludeDeleted(id string) (*TaskContextRecord, error) {
+	q := fmt.Sprintf(`
+		SELECT id, repo_id, title, goal, next_step, state, priority,
+		       parent_task_id, preferred_worktree_id, deleted_at, created_at, updated_at
+		FROM %s WHERE id = ?
+	`, s.tbl("task_contexts", "proj_tasks"))
+	record, err := scanTaskContextWithDeleted(s.qRow(q, id))
 	if isNoRows(err) {
 		return nil, nil
 	}
@@ -139,11 +153,12 @@ func (s *Store) ListTaskContexts(repoID string) ([]TaskContextRecord, error) {
 		SELECT id, repo_id, title, goal, next_step, state, priority,
 		       parent_task_id, preferred_worktree_id, created_at, updated_at
 		FROM %s
+		WHERE deleted_at IS NULL AND state != 'archived'
 	`, s.tbl("task_contexts", "proj_tasks"))
 	q := base
 	args := []any{}
 	if repoID != "" {
-		q += ` WHERE repo_id = ?`
+		q += ` AND repo_id = ?`
 		args = append(args, repoID)
 	}
 	q += ` ORDER BY updated_at DESC, created_at DESC`
@@ -156,6 +171,66 @@ func (s *Store) ListTaskContexts(repoID string) ([]TaskContextRecord, error) {
 	var records []TaskContextRecord
 	for rows.Next() {
 		record, err := scanTaskContextRows(rows)
+		if err != nil {
+			return nil, err
+		}
+		records = append(records, *record)
+	}
+	return records, rows.Err()
+}
+
+func (s *Store) ListArchivedTaskContexts(repoID string) ([]TaskContextRecord, error) {
+	q := fmt.Sprintf(`
+		SELECT id, repo_id, title, goal, next_step, state, priority,
+		       parent_task_id, preferred_worktree_id, created_at, updated_at
+		FROM %s
+		WHERE deleted_at IS NULL AND state = 'archived'
+	`, s.tbl("task_contexts", "proj_tasks"))
+	args := []any{}
+	if repoID != "" {
+		q += ` AND repo_id = ?`
+		args = append(args, repoID)
+	}
+	q += ` ORDER BY updated_at DESC`
+	rows, err := s.qRows(q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var records []TaskContextRecord
+	for rows.Next() {
+		record, err := scanTaskContextRows(rows)
+		if err != nil {
+			return nil, err
+		}
+		records = append(records, *record)
+	}
+	return records, rows.Err()
+}
+
+func (s *Store) ListDeletedTaskContexts(repoID string) ([]TaskContextRecord, error) {
+	q := fmt.Sprintf(`
+		SELECT id, repo_id, title, goal, next_step, state, priority,
+		       parent_task_id, preferred_worktree_id, deleted_at, created_at, updated_at
+		FROM %s
+		WHERE deleted_at IS NOT NULL
+	`, s.tbl("task_contexts", "proj_tasks"))
+	args := []any{}
+	if repoID != "" {
+		q += ` AND repo_id = ?`
+		args = append(args, repoID)
+	}
+	q += ` ORDER BY deleted_at DESC`
+	rows, err := s.qRows(q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var records []TaskContextRecord
+	for rows.Next() {
+		record, err := scanTaskContextRowsWithDeleted(rows)
 		if err != nil {
 			return nil, err
 		}
@@ -200,14 +275,54 @@ func scanTaskContext(row rowScanner) (*TaskContextRecord, error) {
 	return &record, nil
 }
 
+func scanTaskContextWithDeleted(row rowScanner) (*TaskContextRecord, error) {
+	var record TaskContextRecord
+	var goal sql.NullString
+	var nextStep sql.NullString
+	var parentTaskID sql.NullString
+	var preferredWorktreeID sql.NullString
+	var deletedAt sql.NullTime
+	if err := row.Scan(
+		&record.ID,
+		&record.RepoID,
+		&record.Title,
+		&goal,
+		&nextStep,
+		&record.State,
+		&record.Priority,
+		&parentTaskID,
+		&preferredWorktreeID,
+		&deletedAt,
+		&record.CreatedAt,
+		&record.UpdatedAt,
+	); err != nil {
+		return nil, err
+	}
+	if goal.Valid {
+		record.Goal = goal.String
+	}
+	if nextStep.Valid {
+		record.NextStep = nextStep.String
+	}
+	if parentTaskID.Valid {
+		record.ParentTaskID = &parentTaskID.String
+	}
+	if preferredWorktreeID.Valid {
+		record.PreferredWorktreeID = preferredWorktreeID.String
+	}
+	if deletedAt.Valid {
+		record.DeletedAt = &deletedAt.Time
+	}
+	return &record, nil
+}
+
 func (s *Store) DeleteTaskContext(id string) error {
 	if id == "" {
 		return fmt.Errorf("task context id required")
 	}
 
-	// Recursively delete child tasks first. parent_task_id is ON DELETE SET NULL,
-	// so deleting a parent before its children would orphan them into new Phases.
-	q := fmt.Sprintf(`SELECT id FROM %s WHERE parent_task_id = ?`, s.tbl("task_contexts", "proj_tasks"))
+	// Recursively soft-delete child tasks first.
+	q := fmt.Sprintf(`SELECT id FROM %s WHERE parent_task_id = ? AND deleted_at IS NULL`, s.tbl("task_contexts", "proj_tasks"))
 	rows, err := s.qRows(q, id)
 	if err != nil {
 		return err
@@ -229,10 +344,27 @@ func (s *Store) DeleteTaskContext(id string) error {
 		}
 	}
 
-	// Delete self. ON DELETE CASCADE handles task_briefs, task_outputs,
-	// task_dependencies, task_worktree_links automatically.
-	dq := fmt.Sprintf(`DELETE FROM %s WHERE id = ?`, s.tbl("task_contexts", "proj_tasks"))
+	// Soft-delete self.
+	dq := fmt.Sprintf(`UPDATE %s SET deleted_at = CURRENT_TIMESTAMP WHERE id = ?`, s.tbl("task_contexts", "proj_tasks"))
 	_, err = s.exec(dq, id)
+	return err
+}
+
+func (s *Store) RestoreTaskContext(id string) error {
+	if id == "" {
+		return fmt.Errorf("task context id required")
+	}
+	q := fmt.Sprintf(`UPDATE %s SET deleted_at = NULL, state = 'active', updated_at = CURRENT_TIMESTAMP WHERE id = ?`, s.tbl("task_contexts", "proj_tasks"))
+	_, err := s.exec(q, id)
+	return err
+}
+
+func (s *Store) ArchiveTaskContext(id string) error {
+	if id == "" {
+		return fmt.Errorf("task context id required")
+	}
+	q := fmt.Sprintf(`UPDATE %s SET state = 'archived', updated_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL`, s.tbl("task_contexts", "proj_tasks"))
+	_, err := s.exec(q, id)
 	return err
 }
 
@@ -268,6 +400,47 @@ func scanTaskContextRows(rows rowIter) (*TaskContextRecord, error) {
 	}
 	if preferredWorktreeID.Valid {
 		record.PreferredWorktreeID = preferredWorktreeID.String
+	}
+	return &record, nil
+}
+
+func scanTaskContextRowsWithDeleted(rows rowIter) (*TaskContextRecord, error) {
+	var record TaskContextRecord
+	var goal sql.NullString
+	var nextStep sql.NullString
+	var parentTaskID sql.NullString
+	var preferredWorktreeID sql.NullString
+	var deletedAt sql.NullTime
+	if err := rows.Scan(
+		&record.ID,
+		&record.RepoID,
+		&record.Title,
+		&goal,
+		&nextStep,
+		&record.State,
+		&record.Priority,
+		&parentTaskID,
+		&preferredWorktreeID,
+		&deletedAt,
+		&record.CreatedAt,
+		&record.UpdatedAt,
+	); err != nil {
+		return nil, err
+	}
+	if goal.Valid {
+		record.Goal = goal.String
+	}
+	if nextStep.Valid {
+		record.NextStep = nextStep.String
+	}
+	if parentTaskID.Valid {
+		record.ParentTaskID = &parentTaskID.String
+	}
+	if preferredWorktreeID.Valid {
+		record.PreferredWorktreeID = preferredWorktreeID.String
+	}
+	if deletedAt.Valid {
+		record.DeletedAt = &deletedAt.Time
 	}
 	return &record, nil
 }
