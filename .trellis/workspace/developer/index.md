@@ -8,7 +8,7 @@ Session journal files are runtime records and should only be committed when they
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-0.md`
-- **Total Sessions**: 2
+- **Total Sessions**: 3
 - **Last Active**: 2026-06-03
 <!-- @@@/auto:current-status -->
 
@@ -25,6 +25,7 @@ Session journal files are runtime records and should only be committed when they
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commit | Branch | File |
 |---|------|-------|---------|--------|
+| 3 | 2026-06-03 | done by a2a | - | `feat-agent-detail` |
 | 2 | 2026-06-03 | upstream done | - | `feat-agent-detail` |
 | 1 | 2026-06-03 | Integration test session | - | `feat-agent-detail` |
 <!-- @@@/auto:session-history -->
