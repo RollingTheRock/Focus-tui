@@ -72,6 +72,8 @@ const (
 	paneADRDetail             models.PaneID = "adr-detail-overlay"
 	paneTodoOverlay           models.PaneID = "todo-overlay"
 	paneCityPicker            models.PaneID = "city-picker-overlay"
+	paneTaskArchive           models.PaneID = "task-archive-overlay"
+	paneTaskArchiveConfirm    models.PaneID = "task-archive-confirm-overlay"
 	paneFooter                models.PaneID = "footer"
 
 	paneTypeGitFileTree           models.PaneType = "git-filetree"
@@ -91,6 +93,8 @@ const (
 	paneTypeADRDetail             models.PaneType = "adr-detail"
 	paneTypeTodoOverlay           models.PaneType = "todo-overlay"
 	paneTypeCityPicker            models.PaneType = "city-picker"
+	paneTypeTaskArchive           models.PaneType = "task-archive"
+	paneTypeTaskArchiveConfirm    models.PaneType = "task-archive-confirm"
 	paneTypeOverviewSummary       models.PaneType = "overview-summary"
 	paneTypeOverviewDAG           models.PaneType = "overview-dag"
 	paneTypeOverviewDetail        models.PaneType = "overview-detail"
@@ -1775,6 +1779,37 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.invalidateView()
 		return m, nil
 
+	case dagArchiveTaskMsg:
+		if msg.State == "done" {
+			cmd := m.archiveTask(msg.TaskID)
+			m.invalidateView()
+			return m, cmd
+		}
+		cmd := m.activePage.openTaskArchiveConfirmPane(msg.TaskID, msg.TaskTitle, msg.State)
+		m.invalidateView()
+		return m, cmd
+
+	case requestArchiveTaskMsg:
+		m.closePane(paneTaskArchiveConfirm)
+		cmd := m.archiveTask(msg.TaskID)
+		m.invalidateView()
+		return m, cmd
+
+	case requestRestoreTaskMsg:
+		cmd := m.restoreTask(msg.TaskID)
+		m.invalidateView()
+		return m, cmd
+
+	case CloseTaskArchiveConfirmMsg:
+		m.closePane(msg.ID)
+		m.invalidateView()
+		return m, nil
+
+	case CloseTaskArchivePaneMsg:
+		m.closePane(paneTaskArchive)
+		m.invalidateView()
+		return m, nil
+
 	case CloseDAGMiniOverlayMsg:
 		m.closePane(msg.ID)
 		m.invalidateView()
@@ -2480,6 +2515,19 @@ func (m model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		m.invalidateView()
 		return m, nil
+	case "b":
+		if m.activePage.focused == paneDAG {
+			if _, ok := m.activePage.paneMeta[paneTaskArchive]; ok {
+				m.closePane(paneTaskArchive)
+			} else {
+				cmd := m.activePage.openTaskArchivePane(m.currentRepoID())
+				m.invalidateView()
+				return m, cmd
+			}
+			m.invalidateView()
+			return m, nil
+		}
+		return m, nil
 	case "d":
 		// Non-shell panes (e.g. worktree pane) may use 'd' for their own actions.
 		// Route to focused pane first; only consume for notification dismissal if
@@ -2553,6 +2601,21 @@ func (m model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		cmd := m.openAgentStorePane()
 		m.invalidateView()
 		return m, cmd
+	case "P", "shift+p":
+		// Global archive shortcut: archives the currently selected DAG task
+		// regardless of which pane has focus.
+		if tc, ok := m.activePage.pane(paneDAG).(*tabContainer); ok {
+			if task, ok := tc.selectedTask(); ok {
+				return m, func() tea.Msg {
+					return dagArchiveTaskMsg{
+						TaskID:    task.ID,
+						TaskTitle: task.Title,
+						State:     task.State,
+					}
+				}
+			}
+		}
+		return m, nil
 	case "enter":
 		if m.activePage.paneMeta[m.activePage.focused].Type == models.PaneTypeShell {
 			m.mode = ModeShell
@@ -3375,6 +3438,19 @@ func helpBindingsForState(m model, compact bool) []bubblesKey.Binding {
 				bubblesKey.NewBinding(bubblesKey.WithKeys("ctrl+s"), bubblesKey.WithHelp("ctrl+s", "save")),
 				bubblesKey.NewBinding(bubblesKey.WithKeys("esc"), bubblesKey.WithHelp("esc", "cancel")),
 			}
+		case paneTypeTaskArchiveConfirm:
+			return []bubblesKey.Binding{
+				bubblesKey.NewBinding(bubblesKey.WithKeys("y"), bubblesKey.WithHelp("y", "confirm")),
+				bubblesKey.NewBinding(bubblesKey.WithKeys("n", "esc"), bubblesKey.WithHelp("n/esc", "cancel")),
+			}
+		case paneTypeTaskArchive:
+			return []bubblesKey.Binding{
+				bubblesKey.NewBinding(bubblesKey.WithKeys("j", "k"), bubblesKey.WithHelp("j/k", "move")),
+				bubblesKey.NewBinding(bubblesKey.WithKeys("enter"), bubblesKey.WithHelp("enter", "restore")),
+				bubblesKey.NewBinding(bubblesKey.WithKeys("tab"), bubblesKey.WithHelp("tab", "switch")),
+				bubblesKey.NewBinding(bubblesKey.WithKeys("R"), bubblesKey.WithHelp("R", "refresh")),
+				bubblesKey.NewBinding(bubblesKey.WithKeys("q", "esc"), bubblesKey.WithHelp("q/esc", "close")),
+			}
 		case models.PaneTypeDiffView:
 			if compact {
 				return []bubblesKey.Binding{
@@ -3776,6 +3852,41 @@ func (m *model) openWorktreeDeleteConfirmPane(msg gitplugin.OpenWorktreeDeleteCo
 func (m *model) openTaskDeleteConfirmPane(taskID, taskTitle, repoID string, clearAll bool) tea.Cmd {
 	cmd := m.activePage.openTaskDeleteConfirmPane(taskID, taskTitle, repoID, clearAll)
 	m.updateSizes(m.common.Width, m.common.Height)
+	return cmd
+}
+
+func (m *model) openTaskArchivePane(repoID string) tea.Cmd {
+	cmd := m.activePage.openTaskArchivePane(repoID)
+	m.updateSizes(m.common.Width, m.common.Height)
+	return cmd
+}
+
+func (m *model) openTaskArchiveConfirmPane(taskID, taskTitle, state string) tea.Cmd {
+	cmd := m.activePage.openTaskArchiveConfirmPane(taskID, taskTitle, state)
+	m.updateSizes(m.common.Width, m.common.Height)
+	return cmd
+}
+
+func (m *model) archiveTask(taskID string) tea.Cmd {
+	if m.cmdBus != nil {
+		_ = m.cmdBus.Send(context.Background(), &commands.ArchiveTask{TaskID: taskID})
+	}
+	if m.trellisBridge != nil {
+		go func(id string) {
+			_ = m.trellisBridge.SyncTaskArchive(id)
+		}(taskID)
+	}
+	cmd := m.activePage.refreshDAGPane()
+	m.invalidateView()
+	return cmd
+}
+
+func (m *model) restoreTask(taskID string) tea.Cmd {
+	if m.cmdBus != nil {
+		_ = m.cmdBus.Send(context.Background(), &commands.RestoreTask{TaskID: taskID})
+	}
+	cmd := m.activePage.refreshDAGPane()
+	m.invalidateView()
 	return cmd
 }
 
