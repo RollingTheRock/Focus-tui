@@ -339,10 +339,10 @@ func (b *Bridge) BuildAgentContext(session *agents.Session) (*agents.AgentSpec, 
 		return nil, err
 	}
 
-	// Layer B: Trellis context via get_context.py.
+	// Layer B: task-scoped Trellis context.
 	var trellisCtx string
 	if taskSlug != "" {
-		trellisCtx, err = b.client.GetContext("--task", taskSlug)
+		trellisCtx, err = b.buildTrellisTaskContext(taskSlug)
 		if err != nil {
 			return nil, err
 		}
@@ -365,6 +365,57 @@ func (b *Bridge) BuildAgentContext(session *agents.Session) (*agents.AgentSpec, 
 	}
 
 	return spec, nil
+}
+
+func (b *Bridge) buildTrellisTaskContext(taskSlug string) (string, error) {
+	taskDir := b.taskDirPath(taskSlug)
+	taskJSONPath := filepath.Join(taskDir, "task.json")
+	data, err := os.ReadFile(taskJSONPath)
+	if err != nil {
+		return "", err
+	}
+
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return "", err
+	}
+
+	var lines []string
+	lines = append(lines, "## Trellis Task")
+	if title, _ := raw["title"].(string); title != "" {
+		lines = append(lines, fmt.Sprintf("Title: %s", title))
+	}
+	if name, _ := raw["name"].(string); name != "" {
+		lines = append(lines, fmt.Sprintf("Path: %s", taskSlug))
+	}
+	if status, _ := raw["status"].(string); status != "" {
+		lines = append(lines, fmt.Sprintf("Status: %s", status))
+	}
+	if description, _ := raw["description"].(string); description != "" {
+		lines = append(lines, fmt.Sprintf("Description: %s", description))
+	}
+	if priority, _ := raw["priority"].(string); priority != "" {
+		lines = append(lines, fmt.Sprintf("Priority: %s", priority))
+	}
+
+	for _, item := range []struct {
+		title string
+		file  string
+	}{
+		{title: "PRD", file: "prd.md"},
+		{title: "Implementation Context", file: "implement.jsonl"},
+		{title: "Check Context", file: "check.jsonl"},
+		{title: "Notes", file: "notes.md"},
+	} {
+		path := filepath.Join(taskDir, item.file)
+		content, err := os.ReadFile(path)
+		if err != nil || len(strings.TrimSpace(string(content))) == 0 {
+			continue
+		}
+		lines = append(lines, "", "## "+item.title, strings.TrimSpace(string(content)))
+	}
+
+	return strings.Join(lines, "\n"), nil
 }
 
 // SyncTaskCreate creates a Trellis task from a Focus task record.
@@ -415,7 +466,7 @@ func (b *Bridge) SyncTaskCreate(task models.TaskContextRecord, plan *models.Task
 }
 
 func (b *Bridge) writeFocusTaskIDMeta(taskDir, focusTaskID string) error {
-	taskJSONPath := filepath.Join(b.repoRoot, taskDir, "task.json")
+	taskJSONPath := b.taskFilePath(taskDir, "task.json")
 	data, err := os.ReadFile(taskJSONPath)
 	if err != nil {
 		return err
@@ -437,6 +488,28 @@ func (b *Bridge) writeFocusTaskIDMeta(taskDir, focusTaskID string) error {
 	return os.WriteFile(taskJSONPath, out, 0644)
 }
 
+func (b *Bridge) markTaskCompleted(taskDir string) error {
+	taskJSONPath := b.taskFilePath(taskDir, "task.json")
+	data, err := os.ReadFile(taskJSONPath)
+	if err != nil {
+		return err
+	}
+	var obj map[string]any
+	if err := json.Unmarshal(data, &obj); err != nil {
+		return err
+	}
+	obj["status"] = "completed"
+	if _, ok := obj["completedAt"]; !ok || obj["completedAt"] == nil || obj["completedAt"] == "" {
+		obj["completedAt"] = time.Now().Format(time.RFC3339)
+	}
+	out, err := json.MarshalIndent(obj, "", "  ")
+	if err != nil {
+		return err
+	}
+	out = append(out, '\n')
+	return os.WriteFile(taskJSONPath, out, 0644)
+}
+
 // SyncTaskStart marks a task as in_progress in Trellis.
 func (b *Bridge) SyncTaskStart(taskID string) error {
 	if err := b.EnsureInitialized(); err != nil {
@@ -454,11 +527,11 @@ func (b *Bridge) SyncTaskFinish(taskID string) error {
 	if err := b.EnsureInitialized(); err != nil {
 		return err
 	}
-	_, err := b.resolveTaskSlug(taskID)
+	slug, err := b.resolveTaskSlug(taskID)
 	if err != nil {
 		return err
 	}
-	return b.client.TaskFinish()
+	return b.markTaskCompleted(slug)
 }
 
 // SyncTaskArchive archives a task in Trellis.
@@ -498,7 +571,7 @@ func (b *Bridge) AddTaskOutput(taskID, output string) error {
 	if err != nil {
 		return err
 	}
-	notesPath := filepath.Join(b.repoRoot, slug, "notes.md")
+	notesPath := b.taskFilePath(slug, "notes.md")
 	entry := fmt.Sprintf("\n## Output (%s)\n\n%s\n", time.Now().Format(time.RFC3339), output)
 	return appendToFile(notesPath, entry)
 }
@@ -515,25 +588,102 @@ func (b *Bridge) WriteSpecFact(domain, subject, predicate, object string) error 
 	}
 	specPath := filepath.Join(b.repoRoot, ".trellis", "spec", domain, "auto-discovered.md")
 	entry := fmt.Sprintf("- **%s %s %s** (discovered by agent)\n", subject, predicate, object)
+	factKey := fmt.Sprintf("**%s %s %s**", subject, predicate, object)
+	if data, err := os.ReadFile(specPath); err == nil {
+		content := string(data)
+		if strings.Contains(content, factKey) || strings.Contains(content, strings.TrimSpace(entry)) {
+			return nil
+		}
+	}
 	return appendToFile(specPath, entry)
 }
 
 // WritePRD generates or updates the PRD for a task directory.
 func (b *Bridge) WritePRD(taskDir string, task models.TaskContextRecord, plan *models.TaskPlanRecord) error {
-	prdPath := filepath.Join(b.repoRoot, taskDir, "prd.md")
+	prdPath := b.taskFilePath(taskDir, "prd.md")
 	content := b.renderPRD(task, plan)
 	return os.WriteFile(prdPath, []byte(content), 0644)
 }
 
-// UpdateWorkflowState appends the current step state to workflow.md.
+// UpdateWorkflowState records the latest Focus plan-step state in Trellis runtime
+// storage. workflow.md is the workflow source of truth and must not be mutated
+// by runtime plan updates.
 func (b *Bridge) UpdateWorkflowState(planID string, step models.PlanStepRecord) error {
-	workflowPath := filepath.Join(b.repoRoot, ".trellis", "workflow.md")
-	entry := fmt.Sprintf("\n## %s\n\n- **Step:** %s (order %d)\n- **State:** %s\n- **Updated:** %s\n",
-		step.Title, step.ID, step.OrderIndex, step.State, time.Now().Format(time.RFC3339))
-	if step.Notes != "" {
-		entry += fmt.Sprintf("- **Notes:** %s\n", step.Notes)
+	planID = strings.TrimSpace(planID)
+	if planID == "" {
+		planID = strings.TrimSpace(step.PlanID)
 	}
-	return appendToFile(workflowPath, entry)
+	if planID == "" {
+		return fmt.Errorf("planID required")
+	}
+	stateDir := filepath.Join(b.repoRoot, ".trellis", ".runtime", "workflow-state")
+	if err := os.MkdirAll(stateDir, 0755); err != nil {
+		return err
+	}
+	entry := map[string]any{
+		"planID":     planID,
+		"stepID":     step.ID,
+		"title":      step.Title,
+		"orderIndex": step.OrderIndex,
+		"state":      step.State,
+		"notes":      step.Notes,
+		"updatedAt":  time.Now().Format(time.RFC3339),
+	}
+	out, err := json.Marshal(entry)
+	if err != nil {
+		return err
+	}
+	out = append(out, '\n')
+	statePath := filepath.Join(stateDir, planID+".jsonl")
+	return appendToFile(statePath, string(out))
+}
+
+func (b *Bridge) workflowStateForTask(taskID string) string {
+	if b.store == nil || taskID == "" {
+		return ""
+	}
+	planID := ""
+	if plans, err := b.store.ListTaskPlans(taskID); err == nil {
+		for _, plan := range plans {
+			if plan.TaskID == taskID {
+				planID = plan.ID
+				break
+			}
+		}
+	}
+	if planID == "" {
+		return ""
+	}
+	statePath := filepath.Join(b.repoRoot, ".trellis", ".runtime", "workflow-state", planID+".jsonl")
+	data, err := os.ReadFile(statePath)
+	if err != nil {
+		return ""
+	}
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		line := strings.TrimSpace(lines[i])
+		if line == "" {
+			continue
+		}
+		var entry struct {
+			Title string `json:"title"`
+			State string `json:"state"`
+		}
+		if err := json.Unmarshal([]byte(line), &entry); err != nil {
+			continue
+		}
+		if entry.Title == "" && entry.State == "" {
+			continue
+		}
+		if entry.State == "" {
+			return entry.Title
+		}
+		if entry.Title == "" {
+			return entry.State
+		}
+		return fmt.Sprintf("%s: %s", entry.Title, entry.State)
+	}
+	return ""
 }
 
 // GetTaskContextExtended returns extended task context from Trellis.
@@ -545,7 +695,7 @@ func (b *Bridge) GetTaskContextExtended(taskID string) (*ExtendedTaskContext, er
 	if err != nil {
 		return nil, err
 	}
-	taskDir := filepath.Join(b.repoRoot, slug)
+	taskDir := b.taskDirPath(slug)
 
 	ext := &ExtendedTaskContext{}
 
@@ -553,6 +703,14 @@ func (b *Bridge) GetTaskContextExtended(taskID string) (*ExtendedTaskContext, er
 	taskJSONPath := filepath.Join(taskDir, "task.json")
 	if data, err := os.ReadFile(taskJSONPath); err == nil {
 		_ = json.Unmarshal(data, &ext.Task)
+		var raw map[string]any
+		if err := json.Unmarshal(data, &raw); err == nil {
+			if meta, ok := raw["meta"].(map[string]any); ok {
+				if focusID, ok := meta["focus_task_id"].(string); ok && focusID != "" && ext.Task != nil {
+					ext.Task.ID = focusID
+				}
+			}
+		}
 	}
 
 	// prd.md
@@ -572,6 +730,8 @@ func (b *Bridge) GetTaskContextExtended(taskID string) (*ExtendedTaskContext, er
 	if data, err := os.ReadFile(journalPath); err == nil {
 		ext.Journal = string(data)
 	}
+
+	ext.WorkflowState = b.workflowStateForTask(taskID)
 
 	return ext, nil
 }
@@ -640,6 +800,21 @@ func (b *Bridge) resolveTaskSlug(taskID string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("no trellis task found for focus task %s", taskID)
+}
+
+func (b *Bridge) taskDirPath(taskDir string) string {
+	cleaned := filepath.Clean(taskDir)
+	if filepath.IsAbs(cleaned) {
+		return cleaned
+	}
+	if strings.HasPrefix(cleaned, ".trellis"+string(os.PathSeparator)) || strings.HasPrefix(cleaned, ".trellis/") {
+		return filepath.Join(b.repoRoot, cleaned)
+	}
+	return filepath.Join(b.repoRoot, ".trellis", "tasks", cleaned)
+}
+
+func (b *Bridge) taskFilePath(taskDir, name string) string {
+	return filepath.Join(b.taskDirPath(taskDir), name)
 }
 
 func (b *Bridge) detectInstalledPlatforms() []agents.Provider {

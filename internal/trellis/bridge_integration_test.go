@@ -131,6 +131,11 @@ func TestBridgeIntegration(t *testing.T) {
 	})
 
 	t.Run("UpdateWorkflowState", func(t *testing.T) {
+		wfPath := filepath.Join(repoRoot, ".trellis", "workflow.md")
+		before, err := os.ReadFile(wfPath)
+		if err != nil {
+			t.Fatalf("read workflow.md before update: %v", err)
+		}
 		step := models.PlanStepRecord{
 			ID:         "step-test-001",
 			Title:      "Verify Bridge Integration",
@@ -138,19 +143,27 @@ func TestBridgeIntegration(t *testing.T) {
 			State:      "active",
 			Notes:      "Running integration tests",
 		}
-		err := bridge.UpdateWorkflowState("plan-test-001", step)
+		err = bridge.UpdateWorkflowState("plan-test-001", step)
 		if err != nil {
 			t.Fatalf("UpdateWorkflowState: %v", err)
 		}
-		wfPath := filepath.Join(repoRoot, ".trellis", "workflow.md")
-		data, err := os.ReadFile(wfPath)
+		after, err := os.ReadFile(wfPath)
 		if err != nil {
-			t.Fatalf("read workflow.md: %v", err)
+			t.Fatalf("read workflow.md after update: %v", err)
 		}
-		if !strings.Contains(string(data), "Verify Bridge Integration") {
-			t.Fatal("workflow.md missing step title")
+		if string(after) != string(before) {
+			t.Fatal("workflow.md should remain source-only and not receive runtime step state")
 		}
-		t.Logf("workflow.md tail:\n%s", string(data)[max(0, len(data)-500):])
+
+		statePath := filepath.Join(repoRoot, ".trellis", ".runtime", "workflow-state", "plan-test-001.jsonl")
+		data, err := os.ReadFile(statePath)
+		if err != nil {
+			t.Fatalf("read runtime workflow state: %v", err)
+		}
+		if !strings.Contains(string(data), `"title":"Verify Bridge Integration"`) {
+			t.Fatal("runtime workflow state missing step title")
+		}
+		t.Logf("workflow runtime state tail:\n%s", string(data)[max(0, len(data)-500):])
 	})
 
 	t.Run("GetTaskContextExtended", func(t *testing.T) {

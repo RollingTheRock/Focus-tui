@@ -1,6 +1,7 @@
 package trellis
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -58,11 +59,15 @@ func (c *Client) TaskCreate(title string, opts TaskCreateOpts) (string, error) {
 
 	cmd := exec.Command(c.pythonCmd, args...)
 	cmd.Dir = c.repoRoot
-	out, err := cmd.Output()
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
 	if err != nil {
-		return "", fmt.Errorf("task.py create: %w", err)
+		output := strings.TrimSpace(strings.Join([]string{stdout.String(), stderr.String()}, "\n"))
+		return "", fmt.Errorf("task.py create: %w: %s", err, output)
 	}
-	return strings.TrimSpace(string(out)), nil
+	return strings.TrimSpace(stdout.String()), nil
 }
 
 // TaskStart runs `task.py start` to set the current active task.
