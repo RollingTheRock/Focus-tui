@@ -141,6 +141,8 @@ func (p *dagPane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 			return p, p.clearAllTasksCmd()
 		case "z":
 			return p, p.expandPhaseCmd()
+		case "p":
+			return p, p.archiveTaskCmd()
 		}
 	}
 	return p, nil
@@ -515,6 +517,20 @@ func (p *dagPane) clearAllTasksCmd() tea.Cmd {
 	}
 }
 
+func (p *dagPane) archiveTaskCmd() tea.Cmd {
+	task, ok := p.selectedTask()
+	if !ok {
+		return nil
+	}
+	return func() tea.Msg {
+		return dagArchiveTaskMsg{
+			TaskID:    task.ID,
+			TaskTitle: task.Title,
+			State:     task.State,
+		}
+	}
+}
+
 func (p *dagPane) expandPhaseCmd() tea.Cmd {
 	task, ok := p.selectedTask()
 	if !ok {
@@ -568,6 +584,12 @@ type dagDeleteTaskMsg struct {
 
 type dagClearAllTasksMsg struct {
 	RepoID string
+}
+
+type dagArchiveTaskMsg struct {
+	TaskID    string
+	TaskTitle string
+	State     string
 }
 
 type dagTaskDeletedMsg struct {
@@ -742,9 +764,9 @@ func dagHelpHint(width int, creating bool) string {
 		return "  [T]asks [A]DRs  [Enter/Ctrl+S]save  [Tab]switch field  [Esc]cancel"
 	}
 	if width < 100 {
-		return "  [j/k]move [h/l]level [enter/c]open/wt [s]state [t]todo [n]new [d]del [D]clear [z]expand [R]refresh"
+		return "  [j/k]move [h/l]level [enter/c]open/wt [s]state [p]archive [b]bin [t]todo [n]new [d]del [D]clear [z]expand [R]refresh"
 	}
-	return "  [j/k]move  [h/l]level  [enter]open/create  [c]new-wt  [s]state  [t]todo  [n]new-task  [d]del-task  [D]clear-all  [z]expand  [r]research  [a]arch  [T]asks [A]DRs  [R]refresh"
+	return "  [j/k]move  [h/l]level  [enter]open/create  [c]new-wt  [s]state  [p]archive  [b]bin  [t]todo  [n]new-task  [d]del-task  [D]clear-all  [z]expand  [r]research  [a]arch  [T]asks [A]DRs  [R]refresh"
 }
 
 func (p *dagPane) clampAndJoin(lines []string, h, w int) string {
