@@ -13,6 +13,7 @@ const (
 	ProviderClaude   Provider = "claude"
 	ProviderKimi     Provider = "kimi"
 	ProviderCodex    Provider = "codex"
+	ProviderGemini   Provider = "gemini"
 	ProviderGeneric  Provider = "generic"
 )
 
@@ -28,15 +29,16 @@ const (
 )
 
 const (
-	SessionIDEnvVar       = "FOCUS_SESSION_ID"
-	LegacySessionIDEnvVar = "FOCUS_AGENT_SESSION_ID"
-	TaskIDEnvVar          = "FOCUS_TASK_ID"
-	PlanIDEnvVar          = "FOCUS_PLAN_ID"
-	MCPURLEnvVar          = "FOCUS_MCP_URL"
+	SessionIDEnvVar        = "FOCUS_SESSION_ID"
+	LegacySessionIDEnvVar  = "FOCUS_AGENT_SESSION_ID"
+	TrellisContextIDEnvVar = "TRELLIS_CONTEXT_ID"
+	TaskIDEnvVar           = "FOCUS_TASK_ID"
+	PlanIDEnvVar           = "FOCUS_PLAN_ID"
+	MCPURLEnvVar           = "FOCUS_MCP_URL"
 )
 
 type Session struct {
-ID               string
+	ID               string
 	Provider         Provider
 	ProviderConfigID string // cc-switch provider ID for one-off override
 	WorktreeID       string
@@ -73,6 +75,8 @@ func (s Session) DisplayName() string {
 		return "kimi"
 	case ProviderCodex:
 		return "codex"
+	case ProviderGemini:
+		return "gemini"
 	default:
 		return "agent"
 	}

@@ -313,13 +313,16 @@ func TestMCPDagGetStatusPhaseLevelDefault(t *testing.T) {
 	defer m.closeShellPanes()
 
 	// Create two Phases
-	phaseA, _ := m.mcpTaskCreateTool(map[string]any{"repo_id": "/tmp/dag-phase", "title": "Phase A"})
+	phaseA, errA := m.mcpTaskCreateTool(map[string]any{"repo_id": "/tmp/dag-phase", "title": "Phase A"})
+	if errA != nil { t.Logf("phaseA error: %v", errA) }
 	phaseAID := phaseA["task_id"].(string)
-	phaseB, _ := m.mcpTaskCreateTool(map[string]any{"repo_id": "/tmp/dag-phase", "title": "Phase B"})
+	phaseB, errB := m.mcpTaskCreateTool(map[string]any{"repo_id": "/tmp/dag-phase", "title": "Phase B"})
+	if errB != nil { t.Logf("phaseB error: %v", errB) }
 	phaseBID := phaseB["task_id"].(string)
 
 	// Create a Step under Phase A with dependency to Phase B
-	stepA1, _ := m.mcpTaskCreateTool(map[string]any{"repo_id": "/tmp/dag-phase", "title": "Step A1", "parent_task_id": phaseAID})
+	stepA1, errS := m.mcpTaskCreateTool(map[string]any{"repo_id": "/tmp/dag-phase", "title": "Step A1", "parent_task_id": phaseAID})
+	if errS != nil { t.Logf("stepA1 error: %v", errS) }
 	stepA1ID := stepA1["task_id"].(string)
 
 	// Dependency: Step A1 -> Phase B (should collapse to Phase A -> Phase B)

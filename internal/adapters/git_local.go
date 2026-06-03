@@ -14,8 +14,8 @@ import (
 	"sync"
 	"time"
 
-	"focus/internal/git"
 	tea "charm.land/bubbletea/v2"
+	"focus/internal/git"
 	"github.com/fsnotify/fsnotify"
 )
 
@@ -460,6 +460,16 @@ func (g *GitLocalAdapter) CreateWorktree(repoPath string, req git.CreateWorktree
 	if strings.Contains(req.Path, ".worktrees") {
 		_ = ensureWorktreesGitignored(repoPath)
 	}
+	if _, err := os.Stat(req.Path); err == nil {
+		return nil, fmt.Errorf("worktree path already exists: %s", req.Path)
+	} else if !os.IsNotExist(err) {
+		return nil, fmt.Errorf("check worktree path: %w", err)
+	}
+	if req.Branch != "" && req.BaseRef != "" && !req.Detach {
+		if localBranchExists(repoPath, req.Branch) {
+			return nil, fmt.Errorf("branch already exists: %s", req.Branch)
+		}
+	}
 
 	args := []string{"-C", repoPath, "worktree", "add"}
 	if req.Force {
@@ -509,6 +519,11 @@ func (g *GitLocalAdapter) CreateWorktree(repoPath string, req git.CreateWorktree
 	}
 
 	return nil, fmt.Errorf("created worktree %q not found after creation", createdPath)
+}
+
+func localBranchExists(repoPath, branch string) bool {
+	cmd := exec.Command("git", "-C", repoPath, "show-ref", "--verify", "--quiet", "refs/heads/"+branch)
+	return cmd.Run() == nil
 }
 
 // RemoveWorktree removes a worktree path from the repository.

@@ -1,6 +1,7 @@
 package git
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -67,6 +68,65 @@ func TestCreateWorktreePaneSubmitCreatesWorktree(t *testing.T) {
 	}
 	if adapter.createWorktreeReq.Path != "/repo/focus-tui-feature-a" {
 		t.Fatalf("expected path to be passed through, got %q", adapter.createWorktreeReq.Path)
+	}
+}
+
+func TestCreateWorktreePaneUpdatesDefaultPathWhenBranchChanges(t *testing.T) {
+	adapter := &fakeGitAdapter{createWorktreeRes: &gitmodel.Worktree{Path: "/repo/focus-tui/.worktrees/feature-a", Branch: "feature/a"}}
+	pane := NewWorktreeCreatePane("create-1", models.PaneMeta{ID: "create-1", Type: "worktree-create", CWD: "/repo/focus-tui"}, models.CommonModel{}, adapter, OpenCreateWorktreeMsg{RepoPath: "/repo/focus-tui", BaseRef: "main"})
+	pane.formValues.branch = "feature/a"
+
+	updated, cmd := pane.submit()
+	pane = updated.(*WorktreeCreatePane)
+	if cmd == nil {
+		t.Fatalf("expected submit command")
+	}
+	wantPath := filepath.Join("/repo/focus-tui", ".worktrees", "feature-a")
+	if adapter.createWorktreeReq == nil {
+		_ = runCmd(t, cmd)
+	}
+	if adapter.createWorktreeReq == nil || adapter.createWorktreeReq.Path != wantPath {
+		t.Fatalf("expected default path %q, got req=%+v", wantPath, adapter.createWorktreeReq)
+	}
+}
+
+func TestCreateWorktreePaneAutoUpdatesDisplayedDefaultPath(t *testing.T) {
+	pane := NewWorktreeCreatePane("create-1", models.PaneMeta{ID: "create-1", Type: "worktree-create", CWD: "/repo/focus-tui"}, models.CommonModel{}, &fakeGitAdapter{}, OpenCreateWorktreeMsg{RepoPath: "/repo/focus-tui", BaseRef: "main"})
+	pane.SetSize(120, 20)
+	runCmd(t, pane.Init())
+
+	pane.formValues.branch = "feature/a"
+	pane.syncAutoPathWithBranch()
+
+	wantPath := filepath.Join("/repo/focus-tui", ".worktrees", "feature-a")
+	if pane.formValues.path != wantPath {
+		t.Fatalf("expected displayed path %q, got %q", wantPath, pane.formValues.path)
+	}
+	if view := pane.View().Content; !strings.Contains(view, wantPath) {
+		t.Fatalf("expected rendered form to contain %q, got:\n%s", wantPath, view)
+	}
+
+	pane.formValues.branch = "bug/fix"
+	pane.syncAutoPathWithBranch()
+
+	wantPath = filepath.Join("/repo/focus-tui", ".worktrees", "bug-fix")
+	if pane.formValues.path != wantPath {
+		t.Fatalf("expected displayed path %q after branch change, got %q", wantPath, pane.formValues.path)
+	}
+	if view := pane.View().Content; !strings.Contains(view, wantPath) {
+		t.Fatalf("expected rendered form to contain %q after branch change, got:\n%s", wantPath, view)
+	}
+}
+
+func TestCreateWorktreePaneDoesNotOverwriteCustomPath(t *testing.T) {
+	pane := NewWorktreeCreatePane("create-1", models.PaneMeta{ID: "create-1", Type: "worktree-create", CWD: "/repo/focus-tui"}, models.CommonModel{}, &fakeGitAdapter{}, OpenCreateWorktreeMsg{RepoPath: "/repo/focus-tui", BaseRef: "main"})
+	pane.formValues.path = "/custom/worktree"
+
+	pane.formValues.branch = "feature/a"
+	pane.syncAutoPathWithBranch()
+
+	if pane.formValues.path != "/custom/worktree" {
+		t.Fatalf("expected custom path to remain unchanged, got %q", pane.formValues.path)
 	}
 }
 

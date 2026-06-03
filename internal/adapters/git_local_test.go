@@ -1,7 +1,10 @@
 package adapters
 
 import (
+	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	gitmodel "focus/internal/git"
@@ -88,4 +91,55 @@ func TestParseWorktreeListPorcelain(t *testing.T) {
 	if !worktrees[2].IsDetached || !worktrees[2].IsPrunable {
 		t.Fatalf("expected detached prunable worktree, got %+v", worktrees[2])
 	}
+}
+
+func TestCreateWorktreeExistingPathDoesNotCreateBranch(t *testing.T) {
+	repo := t.TempDir()
+	runGit(t, repo, "init")
+	runGit(t, repo, "config", "user.email", "test@example.com")
+	runGit(t, repo, "config", "user.name", "Test User")
+	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("test\n"), 0644); err != nil {
+		t.Fatalf("write readme: %v", err)
+	}
+	runGit(t, repo, "add", "README.md")
+	runGit(t, repo, "commit", "-m", "init")
+
+	existingPath := filepath.Join(repo, ".worktrees", "feature-leaked")
+	if err := os.MkdirAll(existingPath, 0755); err != nil {
+		t.Fatalf("mkdir existing path: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(existingPath, "existing.txt"), []byte("occupied\n"), 0644); err != nil {
+		t.Fatalf("write existing path marker: %v", err)
+	}
+	adapter := NewGitLocalAdapter()
+	branch := "feature/leaked"
+
+	_, err := adapter.CreateWorktree(repo, gitmodel.CreateWorktreeRequest{
+		Path:    existingPath,
+		Branch:  branch,
+		BaseRef: "HEAD",
+	})
+	if err == nil {
+		t.Fatalf("expected existing path error")
+	}
+	if !strings.Contains(err.Error(), "already exists") {
+		t.Fatalf("expected existing path error, got %v", err)
+	}
+	if branchExists(repo, branch) {
+		t.Fatalf("branch %q should not be created when path preflight fails", branch)
+	}
+}
+
+func runGit(t *testing.T, repo string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", append([]string{"-C", repo}, args...)...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, string(out))
+	}
+}
+
+func branchExists(repo, branch string) bool {
+	cmd := exec.Command("git", "-C", repo, "show-ref", "--verify", "--quiet", "refs/heads/"+branch)
+	return cmd.Run() == nil
 }
