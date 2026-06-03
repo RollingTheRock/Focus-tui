@@ -167,3 +167,39 @@ func (c *DeleteTask) Validate() error {
 func (c *DeleteTask) Execute(ctx context.Context, s *store.Store) error {
 	return s.DeleteTaskContext(c.TaskID)
 }
+
+// ArchiveTask archives a task (sets state to archived).
+type ArchiveTask struct {
+	TaskID string
+}
+
+// Validate checks the task ID.
+func (c *ArchiveTask) Validate() error {
+	if c.TaskID == "" {
+		return fmt.Errorf("task id required")
+	}
+	return nil
+}
+
+// Execute archives the task via the store.
+func (c *ArchiveTask) Execute(ctx context.Context, s *store.Store) error {
+	return s.ArchiveTaskContext(c.TaskID)
+}
+
+// RestoreTask restores a deleted or archived task back to active.
+type RestoreTask struct {
+	TaskID string
+}
+
+// Validate checks the task ID.
+func (c *RestoreTask) Validate() error {
+	if c.TaskID == "" {
+		return fmt.Errorf("task id required")
+	}
+	return nil
+}
+
+// Execute restores the task via the store.
+func (c *RestoreTask) Execute(ctx context.Context, s *store.Store) error {
+	return s.RestoreTaskContext(c.TaskID)
+}

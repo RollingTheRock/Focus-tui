@@ -263,6 +263,7 @@ CREATE TABLE IF NOT EXISTS task_contexts (
     priority              TEXT NOT NULL DEFAULT 'medium' CHECK(priority IN ('low', 'medium', 'high')),
     parent_task_id        TEXT REFERENCES task_contexts(id) ON DELETE SET NULL,
     preferred_worktree_id TEXT,
+    deleted_at            DATETIME,
     created_at            DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at            DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -546,6 +547,9 @@ CREATE INDEX IF NOT EXISTS idx_agent_definitions_enabled
 	if err := s.migrateAgentDefinitionsInstalledColumn(); err != nil {
 		return err
 	}
+	if err := s.migrateTaskContextsDeletedAtColumn(); err != nil {
+		return err
+	}
 	return s.migrateFixTaskPlansForeignKeys()
 }
 
@@ -695,6 +699,12 @@ func (s *Store) migrateAgentSessionsWorkflowColumns() error {
 		"env_snapshot":   "TEXT",
 		"last_heartbeat": "DATETIME",
 		"stop_reason":    "TEXT",
+	})
+}
+
+func (s *Store) migrateTaskContextsDeletedAtColumn() error {
+	return ensureColumns(s.db, "task_contexts", map[string]string{
+		"deleted_at": "DATETIME",
 	})
 }
 

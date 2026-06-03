@@ -539,6 +539,9 @@ func (p *page) activeOverlayPane() models.PaneID {
 	if _, ok := p.paneMeta[paneWorktreeDeleteConfirm]; ok {
 		return paneWorktreeDeleteConfirm
 	}
+	if _, ok := p.paneMeta[paneTaskDeleteConfirm]; ok {
+		return paneTaskDeleteConfirm
+	}
 	if _, ok := p.paneMeta[paneDAGMiniOverlay]; ok {
 		return paneDAGMiniOverlay
 	}
@@ -548,11 +551,17 @@ func (p *page) activeOverlayPane() models.PaneID {
 	if _, ok := p.paneMeta[paneCityPicker]; ok {
 		return paneCityPicker
 	}
+	if _, ok := p.paneMeta[paneTaskArchive]; ok {
+		return paneTaskArchive
+	}
+	if _, ok := p.paneMeta[paneTaskArchiveConfirm]; ok {
+		return paneTaskArchiveConfirm
+	}
 	return ""
 }
 
 func (p *page) isOverlayPane(id models.PaneID) bool {
-	if id == paneTodoOverlay || id == paneGitFileTree || id == paneGitCommit || id == paneWorktreeCreate || id == paneTaskEdit || id == panePlanEdit || id == paneAgentSelect || id == paneProviderSelect || id == paneAgentStore || id == paneAgentInstallHint || id == paneAgentRegister || id == paneWorktreeHistory || id == paneWorktreeDeleteConfirm || id == paneTaskDeleteConfirm || id == paneDAGMiniOverlay || id == paneADRDetail || id == paneGitDiff || id == paneCityPicker {
+	if id == paneTodoOverlay || id == paneGitFileTree || id == paneGitCommit || id == paneWorktreeCreate || id == paneTaskEdit || id == panePlanEdit || id == paneAgentSelect || id == paneProviderSelect || id == paneAgentStore || id == paneAgentInstallHint || id == paneAgentRegister || id == paneWorktreeHistory || id == paneWorktreeDeleteConfirm || id == paneTaskDeleteConfirm || id == paneDAGMiniOverlay || id == paneADRDetail || id == paneGitDiff || id == paneCityPicker || id == paneTaskArchive || id == paneTaskArchiveConfirm {
 		return true
 	}
 	if meta, ok := p.paneMeta[id]; ok && meta.Type == models.PaneTypeEditor {
@@ -1237,6 +1246,62 @@ func (p *page) openTaskDeleteConfirmPane(taskID, taskTitle, repoID string, clear
 		Closable: true,
 	}
 	panel := newTaskDeleteConfirmPane(meta.ID, taskID, taskTitle, repoID, clearAll)
+	p.registerPane(meta.ID, panel, meta)
+	if p.returnFocus == nil {
+		p.returnFocus = make(map[models.PaneID]models.PaneID)
+	}
+	p.returnFocus[meta.ID] = baseFocus
+	p.setFocus(meta.ID)
+	p.updateSizes(p.bodyBoundsSize())
+	return panel.Init()
+}
+
+func (p *page) openTaskArchivePane(repoID string) tea.Cmd {
+	p.closePane(paneTaskArchive)
+
+	baseFocus := p.focused
+	if baseFocus == "" {
+		baseFocus = paneDAG
+	}
+
+	meta := models.PaneMeta{
+		ID:       paneTaskArchive,
+		Name:     "Archive",
+		Type:     paneTypeTaskArchive,
+		CWD:      p.gitRepoPath(),
+		RepoID:   p.currentRepoID(),
+		Status:   models.PaneStatusReady,
+		Closable: true,
+	}
+	panel := newTaskArchivePane(*p.common, repoID)
+	p.registerPane(meta.ID, panel, meta)
+	if p.returnFocus == nil {
+		p.returnFocus = make(map[models.PaneID]models.PaneID)
+	}
+	p.returnFocus[meta.ID] = baseFocus
+	p.setFocus(meta.ID)
+	p.updateSizes(p.bodyBoundsSize())
+	return panel.Init()
+}
+
+func (p *page) openTaskArchiveConfirmPane(taskID, taskTitle, state string) tea.Cmd {
+	p.closePane(paneTaskArchiveConfirm)
+
+	baseFocus := p.focused
+	if baseFocus == "" {
+		baseFocus = paneDAG
+	}
+
+	meta := models.PaneMeta{
+		ID:       paneTaskArchiveConfirm,
+		Name:     "Archive Confirm",
+		Type:     paneTypeTaskArchiveConfirm,
+		CWD:      p.gitRepoPath(),
+		RepoID:   p.currentRepoID(),
+		Status:   models.PaneStatusReady,
+		Closable: true,
+	}
+	panel := newTaskArchiveConfirmPane(meta.ID, taskID, taskTitle, state)
 	p.registerPane(meta.ID, panel, meta)
 	if p.returnFocus == nil {
 		p.returnFocus = make(map[models.PaneID]models.PaneID)

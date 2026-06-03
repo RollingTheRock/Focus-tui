@@ -60,7 +60,7 @@ func (s *Store) ListDownstreamTaskContexts(taskID string) ([]TaskContextRecord, 
 		       tc.parent_task_id, tc.preferred_worktree_id, tc.created_at, tc.updated_at
 		FROM %s d
 		JOIN %s tc ON tc.id = d.to_task_id
-		WHERE d.from_task_id = ?
+		WHERE d.from_task_id = ? AND tc.deleted_at IS NULL
 		ORDER BY tc.updated_at DESC, tc.created_at DESC
 	`, depsTbl, tasksTbl)
 	rows, err := s.qRows(q, taskID)
@@ -91,7 +91,7 @@ func (s *Store) ListUpstreamTaskContexts(taskID string) ([]TaskContextRecord, er
 		       tc.parent_task_id, tc.preferred_worktree_id, tc.created_at, tc.updated_at
 		FROM %s d
 		JOIN %s tc ON tc.id = d.from_task_id
-		WHERE d.to_task_id = ?
+		WHERE d.to_task_id = ? AND tc.deleted_at IS NULL
 		ORDER BY tc.updated_at DESC, tc.created_at DESC
 	`, depsTbl, tasksTbl)
 	rows, err := s.qRows(q, taskID)
@@ -124,6 +124,7 @@ func (s *Store) AreTaskPrerequisitesMet(taskID string) (bool, error) {
 		WHERE d.to_task_id = ?
 		  AND d.dependency_type = 'hard'
 		  AND pre.state NOT IN ('done', 'completed', 'archived')
+		  AND pre.deleted_at IS NULL
 	`, depsTbl, tasksTbl)
 	var missing int
 	if err := s.qRow(q, taskID).Scan(&missing); err != nil {

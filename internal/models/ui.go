@@ -60,6 +60,11 @@ type Store interface {
 	ListDownstreamTaskContexts(taskID string) ([]TaskContextRecord, error)
 	ListUpstreamTaskContexts(taskID string) ([]TaskContextRecord, error)
 	AreTaskPrerequisitesMet(taskID string) (bool, error)
+	ArchiveTaskContext(id string) error
+	RestoreTaskContext(id string) error
+	ListArchivedTaskContexts(repoID string) ([]TaskContextRecord, error)
+	ListDeletedTaskContexts(repoID string) ([]TaskContextRecord, error)
+	GetTaskContextIncludeDeleted(id string) (*TaskContextRecord, error)
 	MarkAgentSessionDisconnected(sessionID string, reason string) error
 	UpdateAgentSessionHeartbeat(sessionID string, at time.Time, state string) error
 	SaveTaskOutput(record TaskOutputRecord) error
@@ -160,6 +165,7 @@ type TaskContextRecord struct {
 	Priority            string
 	ParentTaskID        *string
 	PreferredWorktreeID string
+	DeletedAt           *time.Time
 	CreatedAt           time.Time
 	UpdatedAt           time.Time
 }
