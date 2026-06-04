@@ -2928,6 +2928,11 @@ func (m *model) launchExternalAgent(session *agents.Session) tea.Cmd {
 			bin, args = ccsBin, ccsArgs
 		}
 	}
+	if session.ProviderConfigID != "" && (session.Provider == agents.ProviderGemini || session.Provider == agents.ProviderOpenCode) {
+		if ccEnvVars := ccswitch.GetProviderEnvVars(string(session.Provider), session.ProviderConfigID); len(ccEnvVars) > 0 {
+			envVars = append(envVars, ccEnvVars...)
+		}
+	}
 	return agents.LaunchExternalCommand(agents.ExternalLaunchRequest{
 		SessionID:        session.ID,
 		Title:            title,

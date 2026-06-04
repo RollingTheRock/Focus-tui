@@ -135,8 +135,66 @@ func LaunchCommand(provider agents.Provider, configID string) (string, []string)
 	case agents.ProviderCodex:
 		return "cc-switch", []string{"start", "codex", configID}
 	default:
+		// Gemini, OpenCode, and unsupported providers: cc-switch start cannot
+		// launch these directly.  The caller should use the default binary and
+		// inject provider env vars via GetProviderEnvVars.
 		return "", nil
 	}
+}
+
+// GetProviderEnvVars returns the env vars for a specific cc-switch provider
+// as KEY=VALUE strings, suitable for passing to an external command.
+func GetProviderEnvVars(appType string, configID string) []string {
+	providers, err := ListProviders(appType)
+	if err != nil {
+		return nil
+	}
+	for _, p := range providers {
+		if p.ID == configID {
+			return p.envVars()
+		}
+	}
+	return nil
+}
+
+// envVars extracts KEY=VALUE environment variables from the provider's SettingsConfig.
+//
+// Two config shapes are supported:
+//   - env (used by Claude / Gemini): keys are already env-var names.
+//   - options (used by OpenCode): keys are camelCase option names that need
+//     mapping to standard env vars (apiKey → OPENAI_API_KEY, baseURL →
+//     OPENAI_BASE_URL).
+func (p Provider) envVars() []string {
+	// Prefer explicit env block (Claude, Gemini).
+	if env, ok := p.SettingsConfig["env"].(map[string]any); ok && len(env) > 0 {
+		var result []string
+		for k, v := range env {
+			if s, ok := v.(string); ok && s != "" {
+				result = append(result, k+"="+s)
+			}
+		}
+		return result
+	}
+
+	// Fall back to options block (OpenCode).
+	if opts, ok := p.SettingsConfig["options"].(map[string]any); ok && len(opts) > 0 {
+		var result []string
+		for k, v := range opts {
+			s, ok := v.(string)
+			if !ok || s == "" {
+				continue
+			}
+			switch k {
+			case "apiKey":
+				result = append(result, "OPENAI_API_KEY="+s)
+			case "baseURL":
+				result = append(result, "OPENAI_BASE_URL="+s)
+			}
+		}
+		return result
+	}
+
+	return nil
 }
 
 // extractModel tries to pull a human-readable model name from the provider
