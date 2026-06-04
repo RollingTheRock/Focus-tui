@@ -113,6 +113,10 @@ func (p *providerSelectPane) View() tea.View {
 		providerName = "Claude Code"
 	case agents.ProviderCodex:
 		providerName = "Codex"
+	case agents.ProviderOpenCode:
+		providerName = "OpenCode"
+	case agents.ProviderGemini:
+		providerName = "Gemini CLI"
 	}
 
 	b.WriteString(providerSelectHeaderStyle.Render(fmt.Sprintf("%s — Select Provider", providerName)))

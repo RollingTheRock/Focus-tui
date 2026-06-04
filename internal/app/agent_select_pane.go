@@ -82,6 +82,7 @@ func newAgentSelectPane(id models.PaneID, meta models.PaneMeta, common models.Co
 			{provider: agents.ProviderCodex, name: "Codex", desc: "OpenAI", agentID: "codex"},
 			{provider: agents.ProviderClaude, name: "Claude Code", desc: "Anthropic", agentID: "claude"},
 			{provider: agents.ProviderOpenCode, name: "OpenCode", desc: "Community", agentID: "opencode"},
+			{provider: agents.ProviderGemini, name: "Gemini CLI", desc: "Google", agentID: "gemini"},
 		}
 	}
 
@@ -113,6 +114,8 @@ func agentOptionFromDef(def models.AgentDefinition) agentOption {
 		provider = agents.ProviderCodex
 	case string(agents.ProviderOpenCode):
 		provider = agents.ProviderOpenCode
+	case string(agents.ProviderGemini):
+		provider = agents.ProviderGemini
 	default:
 		provider = agents.ProviderGeneric
 	}
@@ -195,8 +198,8 @@ func (p *agentSelectPane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 					}
 					return p, nil
 				}
-				// For Claude or Codex, open provider selection if cc-switch is installed.
-				if (opt.provider == agents.ProviderClaude || opt.provider == agents.ProviderCodex) && ccswitch.IsInstalled() {
+				// For supported providers, open provider selection if cc-switch is installed.
+				if (opt.provider == agents.ProviderClaude || opt.provider == agents.ProviderCodex || opt.provider == agents.ProviderOpenCode || opt.provider == agents.ProviderGemini) && ccswitch.IsInstalled() {
 					return p, func() tea.Msg {
 						return OpenProviderSelectMsg{
 							PaneID:     p.id,

@@ -15,6 +15,7 @@ var knownProviders = map[Provider]string{
 	ProviderClaude:   "claude",
 	ProviderKimi:     "kimi",
 	ProviderCodex:    "codex",
+	ProviderGemini:   "gemini",
 }
 
 func DiscoverRunningAgents() []Session {

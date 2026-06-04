@@ -96,6 +96,12 @@ func (d *DiscoveryRegistry) BootstrapIfEmpty() error {
 			Tags: []string{"coding", "open-source"}, Category: "built-in",
 			IsEnabled: true, CreatedAt: now, UpdatedAt: now,
 		},
+		{
+			ID: "gemini", Name: "Gemini CLI", Description: "Google",
+			Binary: "gemini", ProviderType: string(ProviderGemini),
+			Tags: []string{"coding", "research"}, Category: "built-in",
+			IsEnabled: true, CreatedAt: now, UpdatedAt: now,
+		},
 	}
 	for _, def := range builtins {
 		if err := d.store.SaveAgentDefinition(def); err != nil {
@@ -118,12 +124,6 @@ func (d *DiscoveryRegistry) BootstrapIfEmpty() error {
 			Tags: []string{"mcp-native", "local"}, Category: "recommended",
 			InstallHint: "brew install block-goose-cli  # or: curl -fsSL https://github.com/aaif-goose/goose/releases/download/stable/download_cli.sh | bash",
 			IsEnabled: false, CreatedAt: now, UpdatedAt: now,
-		},
-		{
-			ID: "gemini", Name: "Gemini CLI", Description: "Google",
-			Binary: "gemini", ProviderType: string(ProviderGemini),
-			Tags: []string{"coding", "research"}, Category: "built-in",
-			IsEnabled: true, CreatedAt: now, UpdatedAt: now,
 		},
 		{
 			ID: "open-interpreter", Name: "Open Interpreter", Description: "Killian",
