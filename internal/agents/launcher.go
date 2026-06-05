@@ -24,6 +24,8 @@ func ProviderCommand(provider Provider) (string, []string) {
 		return "kimi", nil
 	case ProviderCodex:
 		return "codex", nil
+	case ProviderGemini:
+		return "gemini", nil
 	default:
 		return "", nil
 	}
