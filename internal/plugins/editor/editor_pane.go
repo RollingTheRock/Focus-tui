@@ -320,13 +320,7 @@ func (p *EditorPane) View() tea.View {
 	if p.dirty {
 		status = fmt.Sprintf("modified · changes %d", p.changeTick)
 	}
-	hint := fmt.Sprintf("%s · Ctrl+S save · Esc close", status)
-	if p.readOnly {
-		hint = fmt.Sprintf("%s · j/k scroll · / search · : line · n/N result · Esc close", status)
-	} else {
-		hint = fmt.Sprintf("%s · Ctrl+S save · Ctrl+F search · : line · n/N result · Esc close", status)
-	}
-	lines = append(lines, lipgloss.NewStyle().Foreground(appstyles.Subtle).Render(hint))
+	lines = append(lines, lipgloss.NewStyle().Foreground(appstyles.Subtle).Render(status))
 	if p.mode != editorModeNormal {
 		lines = append(lines, lipgloss.NewStyle().Foreground(appstyles.Accent).Render(p.miniInput.View()))
 	}
@@ -354,6 +348,40 @@ func (p *EditorPane) View() tea.View {
 		lines[i] = appstyles.StyleCache.MaxWidth(width).Render(lines[i])
 	}
 	return tea.NewView(strings.Join(lines, "\n"))
+}
+
+func (p *EditorPane) KeyBindings(compact bool) []models.KeyBinding {
+	if p.readOnly {
+		if compact {
+			return []models.KeyBinding{
+				{Keys: []string{"j", "k"}, Help: "scroll"},
+				{Keys: []string{"/"}, Help: "search"},
+				{Keys: []string{":"}, Help: "line"},
+				{Keys: []string{"n", "N"}, Help: "result"},
+			}
+		}
+		return []models.KeyBinding{
+			{Keys: []string{"j", "k"}, Help: "scroll"},
+			{Keys: []string{"/"}, Help: "search"},
+			{Keys: []string{":"}, Help: "line"},
+			{Keys: []string{"n", "N"}, Help: "result"},
+			{Keys: []string{"esc"}, Help: "close"},
+		}
+	}
+	if compact {
+		return []models.KeyBinding{
+			{Keys: []string{"ctrl+s"}, Help: "save"},
+			{Keys: []string{"/"}, Help: "search"},
+			{Keys: []string{":"}, Help: "line"},
+		}
+	}
+	return []models.KeyBinding{
+		{Keys: []string{"ctrl+s"}, Help: "save"},
+		{Keys: []string{"ctrl+f", "/"}, Help: "search"},
+		{Keys: []string{":"}, Help: "line"},
+		{Keys: []string{"n", "N"}, Help: "result"},
+		{Keys: []string{"esc"}, Help: "close"},
+	}
 }
 
 func (p *EditorPane) SetSize(width, height int) {

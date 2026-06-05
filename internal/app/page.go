@@ -184,6 +184,16 @@ func (p *page) pane(id models.PaneID) models.Panel {
 	return p.panes[id]
 }
 
+// keyBindingProvider returns the panel as a KeyBindingProvider if it implements the interface.
+func (p *page) keyBindingProvider(id models.PaneID) models.KeyBindingProvider {
+	panel := p.panes[id]
+	if panel == nil {
+		return nil
+	}
+	kp, _ := panel.(models.KeyBindingProvider)
+	return kp
+}
+
 func (p *page) setPane(id models.PaneID, panel models.Panel) {
 	p.panes[id] = panel
 	p.syncPaneMeta(id)
@@ -491,6 +501,10 @@ func (p *page) removePaneOrder(id models.PaneID) {
 }
 
 func (p *page) activeOverlayPane() models.PaneID {
+	// Help overlay (highest priority — can be opened over any other overlay).
+	if _, ok := p.paneMeta[paneHelpOverlay]; ok {
+		return paneHelpOverlay
+	}
 	// Persistent todo overlay (visibility-toggled, highest priority).
 	if tp, ok := p.pane(paneTodoOverlay).(*todo.Model); ok && tp.Visible() {
 		return paneTodoOverlay
@@ -561,7 +575,7 @@ func (p *page) activeOverlayPane() models.PaneID {
 }
 
 func (p *page) isOverlayPane(id models.PaneID) bool {
-	if id == paneTodoOverlay || id == paneGitFileTree || id == paneGitCommit || id == paneWorktreeCreate || id == paneTaskEdit || id == panePlanEdit || id == paneAgentSelect || id == paneProviderSelect || id == paneAgentStore || id == paneAgentInstallHint || id == paneAgentRegister || id == paneWorktreeHistory || id == paneWorktreeDeleteConfirm || id == paneTaskDeleteConfirm || id == paneDAGMiniOverlay || id == paneADRDetail || id == paneGitDiff || id == paneCityPicker || id == paneTaskArchive || id == paneTaskArchiveConfirm {
+	if id == paneHelpOverlay || id == paneTodoOverlay || id == paneGitFileTree || id == paneGitCommit || id == paneWorktreeCreate || id == paneTaskEdit || id == panePlanEdit || id == paneAgentSelect || id == paneProviderSelect || id == paneAgentStore || id == paneAgentInstallHint || id == paneAgentRegister || id == paneWorktreeHistory || id == paneWorktreeDeleteConfirm || id == paneTaskDeleteConfirm || id == paneDAGMiniOverlay || id == paneADRDetail || id == paneGitDiff || id == paneCityPicker || id == paneTaskArchive || id == paneTaskArchiveConfirm {
 		return true
 	}
 	if meta, ok := p.paneMeta[id]; ok && meta.Type == models.PaneTypeEditor {
@@ -1190,6 +1204,34 @@ func (p *page) openWorktreeHistoryPane() tea.Cmd {
 		Closable: true,
 	}
 	panel := newWorktreeHistoryPane(meta.ID, meta, *p.common)
+	p.registerPane(meta.ID, panel, meta)
+	if p.returnFocus == nil {
+		p.returnFocus = make(map[models.PaneID]models.PaneID)
+	}
+	p.returnFocus[meta.ID] = baseFocus
+	p.setFocus(meta.ID)
+	p.updateSizes(p.bodyBoundsSize())
+	return panel.Init()
+}
+
+func (p *page) openHelpOverlayPane() tea.Cmd {
+	p.closePane(paneHelpOverlay)
+
+	baseFocus := p.focused
+	if baseFocus == "" {
+		baseFocus = paneDAG
+	}
+
+	meta := models.PaneMeta{
+		ID:       paneHelpOverlay,
+		Name:     "Help",
+		Type:     paneTypeHelpOverlay,
+		CWD:      p.gitRepoPath(),
+		RepoID:   p.currentRepoID(),
+		Status:   models.PaneStatusReady,
+		Closable: true,
+	}
+	panel := newHelpOverlayPane(meta.ID, *p.common, p)
 	p.registerPane(meta.ID, panel, meta)
 	if p.returnFocus == nil {
 		p.returnFocus = make(map[models.PaneID]models.PaneID)

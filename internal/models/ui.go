@@ -289,6 +289,18 @@ type Panel interface {
 	SetSize(width, height int)
 }
 
+// KeyBinding represents a single key binding for help display.
+type KeyBinding struct {
+	Keys []string
+	Help string
+}
+
+// KeyBindingProvider is optionally implemented by panels to declare their
+// key bindings for display in the help line and help overlay.
+type KeyBindingProvider interface {
+	KeyBindings(compact bool) []KeyBinding
+}
+
 type ADRRecord struct {
 	ID           string
 	Title        string

@@ -392,7 +392,6 @@ func (m *Model) viewPicker(w, h int) string {
 	}
 
 	b.WriteByte('\n')
-	b.WriteString(lipgloss.NewStyle().Foreground(styles.Subtle).Render("[enter] select  [esc] skip"))
 
 	return b.String()
 }

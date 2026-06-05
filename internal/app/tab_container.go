@@ -40,6 +40,15 @@ func (tc *tabContainer) HandleTab() bool {
 	return false // tab now cycles pane focus globally; use [/] for tab switching
 }
 
+func (tc *tabContainer) KeyBindings(compact bool) []models.KeyBinding {
+	if pane := tc.activePane(); pane != nil {
+		if kp, ok := pane.(models.KeyBindingProvider); ok {
+			return kp.KeyBindings(compact)
+		}
+	}
+	return nil
+}
+
 func (tc *tabContainer) activePane() models.Panel {
 	if tc.activeTab == 0 {
 		return tc.dagPane

@@ -65,6 +65,14 @@ func (p *providerSelectPane) Init() tea.Cmd {
 	return nil
 }
 
+func (p *providerSelectPane) KeyBindings(compact bool) []models.KeyBinding {
+	return []models.KeyBinding{
+		{Keys: []string{"j", "k"}, Help: "move"},
+		{Keys: []string{"enter"}, Help: "select"},
+		{Keys: []string{"esc"}, Help: "use default"},
+	}
+}
+
 func (p *providerSelectPane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyPressMsg:
