@@ -44,6 +44,13 @@ func (p *worktreeHistoryPane) Init() tea.Cmd {
 	return nil
 }
 
+func (p *worktreeHistoryPane) KeyBindings(compact bool) []models.KeyBinding {
+	return []models.KeyBinding{
+		{Keys: []string{"j", "k"}, Help: "nav"},
+		{Keys: []string{"esc", "q"}, Help: "close"},
+	}
+}
+
 func (p *worktreeHistoryPane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyPressMsg:

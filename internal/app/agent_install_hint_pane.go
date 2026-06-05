@@ -43,6 +43,15 @@ func newAgentInstallHintPane(id models.PaneID, meta models.PaneMeta, common mode
 
 func (p *agentInstallHintPane) Init() tea.Cmd { return nil }
 
+func (p *agentInstallHintPane) KeyBindings(compact bool) []models.KeyBinding {
+	return []models.KeyBinding{
+		{Keys: []string{"x"}, Help: "shell install"},
+		{Keys: []string{"o"}, Help: "external"},
+		{Keys: []string{"c"}, Help: "copy"},
+		{Keys: []string{"q", "esc"}, Help: "close"},
+	}
+}
+
 func (p *agentInstallHintPane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyPressMsg:

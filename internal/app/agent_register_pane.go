@@ -48,6 +48,21 @@ func newAgentRegisterPane(id models.PaneID, meta models.PaneMeta, common models.
 
 func (p *agentRegisterPane) Init() tea.Cmd { return nil }
 
+func (p *agentRegisterPane) KeyBindings(compact bool) []models.KeyBinding {
+	if compact {
+		return []models.KeyBinding{
+			{Keys: []string{"tab"}, Help: "next field"},
+			{Keys: []string{"enter"}, Help: "next/save"},
+			{Keys: []string{"esc"}, Help: "cancel"},
+		}
+	}
+	return []models.KeyBinding{
+		{Keys: []string{"tab"}, Help: "next field"},
+		{Keys: []string{"enter"}, Help: "next/save"},
+		{Keys: []string{"esc"}, Help: "cancel"},
+	}
+}
+
 func (p *agentRegisterPane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyPressMsg:

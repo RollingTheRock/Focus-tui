@@ -98,6 +98,27 @@ func (p *agentStorePane) Init() tea.Cmd {
 	return nil
 }
 
+func (p *agentStorePane) KeyBindings(compact bool) []models.KeyBinding {
+	if compact {
+		return []models.KeyBinding{
+			{Keys: []string{"j", "k"}, Help: "nav"},
+			{Keys: []string{"enter"}, Help: "toggle"},
+			{Keys: []string{"tab"}, Help: "tabs"},
+			{Keys: []string{"q", "esc"}, Help: "close"},
+		}
+	}
+	return []models.KeyBinding{
+		{Keys: []string{"j", "k"}, Help: "nav"},
+		{Keys: []string{"enter"}, Help: "toggle/install"},
+		{Keys: []string{"i"}, Help: "install hint"},
+		{Keys: []string{"tab"}, Help: "tabs"},
+		{Keys: []string{"d"}, Help: "delete"},
+		{Keys: []string{"a"}, Help: "register"},
+		{Keys: []string{"r"}, Help: "reload"},
+		{Keys: []string{"q", "esc"}, Help: "close"},
+	}
+}
+
 func (p *agentStorePane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyPressMsg:
@@ -403,18 +424,7 @@ func (p *agentStorePane) renderDefLine(w int, def models.AgentDefinition, isCurs
 
 // renderHelp returns the footer hint line tailored to the currently selected agent.
 func (p *agentStorePane) renderHelp() string {
-	def := p.currentDef()
-	if def == nil {
-		return "↑↓ move · Tab switch · a add · r refresh · q close"
-	}
-
-	if !def.IsInstalled {
-		return "↑↓ move · Tab switch · Enter/i install · a add · r refresh · q close"
-	}
-	if def.Category == "registered" {
-		return "↑↓ move · Tab switch · Enter toggle · d delete · a add · r refresh · q close"
-	}
-	return "↑↓ move · Tab switch · Enter toggle · a add · r refresh · q close"
+	return ""
 }
 
 func filterDefs(items []models.AgentDefinition, fn func(models.AgentDefinition) bool) []models.AgentDefinition {

@@ -847,21 +847,6 @@ func (o *GitFileTreeOverlay) renderFooter(width int) string {
 		parts = append(parts, lipgloss.NewStyle().Foreground(styles.Subtle).Render("["+o.rightPaneLabel()+"]"))
 	}
 
-	parts = append(parts, "[tab]switch")
-
-	if o.focus == focusLeftPane {
-		parts = append(parts, "[j/k]nav [space]stage [a]ll [c]ommit [d]iscard [o]pen [↵]toggle")
-	} else {
-		switch o.rightMode {
-		case rightPaneGraph:
-			parts = append(parts, "[j/k]nav commits")
-		case rightPaneStash:
-			parts = append(parts, "[j/k]nav [↵]apply [p]op [d]rop")
-		case rightPaneBranches:
-			parts = append(parts, "[j/k]nav [↵]checkout [d]elete")
-		}
-	}
-
 	return hintStyle.MaxWidth(width).Render(strings.Join(parts, " "))
 }
 

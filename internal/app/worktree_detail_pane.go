@@ -294,19 +294,38 @@ func (p *worktreeDetailPane) SetSize(width, height int) {
 	p.height = height
 }
 
-func (p *worktreeDetailPane) helpText() (wide, compact string) {
+func (p *worktreeDetailPane) KeyBindings(compact bool) []models.KeyBinding {
+	bindings := []models.KeyBinding{
+		{Keys: []string{"1", "2", "3"}, Help: "tabs"},
+	}
 	switch p.activeTab {
 	case detailTabTasks:
-		wide = "[j/k]nav  [enter/e]edit task  [s]tart agent  [o]files  [1-3]tabs  [tab]cycle focus"
-		compact = "[j/k]nav  [enter/e]edit  [s]agent  [1-3]tabs"
+		bindings = append(bindings,
+			models.KeyBinding{Keys: []string{"j", "k"}, Help: "nav"},
+			models.KeyBinding{Keys: []string{"enter", "e"}, Help: "edit task"},
+			models.KeyBinding{Keys: []string{"s"}, Help: "start agent"},
+			models.KeyBinding{Keys: []string{"o"}, Help: "files"},
+		)
 	case detailTabContext:
-		wide = "[e]edit PRD  [u]update trellis  [1-3]tabs  [tab]cycle focus"
-		compact = "[e]PRD  [u]update  [1-3]tabs"
+		bindings = append(bindings,
+			models.KeyBinding{Keys: []string{"e"}, Help: "edit PRD"},
+			models.KeyBinding{Keys: []string{"u"}, Help: "trellis update"},
+		)
 	case detailTabAgent:
-		wide = "[j/k]nav  [s]tart  [x]stop  [1-3]tabs  [tab]cycle focus"
-		compact = "[j/k]nav  [s]tart  [x]stop  [1-3]tabs"
+		bindings = append(bindings,
+			models.KeyBinding{Keys: []string{"j", "k"}, Help: "nav"},
+			models.KeyBinding{Keys: []string{"s"}, Help: "start"},
+			models.KeyBinding{Keys: []string{"x"}, Help: "stop"},
+		)
 	}
-	return
+	if !compact {
+		bindings = append(bindings, models.KeyBinding{Keys: []string{"tab"}, Help: "cycle focus"})
+	}
+	return bindings
+}
+
+func (p *worktreeDetailPane) helpText() (wide, compact string) {
+	return "", ""
 }
 
 func (p *worktreeDetailPane) View() tea.View {
@@ -558,7 +577,6 @@ func (p *worktreeDetailPane) renderAgentTab(w, h int) string {
 	}
 
 	lines = append(lines, "")
-	lines = append(lines, detailMetaStyle.Render("  [j/k]nav  [s]tart  [x]stop"))
 
 	// Token budget placeholder (agent SDK does not expose token usage yet).
 	lines = append(lines, "")

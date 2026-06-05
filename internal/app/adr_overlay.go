@@ -53,6 +53,34 @@ func (p *adrDetailOverlay) Init() tea.Cmd {
 	return p.loadCmd()
 }
 
+func (p *adrDetailOverlay) KeyBindings(compact bool) []models.KeyBinding {
+	if p.searching {
+		if compact {
+			return []models.KeyBinding{
+				{Keys: []string{"enter"}, Help: "search"},
+				{Keys: []string{"esc"}, Help: "cancel"},
+			}
+		}
+		return []models.KeyBinding{
+			{Keys: []string{"enter"}, Help: "search"},
+			{Keys: []string{"esc"}, Help: "cancel search"},
+		}
+	}
+	if compact {
+		return []models.KeyBinding{
+			{Keys: []string{"j", "k"}, Help: "scroll"},
+			{Keys: []string{"/"}, Help: "search"},
+			{Keys: []string{"q", "esc"}, Help: "close"},
+		}
+	}
+	return []models.KeyBinding{
+		{Keys: []string{"j", "k"}, Help: "scroll"},
+		{Keys: []string{"/"}, Help: "search"},
+		{Keys: []string{"n", "N"}, Help: "next/prev"},
+		{Keys: []string{"q", "esc", "enter"}, Help: "close"},
+	}
+}
+
 func (p *adrDetailOverlay) loadCmd() tea.Cmd {
 	fp := p.filePath
 	return func() tea.Msg {
@@ -266,7 +294,7 @@ func (p *adrDetailOverlay) View() tea.View {
 		h = 20
 	}
 
-	header := adrOverlayTitleStyle.Render(" ADR Detail ") + adrHintStyle.Render("  [j/k]scroll  [/]search  [enter/esc/q]close")
+	header := adrOverlayTitleStyle.Render(" ADR Detail ")
 	var b strings.Builder
 	b.WriteString(header)
 

@@ -130,6 +130,48 @@ func (m *Model) Init() tea.Cmd {
 	return m.loadTodos
 }
 
+func (m *Model) KeyBindings(compact bool) []models.KeyBinding {
+	if m.bulkMode {
+		if compact {
+			return []models.KeyBinding{
+				{Keys: []string{"j", "k"}, Help: "nav"},
+				{Keys: []string{"space"}, Help: "mark"},
+				{Keys: []string{"v", "esc"}, Help: "exit bulk"},
+			}
+		}
+		return []models.KeyBinding{
+			{Keys: []string{"j", "k"}, Help: "nav"},
+			{Keys: []string{"space"}, Help: "mark"},
+			{Keys: []string{"enter"}, Help: "done-toggle"},
+			{Keys: []string{"m"}, Help: "move to today"},
+			{Keys: []string{"d"}, Help: "delete marked"},
+			{Keys: []string{"v", "esc"}, Help: "exit bulk"},
+		}
+	}
+	if compact {
+		return []models.KeyBinding{
+			{Keys: []string{"j", "k"}, Help: "nav"},
+			{Keys: []string{"enter"}, Help: "timer"},
+			{Keys: []string{"a"}, Help: "add"},
+			{Keys: []string{"esc"}, Help: "close"},
+		}
+	}
+	return []models.KeyBinding{
+		{Keys: []string{"j", "k"}, Help: "nav"},
+		{Keys: []string{"enter"}, Help: "timer"},
+		{Keys: []string{"space"}, Help: "done"},
+		{Keys: []string{"a"}, Help: "add"},
+		{Keys: []string{"e"}, Help: "edit"},
+		{Keys: []string{"d"}, Help: "del"},
+		{Keys: []string{"m"}, Help: "move to today"},
+		{Keys: []string{"g"}, Help: "start"},
+		{Keys: []string{"s"}, Help: "stop"},
+		{Keys: []string{"v"}, Help: "bulk"},
+		{Keys: []string{"shift+tab"}, Help: "list"},
+		{Keys: []string{"esc"}, Help: "close"},
+	}
+}
+
 func (m *Model) SetSize(width, height int) {
 	m.width = width
 	m.height = height
@@ -552,7 +594,7 @@ func (m *Model) View() tea.View {
 		pad = 1
 	}
 	b.WriteString(titleLeft + strings.Repeat(" ", pad) + titleRight + "\n")
-	b.WriteString(hintStyle.Render(listHint+"  ·  [enter]start/stop  [v]bulk mode  [a]quick add") + "\n")
+	b.WriteString(hintStyle.Render(listHint) + "\n")
 	b.WriteString(sepStyle.Render(strings.Repeat("─", contentW)) + "\n")
 
 	if m.bulkMode {
@@ -628,14 +670,6 @@ func (m *Model) View() tea.View {
 		placeholder := metaStyle.Render("Press [a] to type a new todo...")
 		b.WriteString(placeholder + "\n")
 	}
-
-	var footer string
-	if m.bulkMode {
-		footer = "[j/k]nav [space]mark [enter]done-toggle [m]move [d]delete [v/esc]exit bulk"
-	} else {
-		footer = "[j/k]nav [enter]timer [space]done [e]edit [d]del [v]bulk [a]add [esc]close"
-	}
-	b.WriteString(hintStyle.Render(ansi.Truncate(footer, contentW, "…")) + "\n")
 
 	return tea.NewView(b.String())
 }

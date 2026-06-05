@@ -429,6 +429,27 @@ type rowMeta struct {
 	secondary bool
 }
 
+func (p *WorktreePane) KeyBindings(compact bool) []models.KeyBinding {
+	if compact {
+		return []models.KeyBinding{
+			{Keys: []string{"j", "k"}, Help: "nav"},
+			{Keys: []string{"enter"}, Help: "select"},
+			{Keys: []string{"n"}, Help: "new"},
+			{Keys: []string{"e"}, Help: "edit"},
+			{Keys: []string{"d"}, Help: "del"},
+		}
+	}
+	return []models.KeyBinding{
+		{Keys: []string{"j", "k"}, Help: "nav"},
+		{Keys: []string{"enter"}, Help: "select"},
+		{Keys: []string{"n"}, Help: "new"},
+		{Keys: []string{"e"}, Help: "edit"},
+		{Keys: []string{"d"}, Help: "del"},
+		{Keys: []string{"o"}, Help: "shell"},
+		{Keys: []string{"tab"}, Help: "cycle focus"},
+	}
+}
+
 func (p *WorktreePane) SetSize(width, height int) {
 	p.width = width
 	p.height = height

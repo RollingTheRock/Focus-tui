@@ -691,6 +691,30 @@ func (p *dagPane) SetSize(width, height int) {
 	p.height = height
 }
 
+func (p *dagPane) KeyBindings(compact bool) []models.KeyBinding {
+	if compact {
+		return []models.KeyBinding{
+			{Keys: []string{"j", "k"}, Help: "move"},
+			{Keys: []string{"h", "l"}, Help: "level"},
+			{Keys: []string{"enter", "c"}, Help: "open/wt"},
+			{Keys: []string{"s"}, Help: "state"},
+			{Keys: []string{"t"}, Help: "todo"},
+		}
+	}
+	return []models.KeyBinding{
+		{Keys: []string{"j", "k"}, Help: "move"},
+		{Keys: []string{"h", "l"}, Help: "level"},
+		{Keys: []string{"enter"}, Help: "open/create"},
+		{Keys: []string{"c"}, Help: "new-wt"},
+		{Keys: []string{"s"}, Help: "state"},
+		{Keys: []string{"t"}, Help: "todo"},
+		{Keys: []string{"n"}, Help: "new-task"},
+		{Keys: []string{"r"}, Help: "research"},
+		{Keys: []string{"a"}, Help: "arch"},
+		{Keys: []string{"R"}, Help: "refresh"},
+	}
+}
+
 func (p *dagPane) View() tea.View {
 	w := p.width
 	if w <= 0 {
@@ -706,7 +730,7 @@ func (p *dagPane) View() tea.View {
 
 	var lines []string
 	lines = append(lines,
-		dagHeaderStyle.Render(" Task DAG ")+dagHintStyle.Render(dagHelpHint(w, p.creating)),
+		dagHeaderStyle.Render(" Task DAG "),
 	)
 	lines = append(lines, "")
 
@@ -757,16 +781,9 @@ func (p *dagPane) View() tea.View {
 }
 
 func dagHelpHint(width int, creating bool) string {
-	if creating {
-		if width < 72 {
-			return "  [enter]save  [tab]switch  [esc]cancel"
-		}
-		return "  [T]asks [A]DRs  [Enter/Ctrl+S]save  [Tab]switch field  [Esc]cancel"
-	}
-	if width < 100 {
-		return "  [j/k]move [h/l]level [enter/c]open/wt [s]state [p]archive [b]bin [t]todo [n]new [d]del [D]clear [z]expand [R]refresh"
-	}
-	return "  [j/k]move  [h/l]level  [enter]open/create  [c]new-wt  [s]state  [p]archive  [b]bin  [t]todo  [n]new-task  [d]del-task  [D]clear-all  [z]expand  [r]research  [a]arch  [T]asks [A]DRs  [R]refresh"
+	_ = width
+	_ = creating
+	return ""
 }
 
 func (p *dagPane) clampAndJoin(lines []string, h, w int) string {
@@ -781,7 +798,6 @@ func (p *dagPane) clampAndJoin(lines []string, h, w int) string {
 
 var (
 	dagHeaderStyle  = lipgloss.NewStyle().Bold(true).Foreground(styles.Accent)
-	dagHintStyle    = lipgloss.NewStyle().Foreground(styles.Subtle)
 	dagNodeStyle    = lipgloss.NewStyle().Foreground(styles.Text)
 	dagFocusedStyle = lipgloss.NewStyle().Bold(true).Foreground(styles.Highlight).Background(lipgloss.Color("#333333"))
 	dagMutedStyle   = lipgloss.NewStyle().Foreground(styles.Subtle)

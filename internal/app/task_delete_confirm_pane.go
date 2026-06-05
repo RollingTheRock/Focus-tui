@@ -39,6 +39,13 @@ func (p *taskDeleteConfirmPane) Init() tea.Cmd {
 	return nil
 }
 
+func (p *taskDeleteConfirmPane) KeyBindings(compact bool) []models.KeyBinding {
+	return []models.KeyBinding{
+		{Keys: []string{"y"}, Help: "confirm"},
+		{Keys: []string{"n", "esc"}, Help: "cancel"},
+	}
+}
+
 func (p *taskDeleteConfirmPane) ID() models.PaneID {
 	return p.id
 }

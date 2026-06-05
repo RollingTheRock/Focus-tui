@@ -59,6 +59,27 @@ func (p *adrPane) Init() tea.Cmd {
 	)
 }
 
+func (p *adrPane) KeyBindings(compact bool) []models.KeyBinding {
+	if p.detailMode {
+		return []models.KeyBinding{
+			{Keys: []string{"j", "k"}, Help: "scroll"},
+			{Keys: []string{"enter"}, Help: "back"},
+		}
+	}
+	if compact {
+		return []models.KeyBinding{
+			{Keys: []string{"j", "k"}, Help: "move"},
+			{Keys: []string{"enter"}, Help: "detail"},
+		}
+	}
+	return []models.KeyBinding{
+		{Keys: []string{"j", "k"}, Help: "move"},
+		{Keys: []string{"enter"}, Help: "detail"},
+		{Keys: []string{"e"}, Help: "open"},
+		{Keys: []string{"R"}, Help: "refresh"},
+	}
+}
+
 func (p *adrPane) refreshCmd() tea.Cmd {
 	return func() tea.Msg {
 		return adrRefreshMsg{}
@@ -189,12 +210,12 @@ func (p *adrPane) View() tea.View {
 	var lines []string
 
 	if p.detailMode && p.cursor >= 0 && p.cursor < len(p.adrs) {
-		lines = append(lines, adrHeaderStyle.Render("  ADR Detail ")+adrHintStyle.Render("[enter]back  [T]asks [A]DRs"))
+		lines = append(lines, adrHeaderStyle.Render("  ADR Detail "))
 		lines = append(lines, p.renderDetail(p.adrs[p.cursor], h-1, w)...)
 		return tea.NewView(clampLines(lines, h, w))
 	}
 
-	lines = append(lines, adrHeaderStyle.Render("  ADRs  ")+adrHintStyle.Render("[j/k]move  [enter]preview  [e]open  [T]asks [A]DRs  [R]refresh"))
+	lines = append(lines, adrHeaderStyle.Render("  ADRs"))
 
 	if len(p.adrs) == 0 {
 		lines = append(lines, adrMutedStyle.Render("  No ADRs found."))

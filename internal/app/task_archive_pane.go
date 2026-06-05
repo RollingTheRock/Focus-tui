@@ -40,6 +40,16 @@ func (p *taskArchivePane) Init() tea.Cmd {
 	return p.loadCmd()
 }
 
+func (p *taskArchivePane) KeyBindings(compact bool) []models.KeyBinding {
+	return []models.KeyBinding{
+		{Keys: []string{"j", "k"}, Help: "move"},
+		{Keys: []string{"enter"}, Help: "restore"},
+		{Keys: []string{"tab"}, Help: "switch"},
+		{Keys: []string{"R"}, Help: "refresh"},
+		{Keys: []string{"q", "esc"}, Help: "close"},
+	}
+}
+
 func (p *taskArchivePane) loadCmd() tea.Cmd {
 	return func() tea.Msg {
 		var archived, deleted []models.TaskContextRecord
@@ -145,7 +155,6 @@ func (p *taskArchivePane) View() tea.View {
 			b.WriteString(lipgloss.NewStyle().Foreground(appstyles.Subtle).Render("  No deleted tasks yet."))
 		}
 		b.WriteByte('\n')
-		b.WriteString(lipgloss.NewStyle().Foreground(appstyles.Subtle).Render("  [tab] switch · [R] refresh · [q/esc] close"))
 		return tea.NewView(lipgloss.NewStyle().MaxWidth(w).MaxHeight(h).Render(b.String()))
 	}
 
@@ -164,10 +173,6 @@ func (p *taskArchivePane) View() tea.View {
 		b.WriteString(style.Render(line))
 		b.WriteByte('\n')
 	}
-
-	// Footer hint
-	b.WriteByte('\n')
-	b.WriteString(lipgloss.NewStyle().Foreground(appstyles.Subtle).Render("  [j/k] move · [enter] restore · [tab] switch · [R] refresh · [q/esc] close"))
 
 	return tea.NewView(lipgloss.NewStyle().MaxWidth(w).MaxHeight(h).Render(b.String()))
 }

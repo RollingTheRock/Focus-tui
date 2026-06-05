@@ -133,6 +133,22 @@ func (p *agentSelectPane) Init() tea.Cmd {
 	return nil
 }
 
+func (p *agentSelectPane) KeyBindings(compact bool) []models.KeyBinding {
+	if compact {
+		return []models.KeyBinding{
+			{Keys: []string{"j", "k"}, Help: "move"},
+			{Keys: []string{"enter"}, Help: "select"},
+			{Keys: []string{"esc"}, Help: "back"},
+		}
+	}
+	return []models.KeyBinding{
+		{Keys: []string{"j", "k"}, Help: "move"},
+		{Keys: []string{"enter"}, Help: "select"},
+		{Keys: []string{"S"}, Help: "store"},
+		{Keys: []string{"esc"}, Help: "back"},
+	}
+}
+
 func (p *agentSelectPane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyPressMsg:
@@ -251,7 +267,6 @@ func (p *agentSelectPane) View() tea.View {
 			b.WriteByte('\n')
 		}
 		b.WriteByte('\n')
-		b.WriteString(agentSelectHintStyle.Render("↑↓ move · Enter select · S store · Esc back"))
 	} else {
 		if len(p.options) == 0 {
 			b.WriteString(agentSelectHeaderStyle.Render("Select Terminal Agent"))

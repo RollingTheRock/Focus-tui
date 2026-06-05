@@ -37,6 +37,13 @@ func (p *taskArchiveConfirmPane) Init() tea.Cmd {
 	return nil
 }
 
+func (p *taskArchiveConfirmPane) KeyBindings(compact bool) []models.KeyBinding {
+	return []models.KeyBinding{
+		{Keys: []string{"y"}, Help: "confirm"},
+		{Keys: []string{"n", "esc"}, Help: "cancel"},
+	}
+}
+
 func (p *taskArchiveConfirmPane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyPressMsg:

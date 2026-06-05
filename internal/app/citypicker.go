@@ -142,8 +142,7 @@ func (p *cityPickerOverlay) View() tea.View {
 			b.WriteString(text.Render("  "+z.cities[i]) + "\n")
 		}
 	}
-
-	b.WriteString(subtle.Render("\n  [←→] zone  [↑↓] city  [enter] select  [esc] cancel"))
+		return tea.NewView(b.String())
 	return tea.NewView(b.String())
 }
 
