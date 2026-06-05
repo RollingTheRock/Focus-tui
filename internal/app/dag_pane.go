@@ -694,21 +694,25 @@ func (p *dagPane) SetSize(width, height int) {
 func (p *dagPane) KeyBindings(compact bool) []models.KeyBinding {
 	if compact {
 		return []models.KeyBinding{
-			{Keys: []string{"j", "k"}, Help: "move"},
-			{Keys: []string{"h", "l"}, Help: "level"},
 			{Keys: []string{"enter", "c"}, Help: "open/wt"},
 			{Keys: []string{"s"}, Help: "state"},
-			{Keys: []string{"t"}, Help: "todo"},
+			{Keys: []string{"p"}, Help: "archive"},
+			{Keys: []string{"d"}, Help: "del"},
+			{Keys: []string{"n"}, Help: "new"},
+			{Keys: []string{"z"}, Help: "expand"},
 		}
 	}
 	return []models.KeyBinding{
-		{Keys: []string{"j", "k"}, Help: "move"},
-		{Keys: []string{"h", "l"}, Help: "level"},
 		{Keys: []string{"enter"}, Help: "open/create"},
 		{Keys: []string{"c"}, Help: "new-wt"},
 		{Keys: []string{"s"}, Help: "state"},
-		{Keys: []string{"t"}, Help: "todo"},
+		{Keys: []string{"p"}, Help: "archive"},
+		{Keys: []string{"d"}, Help: "delete"},
+		{Keys: []string{"D"}, Help: "clear done"},
+		{Keys: []string{"z"}, Help: "expand"},
 		{Keys: []string{"n"}, Help: "new-task"},
+		{Keys: []string{"b"}, Help: "bin"},
+		{Keys: []string{"t"}, Help: "todo"},
 		{Keys: []string{"r"}, Help: "research"},
 		{Keys: []string{"a"}, Help: "arch"},
 		{Keys: []string{"R"}, Help: "refresh"},
