@@ -3601,21 +3601,25 @@ func legacyPaneBindings(m model, compact bool) []bubblesKey.Binding {
 	case paneDAG:
 		if compact {
 			return []bubblesKey.Binding{
-				bubblesKey.NewBinding(bubblesKey.WithKeys("j", "k"), bubblesKey.WithHelp("j/k", "move")),
-				bubblesKey.NewBinding(bubblesKey.WithKeys("h", "l"), bubblesKey.WithHelp("h/l", "level")),
 				bubblesKey.NewBinding(bubblesKey.WithKeys("enter", "c"), bubblesKey.WithHelp("enter/c", "open/wt")),
 				bubblesKey.NewBinding(bubblesKey.WithKeys("s"), bubblesKey.WithHelp("s", "state")),
-				bubblesKey.NewBinding(bubblesKey.WithKeys("t"), bubblesKey.WithHelp("t", "todo")),
+				bubblesKey.NewBinding(bubblesKey.WithKeys("p"), bubblesKey.WithHelp("p", "archive")),
+				bubblesKey.NewBinding(bubblesKey.WithKeys("d"), bubblesKey.WithHelp("d", "del")),
+				bubblesKey.NewBinding(bubblesKey.WithKeys("n"), bubblesKey.WithHelp("n", "new")),
+				bubblesKey.NewBinding(bubblesKey.WithKeys("z"), bubblesKey.WithHelp("z", "expand")),
 			}
 		}
 		return []bubblesKey.Binding{
-			bubblesKey.NewBinding(bubblesKey.WithKeys("j", "k"), bubblesKey.WithHelp("j/k", "move")),
-			bubblesKey.NewBinding(bubblesKey.WithKeys("h", "l"), bubblesKey.WithHelp("h/l", "level")),
 			bubblesKey.NewBinding(bubblesKey.WithKeys("enter"), bubblesKey.WithHelp("enter", "open/create")),
 			bubblesKey.NewBinding(bubblesKey.WithKeys("c"), bubblesKey.WithHelp("c", "new-wt")),
 			bubblesKey.NewBinding(bubblesKey.WithKeys("s"), bubblesKey.WithHelp("s", "state")),
-			bubblesKey.NewBinding(bubblesKey.WithKeys("t"), bubblesKey.WithHelp("t", "todo")),
+			bubblesKey.NewBinding(bubblesKey.WithKeys("p"), bubblesKey.WithHelp("p", "archive")),
+			bubblesKey.NewBinding(bubblesKey.WithKeys("d"), bubblesKey.WithHelp("d", "delete")),
+			bubblesKey.NewBinding(bubblesKey.WithKeys("D"), bubblesKey.WithHelp("D", "clear done")),
+			bubblesKey.NewBinding(bubblesKey.WithKeys("z"), bubblesKey.WithHelp("z", "expand")),
 			bubblesKey.NewBinding(bubblesKey.WithKeys("n"), bubblesKey.WithHelp("n", "new-task")),
+			bubblesKey.NewBinding(bubblesKey.WithKeys("b"), bubblesKey.WithHelp("b", "bin")),
+			bubblesKey.NewBinding(bubblesKey.WithKeys("t"), bubblesKey.WithHelp("t", "todo")),
 			bubblesKey.NewBinding(bubblesKey.WithKeys("r"), bubblesKey.WithHelp("r", "research")),
 			bubblesKey.NewBinding(bubblesKey.WithKeys("a"), bubblesKey.WithHelp("a", "arch")),
 			bubblesKey.NewBinding(bubblesKey.WithKeys("R"), bubblesKey.WithHelp("R", "refresh")),

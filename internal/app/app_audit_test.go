@@ -174,8 +174,8 @@ func TestHelpBindingsForStateTier4FocusedPaneWithKP(t *testing.T) {
 	// Global bindings are intentionally omitted from the footer.
 	// They are discoverable via the ? Help overlay.
 	descs := bubblesBindingDescs(bindings)
-	if !descs["move"] && !descs["state"] {
-		t.Error("DAG bindings should include panel-specific operations like 'move', 'state'")
+	if !descs["archive"] && !descs["state"] {
+		t.Error("DAG bindings should include panel-specific operations like 'archive', 'state'")
 	}
 
 	// Global binding key+desc pairs should NOT appear in footer.
@@ -277,7 +277,7 @@ func TestDagPaneKeyBindingsMatchLegacy(t *testing.T) {
 	newDescs := bindingDescs(newBindings)
 	legacyDescs := bubblesBindingDescs(legacyBindings)
 
-	for _, want := range []string{"move", "level", "open/create", "new-wt", "state", "todo", "new-task", "research", "arch", "refresh"} {
+	for _, want := range []string{"open/create", "new-wt", "state", "archive", "delete", "clear done", "expand", "todo", "new-task", "research", "arch", "refresh", "bin"} {
 		if !newDescs[want] {
 			t.Errorf("new DAG KeyBindings missing %q", want)
 		}
@@ -351,8 +351,8 @@ func TestTabContainerDelegatesKeyBindings(t *testing.T) {
 		t.Fatal("tabContainer should delegate to DAG pane in tasks tab")
 	}
 	tasksDescs := bindingDescs(tasksB)
-	if !tasksDescs["move"] {
-		t.Error("tasks tab should have 'move' binding from DAG")
+	if !tasksDescs["archive"] {
+		t.Error("tasks tab should have 'archive' binding from DAG")
 	}
 
 	// ADR tab → ADR bindings.
@@ -1021,7 +1021,7 @@ func TestHelpBindingsForStateNoOverlayUsesPaneProvider(t *testing.T) {
 	bindings := helpBindingsForState(m, false)
 	descs := bubblesBindingDescs(bindings)
 
-	for _, want := range []string{"move", "new-task"} {
+	for _, want := range []string{"archive", "new-task"} {
 		if !descs[want] {
 			t.Errorf("DAG bindings should include %q", want)
 		}
