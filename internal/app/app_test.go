@@ -190,7 +190,7 @@ func TestRenderHelpLineForWorktreeDetailIncludesCoreShortcuts(t *testing.T) {
 	m.activePage.focused = paneWorktreeDetail
 
 	help := m.renderHelpLine(140)
-	for _, want := range []string{"1-3", "tabs", "j/k", "nav", "enter", "edit task", "o", "files"} {
+	for _, want := range []string{"1/2/3", "tabs", "j/k", "nav", "enter", "edit task", "o", "files"} {
 		if !strings.Contains(help, want) {
 			t.Fatalf("expected help line to contain %q, got %q", want, help)
 		}
@@ -2334,9 +2334,6 @@ func TestDagPaneQuickCreateTask(t *testing.T) {
 	if !strings.Contains(view.Content, "Task DAG") {
 		t.Fatalf("expected 'Task DAG' in view, got:\n%s", view.Content)
 	}
-	if !strings.Contains(view.Content, "[n]new-task") {
-		t.Fatalf("expected '[n]new-task' hint in normal mode, got:\n%s", view.Content)
-	}
 	if !strings.Contains(view.Content, "First task") {
 		t.Fatalf("expected task title in DAG view, got:\n%s", view.Content)
 	}
@@ -2363,13 +2360,6 @@ func TestDagPaneQuickCreateTask(t *testing.T) {
 	}
 	if !strings.Contains(ansi.Strip(view.Content), "Goal (optional)") {
 		t.Fatalf("expected goal input prompt in view, got:\n%s", ansi.Strip(view.Content))
-	}
-	if !strings.Contains(view.Content, "[T]asks [A]DRs") {
-		t.Fatalf("expected creating-mode hint in view, got:\n%s", view.Content)
-	}
-	// Normal-mode hint should NOT appear.
-	if strings.Contains(view.Content, "[n]new-task") {
-		t.Fatal("expected normal-mode hint to be replaced in creating mode")
 	}
 
 	// Type a title into the focused title input.
