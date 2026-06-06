@@ -152,8 +152,8 @@ func (m *Model) ViewBanner(w int, pomoTimer, pomoPhase, linkedTodo string) strin
 	// Style and compose each line.
 	bannerStyle := lipgloss.NewStyle().Foreground(styles.Banner)
 	infoStyle := lipgloss.NewStyle().Foreground(styles.Text)
-	subtleStyle := lipgloss.NewStyle().Foreground(styles.Subtle).Italic(true)
 	accentStyle := lipgloss.NewStyle().Foreground(styles.Accent).Bold(true)
+	quoteStyle := m.theme.SecondaryAccent.Italic(true)
 
 	var result []string
 	for i := 0; i < 6; i++ {
@@ -171,7 +171,7 @@ func (m *Model) ViewBanner(w int, pomoTimer, pomoPhase, linkedTodo string) strin
 		case i == 3 && info != "":
 			right = accentStyle.Render(info)
 		case strings.HasPrefix(info, "\""):
-			right = subtleStyle.Render(info)
+			right = quoteStyle.Render(info)
 		case info != "":
 			right = infoStyle.Render(info)
 		}
@@ -232,7 +232,7 @@ func (m *Model) ViewCompact(w int, showQuote bool) string {
 		return timeLine
 	}
 
-	quoteStyle := lipgloss.NewStyle().Foreground(styles.Subtle).Italic(true)
+	quoteStyle := m.theme.SecondaryAccent.Italic(true)
 	quoteW := w - 4
 	if quoteW < 10 {
 		quoteW = 10

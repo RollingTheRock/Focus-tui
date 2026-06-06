@@ -1,13 +1,33 @@
 package layout
 
 import (
+	"math/rand"
 	"strings"
+	"time"
 
 	"focus/internal/styles"
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 )
+
+// Braille frames for the streaming gutter effect.
+var brailleFrames = []string{"⡿", "⣟", "⣯", "⣷", "⣾", "⣽", "⣻", "⢿"}
+
+// cipherChars used for the glitch/cipher effect.
+const cipherChars = "0123456789abcdef!@#$%^&*()_+~|{}:?><"
+
+// CipherText generates a random string of a fixed length for visual feedback.
+func CipherText(length int) string {
+	if length <= 0 {
+		return ""
+	}
+	b := make([]byte, length)
+	for i := range b {
+		b[i] = cipherChars[rand.Intn(len(cipherChars))]
+	}
+	return string(b)
+}
 
 // Layout breakpoints.
 const (
@@ -106,6 +126,100 @@ func ComputeBanner(w, h int) Dimensions {
 	}
 
 	return d
+}
+
+// RenderHubPanel renders a pane in the "Exquisite HUD" style:
+// - Dynamic L-shaped gutter with Braille animation for active panes.
+// - Symmetric HUD header: ━┫ TITLE ┣━━━━━━━━
+// - Cipher status for running states: [ .f1)6_D! ]
+func RenderHubPanel(theme styles.Theme, title, description, content string, w, h int, active, isRunning bool) string {
+	var b strings.Builder
+
+	// --- 1. State Configuration ---
+	accentColor := theme.AccentStyle.GetForeground()
+	dimColor := theme.SeparatorStyle.GetForeground()
+	
+	borderColor := dimColor
+	titleStyle := theme.DescriptionStyle
+	indicator := " "
+	
+	cornerChar := "┌"
+	horizChar := "─"
+	vertChar := "│"
+
+	if active {
+		borderColor = accentColor
+		titleStyle = theme.TitleStyle
+		indicator = theme.SelectedIndicator.String()
+		if indicator == "" {
+			indicator = "▎"
+		}
+		cornerChar = "┏"
+		horizChar = "━"
+		vertChar = "┃"
+	}
+
+	bc := lipgloss.NewStyle().Foreground(borderColor)
+	
+	// --- 2. Cipher & Metadata Processing ---
+	descPart := ""
+	if description != "" {
+		text := description
+		style := theme.NoteStyle
+		if isRunning {
+			// Glitch effect: replace status word with cipher text in Neon Pink
+			text = "[" + CipherText(8) + "]"
+			style = theme.SecondaryAccent.Bold(true)
+		}
+		descPart = " " + style.Render(text)
+	}
+
+	// --- 3. HUD Header Construction ---
+	// ┏━━┫ TITLE ┣━━━━━━━━━━━━━━━━ status
+	titleText := strings.ToUpper(title)
+	titlePart := bc.Render("┫") + " " + indicator + " " + titleStyle.Render(titleText) + " " + bc.Render("┣")
+	titleW := lipgloss.Width(titlePart)
+	
+	descW := lipgloss.Width(descPart)
+	
+	dashW := w + 4 - 2 - titleW - descW
+	if dashW < 1 {
+		dashW = 1
+	}
+
+	header := bc.Render(cornerChar+horizChar) + titlePart + bc.Render(strings.Repeat(horizChar, dashW)) + descPart
+	b.WriteString(header + "\n")
+
+	// --- 4. Body with Streaming Braille Gutter ---
+	contentLines := strings.Split(content, "\n")
+	bodyH := h - 1
+	
+	// Determine streaming gutter frame
+	streamChar := vertChar
+	gutterStyle := bc
+	if active && isRunning {
+		frameIdx := (time.Now().UnixNano() / int64(time.Millisecond*100)) % int64(len(brailleFrames))
+		streamChar = brailleFrames[frameIdx]
+		gutterStyle = theme.SecondaryAccent.Bold(true)
+	}
+	gutter := gutterStyle.Render(streamChar)
+
+	for i := 0; i < bodyH; i++ {
+		line := ""
+		if i < len(contentLines) {
+			line = contentLines[i]
+		}
+		
+		lineW := lipgloss.Width(line)
+		if lineW > w + 2 {
+			line = ansi.Truncate(line, w + 2, "…")
+			lineW = w + 2
+		}
+		pad := w + 2 - lineW
+		b.WriteString(gutter + " " + line + strings.Repeat(" ", pad) + "\n")
+	}
+
+	return b.String()
 }
 
 // RenderPanel renders content inside a bordered panel with a title in the top border.
