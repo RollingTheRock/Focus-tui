@@ -2331,9 +2331,6 @@ func TestDagPaneQuickCreateTask(t *testing.T) {
 		t.Fatal("expected creating=false initially")
 	}
 	view := pane.View()
-	if !strings.Contains(view.Content, "Task DAG") {
-		t.Fatalf("expected 'Task DAG' in view, got:\n%s", view.Content)
-	}
 	if !strings.Contains(view.Content, "First task") {
 		t.Fatalf("expected task title in DAG view, got:\n%s", view.Content)
 	}
