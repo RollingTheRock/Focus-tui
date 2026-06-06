@@ -251,39 +251,47 @@ func (p *adrPane) View() tea.View {
 }
 
 func (p *adrPane) renderAdrRow(adr models.ADRRecord, focused bool) string {
-	statusChip := p.statusChip(adr.Status)
+	theme := p.common.Theme
 	shortID := adr.ID
 	title := clipText(adr.Title, 40)
-	verOrDate := adrDimStyle.Render(fmt.Sprintf("v%d", adr.Version))
-	if adr.Date != "" {
-		verOrDate = adrDimStyle.Render(adr.Date)
-	}
-	row := fmt.Sprintf("  %-8s %s  %s  %s", shortID, statusChip, title, verOrDate)
+	
+	style := theme.NormalStyle
+	indicator := "  "
+	
 	if focused {
-		return adrFocusedStyle.Render("▸ " + row + " ")
+		style = theme.FocusedStyle
+		indicator = theme.SelectedIndicator.String() + " "
 	}
-	return adrRowStyle.Render("  " + row + " ")
+
+	verOrDate := theme.NoteStyle.Render(fmt.Sprintf("v%d", adr.Version))
+	if adr.Date != "" {
+		verOrDate = theme.NoteStyle.Render(adr.Date)
+	}
+	
+	row := fmt.Sprintf("%-8s %s  %s  %s", shortID, p.statusChip(adr.Status), title, verOrDate)
+	return indicator + style.Render(row)
 }
 
 func (p *adrPane) renderDetail(adr models.ADRRecord, maxH int, w int) []string {
-	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(styles.Highlight)
-	sectionStyle := lipgloss.NewStyle().Bold(true).Foreground(styles.Accent)
+	theme := p.common.Theme
+	titleStyle := theme.TitleStyle
+	sectionStyle := theme.AccentStyle.Bold(true)
 
 	var lines []string
 	width := w - 4
 
 	// Title
-	lines = append(lines, titleStyle.Render("  "+adr.Title))
+	lines = append(lines, "  "+titleStyle.Render(adr.Title))
 
 	// Metadata line
-	meta := fmt.Sprintf("  %s | %s | v%d", adr.ID, adr.Status, adr.Version)
+	meta := fmt.Sprintf("%s | %s | v%d", adr.ID, adr.Status, adr.Version)
 	if adr.Date != "" {
 		meta += " | " + adr.Date
 	}
 	if adr.SupersededBy != nil && *adr.SupersededBy != "" {
 		meta += " | supersedes " + *adr.SupersededBy
 	}
-	lines = append(lines, adrDimStyle.Render(meta))
+	lines = append(lines, "  "+theme.DescriptionStyle.Render(meta))
 	lines = append(lines, "")
 
 	// Helper to add a section
@@ -293,7 +301,7 @@ func (p *adrPane) renderDetail(adr models.ADRRecord, maxH int, w int) []string {
 		}
 		lines = append(lines, sectionStyle.Render("  "+label))
 		for _, ln := range wrapText(content, width) {
-			lines = append(lines, "  "+lipgloss.NewStyle().MaxWidth(width).Render(ln))
+			lines = append(lines, "  "+theme.NormalStyle.MaxWidth(width).Render(ln))
 		}
 		lines = append(lines, "")
 	}
@@ -430,8 +438,6 @@ func clampLines(lines []string, h, w int) string {
 
 var (
 	adrHeaderStyle     = lipgloss.NewStyle().Bold(true).Foreground(styles.Accent)
-	adrHintStyle       = lipgloss.NewStyle().Foreground(styles.Subtle)
-	adrRowStyle        = lipgloss.NewStyle().Foreground(styles.Text)
 	adrFocusedStyle    = lipgloss.NewStyle().Bold(true).Foreground(styles.Highlight).Background(lipgloss.Color("#333333"))
 	adrMutedStyle      = lipgloss.NewStyle().Foreground(styles.Subtle)
 	adrDimStyle        = lipgloss.NewStyle().Foreground(styles.Subtle)

@@ -90,27 +90,32 @@ func NewPlanEditPane(id models.PaneID, meta models.PaneMeta, common models.Commo
 	p.editForm = huh.NewForm(
 		huh.NewGroup(
 			huh.NewInput().
+				Prompt(p.common.Theme.SecondaryAccent.Render("❯ ")).
 				Key("title").
 				Title("Plan").
 				Placeholder("重构认证模块 v2").
 				Value(&values.title).
 				Validate(huh.ValidateNotEmpty()),
 			huh.NewInput().
+				Prompt(p.common.Theme.SecondaryAccent.Render("❯ ")).
 				Key("whyNow").
 				Title("Why now").
 				Placeholder("为什么现在值得执行这个计划？").
 				Value(&values.whyNow),
 			huh.NewInput().
+				Prompt(p.common.Theme.SecondaryAccent.Render("❯ ")).
 				Key("success").
 				Title("Success").
 				Placeholder("什么能证明计划成功了？").
 				Value(&values.success),
 			huh.NewInput().
+				Prompt(p.common.Theme.SecondaryAccent.Render("❯ ")).
 				Key("outOfScope").
 				Title("Out of scope").
 				Placeholder("明确排除不做的事情有哪些？").
 				Value(&values.outOfScope),
 			huh.NewInput().
+				Prompt(p.common.Theme.SecondaryAccent.Render("❯ ")).
 				Key("knownRisks").
 				Title("Risks").
 				Placeholder("还可能出现什么问题？").
