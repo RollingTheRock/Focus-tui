@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"focus/internal/adapters"
 	"focus/internal/agents"
@@ -17,7 +18,6 @@ import (
 	gitplugin "focus/internal/plugins/git"
 	"focus/internal/render"
 	"focus/internal/store"
-	"focus/internal/styles"
 	"focus/internal/ui/footer"
 	"focus/internal/ui/header"
 	"focus/internal/ui/layout"
@@ -36,6 +36,7 @@ type page struct {
 	common         *models.CommonModel
 	pluginRegistry *plugins.Registry
 	adapterManager *adapters.Manager
+	repoRoot       string
 
 	panes       map[models.PaneID]models.Panel
 	paneMeta    map[models.PaneID]models.PaneMeta
@@ -52,6 +53,10 @@ type page struct {
 
 	snapshot    *PageSnapshot
 	initialized bool
+	
+	// Cache for active sessions to avoid DB queries on the render path
+	activeSessionCache   map[string]bool
+	activeSessionCacheTs time.Time
 }
 
 type PageSnapshot struct {
@@ -92,21 +97,24 @@ func (p *PageSnapshot) toStore() store.PageSnapshot {
 	return s
 }
 
-func newPage(common *models.CommonModel, pluginRegistry *plugins.Registry, adapterManager *adapters.Manager) *page {
+func newPage(common *models.CommonModel, pluginRegistry *plugins.Registry, adapterManager *adapters.Manager, repoRoot string) *page {
 	return &page{
 		common:         common,
 		pluginRegistry: pluginRegistry,
 		adapterManager: adapterManager,
+		repoRoot:       repoRoot,
 		panes:          make(map[models.PaneID]models.Panel),
 		paneMeta:       make(map[models.PaneID]models.PaneMeta),
 		returnFocus:    make(map[models.PaneID]models.PaneID),
 		nextShell:      2,
 		nextEditor:     1,
+		activeSessionCache: make(map[string]bool),
 	}
 }
 
 func newOverviewPage(common *models.CommonModel, pluginRegistry *plugins.Registry, adapterManager *adapters.Manager, cfg config.Config, store models.Store, cwd, repoRoot string) *page {
-	p := newPage(common, pluginRegistry, adapterManager)
+	p := newPage(common, pluginRegistry, adapterManager, repoRoot)
+
 
 	dagMeta := models.PaneMeta{ID: paneDAG, Name: "DAG", Type: models.PaneTypeWorktree, CWD: cwd, RepoID: cwd, WorktreeID: cwd, Status: models.PaneStatusIdle, Closable: false}
 	worktreeMeta := models.PaneMeta{ID: paneWorktree, Name: "Worktrees", Type: models.PaneTypeWorktree, CWD: cwd, RepoID: cwd, WorktreeID: cwd, Status: models.PaneStatusIdle, Closable: false}
@@ -666,8 +674,51 @@ func (p *page) renderBody(w, h int, overlay OverlayKind) string {
 		panel := p.pane(id)
 		active := id == p.focused
 		content := panel.View()
-		title := p.renderPaneTitle(id, p.focused, ModeNormal, max(frame.W-4, 8))
-		panelView := layout.RenderPanel(title, content.Content, max(frame.W-4, 8), max(frame.H-2, 3), active)
+		
+		meta, ok := p.paneMeta[id]
+		if !ok {
+			continue
+		}
+		title := meta.Name 
+		
+		// Extract description from pane meta if available
+		description := ""
+		if meta.Status != "" {
+			description = meta.Status.String()
+		}
+		
+		// Broaden dynamic detection: Check if any agent session is active for this worktree
+		isRunning := false
+		if (meta.ID == paneDAG || meta.ID == paneWorktreeDetail) && meta.WorktreeID != "" {
+			if p.hasActiveSession(meta.WorktreeID) {
+				isRunning = true
+				if description != "" {
+					description += " • "
+				}
+				description += "running" 
+			}
+		}
+		
+		// If status itself is running/starting, mark it
+		if strings.Contains(strings.ToLower(meta.Status.String()), "running") || 
+		   strings.Contains(strings.ToLower(meta.Status.String()), "starting") {
+			isRunning = true
+		}
+
+		if meta.CWD != "" {
+			rel, err := filepath.Rel(p.repoRoot, meta.CWD)
+			if err == nil && rel != "" {
+				if rel == "." {
+					rel = "root"
+				}
+				if description != "" {
+					description += " • "
+				}
+				description += rel
+			}
+		}
+
+		panelView := layout.RenderHubPanel(p.common.Theme, title, description, content.Content, max(frame.W-4, 8), frame.H, active, isRunning)
 		base = layout.OverlayOnBase(base, panelView, frame.X, frame.Y)
 	}
 
@@ -690,13 +741,28 @@ func (p *page) renderBodyCanvas(w, h int, overlay OverlayKind) string {
 		panel := p.pane(id)
 		active := id == p.focused
 		title := p.renderPaneTitle(id, p.focused, ModeNormal, max(frame.W-4, 8))
+		description := ""
+		isRunning := false
+		if meta, ok := p.paneMeta[id]; ok {
+			if meta.Status != "" {
+				description = meta.Status.String()
+			}
+			if meta.ID == paneDAG || meta.ID == paneWorktreeDetail {
+				if meta.WorktreeID != "" && p.hasActiveSession(meta.WorktreeID) {
+					isRunning = true
+				}
+			}
+		}
+
 		sub := canvas.SubCanvas(frame.X, frame.Y, frame.W, frame.H)
 		if renderer, ok := panel.(render.Renderer); ok {
 			renderer.Render(sub, frame.W, frame.H)
 		} else {
 			panel.SetSize(max(frame.W-4, 8), max(frame.H-2, 3))
 			content := panel.View()
-			render.RenderPane(sub, title, content.Content, active)
+			// Use the Hub-style renderer for non-native renderers.
+			hubView := layout.RenderHubPanel(p.common.Theme, title, description, content.Content, max(frame.W-4, 8), max(frame.H-2, 3), active, isRunning)
+			sub.SetString(0, 0, hubView, nil)
 		}
 	}
 
@@ -838,16 +904,19 @@ func (p *page) isLargeOverlayPane(id models.PaneID) bool {
 }
 
 // dimCanvas strips existing ANSI colors and re-renders every non-empty line
-// with a subtle gray foreground, dimming the entire base canvas so an overlay
-// popped on top gains clear visual hierarchy.
+// with a 'Darkroom Dimming' effect. It uses a very subtle foreground color
+// to push the base canvas into the background, ensuring readability of context
+// while highlighting the overlay.
 func dimCanvas(s string) string {
 	lines := strings.Split(s, "\n")
+	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#374151"))
+	
 	for i, line := range lines {
 		if strings.TrimSpace(line) == "" {
 			continue
 		}
 		plain := ansi.Strip(line)
-		lines[i] = lipgloss.NewStyle().Foreground(styles.Subtle).Render(plain)
+		lines[i] = dimStyle.Render(plain)
 	}
 	return strings.Join(lines, "\n")
 }
@@ -867,7 +936,21 @@ func (p *page) renderOverlayPane(base string, id models.PaneID) string {
 		overlayW, overlayH = p.overlayContentSize()
 	}
 	panel.SetSize(overlayW, overlayH)
-	overlayView := layout.RenderPanel(p.renderPaneTitle(id, p.focused, ModeNormal, overlayW), panel.View().Content, overlayW, overlayH, true)
+	
+	meta, ok := p.paneMeta[id]
+	title := ""
+	description := ""
+	isRunning := false
+	if ok {
+		title = meta.Name
+		description = meta.Status.String()
+		if strings.Contains(strings.ToLower(meta.Status.String()), "running") || 
+		   strings.Contains(strings.ToLower(meta.Status.String()), "starting") {
+			isRunning = true
+		}
+	}
+
+	overlayView := layout.RenderHubPanel(p.common.Theme, title, description, panel.View().Content, overlayW, overlayH, true, isRunning)
 	bounds := p.bodyBoundsSize()
 	x := bounds.X + (bounds.W-(overlayW+4))/2
 	y := bounds.Y + (bounds.H-(overlayH+2))/2
@@ -910,7 +993,22 @@ func (p *page) renderOverlayPaneToCanvas(canvas *render.Canvas, id models.PaneID
 	} else {
 		panel.SetSize(overlayW, overlayH)
 		content := panel.View()
-		render.RenderPane(sub, p.renderPaneTitle(id, p.focused, ModeNormal, overlayW), content.Content, true)
+		
+		meta, ok := p.paneMeta[id]
+		title := ""
+		description := ""
+		isRunning := false
+		if ok {
+			title = meta.Name
+			description = meta.Status.String()
+			if strings.Contains(strings.ToLower(meta.Status.String()), "running") || 
+			   strings.Contains(strings.ToLower(meta.Status.String()), "starting") {
+				isRunning = true
+			}
+		}
+
+		hubView := layout.RenderHubPanel(p.common.Theme, title, description, content.Content, overlayW, overlayH, true, isRunning)
+		sub.SetString(0, 0, hubView, nil)
 	}
 }
 
@@ -1668,6 +1766,35 @@ func (p *page) captureSnapshot() *PageSnapshot {
 		ZoomedPane:   p.zoomedPane,
 		PreZoomTree:  preZoomJSON,
 	}
+}
+
+func (p *page) hasActiveSession(worktreeID string) bool {
+	if p.common == nil || p.common.Store == nil || worktreeID == "" {
+		return false
+	}
+	
+	// Throttled cache: 1 second TTL
+	if time.Since(p.activeSessionCacheTs) < 1*time.Second {
+		return p.activeSessionCache[worktreeID]
+	}
+
+	// Update cache
+	sessions, err := p.common.Store.ListAgentSessions(worktreeID)
+	if err != nil {
+		return false
+	}
+	
+	isActive := false
+	for _, s := range sessions {
+		if s.State == "running" || s.State == "starting" {
+			isActive = true
+			break
+		}
+	}
+	
+	p.activeSessionCache[worktreeID] = isActive
+	p.activeSessionCacheTs = time.Now()
+	return isActive
 }
 
 func (p *page) restoreSnapshot() {

@@ -606,11 +606,13 @@ func (p *dagPane) enterCreateMode() tea.Cmd {
 	p.createForm = huh.NewForm(
 		huh.NewGroup(
 			huh.NewInput().
+				Prompt(p.common.Theme.SecondaryAccent.Render("❯ ")).
 				Key("title").
 				Title("New task title").
 				Placeholder("e.g. Bug: crash on empty input").
 				Validate(huh.ValidateNotEmpty()),
 			huh.NewInput().
+				Prompt(p.common.Theme.SecondaryAccent.Render("❯ ")).
 				Key("goal").
 				Title("Goal (optional)").
 				Placeholder("What should this task achieve?"),
@@ -729,17 +731,13 @@ func (p *dagPane) View() tea.View {
 		h = 10
 	}
 
-	// header: 2 rows (title + hints), body: rest
-	headerRows := 2
+	// header: 0 rows (title is now in Hub header), body: rest
+	headerRows := 0
 
 	var lines []string
-	lines = append(lines,
-		dagHeaderStyle.Render(" Task DAG "),
-	)
-	lines = append(lines, "")
 
 	if !p.hasDAG() && !p.creating {
-		lines = append(lines, dagMutedStyle.Render("  No tasks yet. Press [r] to refresh."))
+		lines = append(lines, dagMutedStyle.Render(" No tasks yet. Press [r] to refresh."))
 		return tea.NewView(p.clampAndJoin(lines, h, w))
 	}
 
@@ -801,7 +799,6 @@ func (p *dagPane) clampAndJoin(lines []string, h, w int) string {
 }
 
 var (
-	dagHeaderStyle  = lipgloss.NewStyle().Bold(true).Foreground(styles.Accent)
 	dagNodeStyle    = lipgloss.NewStyle().Foreground(styles.Text)
 	dagFocusedStyle = lipgloss.NewStyle().Bold(true).Foreground(styles.Highlight).Background(lipgloss.Color("#333333"))
 	dagMutedStyle   = lipgloss.NewStyle().Foreground(styles.Subtle)

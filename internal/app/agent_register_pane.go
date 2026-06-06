@@ -140,7 +140,7 @@ func (p *agentRegisterPane) View() tea.View {
 	for i, f := range p.fields {
 		label := f.label
 		if i == p.cursor {
-			label = "> " + label
+			label = "❯ " + label
 		} else {
 			label = "  " + label
 		}

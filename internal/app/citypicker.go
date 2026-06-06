@@ -137,7 +137,7 @@ func (p *cityPickerOverlay) View() tea.View {
 
 	for i := start; i < end; i++ {
 		if i == p.cityIdx {
-			b.WriteString(accent.Render("> "+z.cities[i]) + "\n")
+			b.WriteString(accent.Render("❯ "+z.cities[i]) + "\n")
 		} else {
 			b.WriteString(text.Render("  "+z.cities[i]) + "\n")
 		}

@@ -107,47 +107,56 @@ func NewTaskEditPane(id models.PaneID, meta models.PaneMeta, common models.Commo
 	p.editForm = huh.NewForm(
 		huh.NewGroup(
 			huh.NewInput().
+				Prompt(p.common.Theme.SecondaryAccent.Render("❯ ")).
 				Key("title").
 				Title("Title").
 				Placeholder("修复用户登录接口缓存问题").
 				Value(&values.title).
 				Validate(huh.ValidateNotEmpty()),
 			huh.NewInput().
+				Prompt(p.common.Theme.SecondaryAccent.Render("❯ ")).
 				Key("goal").
 				Title("Goal").
 				Placeholder("这个任务应该产出什么结果？").
 				Value(&values.goal),
 			huh.NewInput().
+				Prompt(p.common.Theme.SecondaryAccent.Render("❯ ")).
 				Key("whyNow").
 				Title("Why now").
 				Placeholder("为什么值得在编码前先做这件事？").
 				Value(&values.whyNow),
 			huh.NewInput().
+				Prompt(p.common.Theme.SecondaryAccent.Render("❯ ")).
 				Key("success").
 				Title("Success").
 				Placeholder("什么结果能证明这件事做成功了？").
 				Value(&values.success),
 			huh.NewInput().
+				Prompt(p.common.Theme.SecondaryAccent.Render("❯ ")).
 				Key("outOfScope").
 				Title("Out of scope").
 				Placeholder("明确排除不做的事情有哪些？").
 				Value(&values.outOfScope),
 			huh.NewInput().
+				Prompt(p.common.Theme.SecondaryAccent.Render("❯ ")).
 				Key("knownRisks").
 				Title("Known risks").
 				Placeholder("后续可能出现什么风险？").
 				Value(&values.knownRisks),
 			huh.NewInput().
+				Prompt(p.common.Theme.SecondaryAccent.Render("❯ ")).
 				Key("nextStep").
 				Title("Next").
 				Placeholder("在概览中渲染摘要").
 				Value(&values.nextStep),
 			huh.NewInput().
+				Prompt(p.common.Theme.SecondaryAccent.Render("❯ ")).
 				Key("state").
 				Title("State").
 				Placeholder("active").
 				Value(&values.state),
 			huh.NewInput().
+				Prompt(p.common.Theme.SecondaryAccent.Render("❯ ")).
 				Key("priority").
 				Title("Priority").
 				Placeholder("medium").

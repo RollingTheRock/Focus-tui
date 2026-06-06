@@ -3,36 +3,58 @@ package styles
 import "charm.land/lipgloss/v2"
 
 type Theme struct {
-	TitleStyle     lipgloss.Style
-	NormalStyle    lipgloss.Style
-	SubtleStyle    lipgloss.Style
-	AccentStyle    lipgloss.Style
-	BoxStyle       lipgloss.Style
+	// --- Base Typography ---
+	TitleStyle       lipgloss.Style // e.g. Bold + Accent
+	DescriptionStyle lipgloss.Style // e.g. Regular + Subtle/Gray
+	NoteStyle        lipgloss.Style // e.g. Dimmed + Italic
+	NormalStyle      lipgloss.Style // Regular text
+	AccentStyle      lipgloss.Style // Highlighted text
+	SecondaryAccent  lipgloss.Style // Pink/Magenta for life & interaction
+
+	// --- Selection & Focus (The Hub Soul) ---
+	FocusedStyle      lipgloss.Style // Style for a focused item/field
+	BlurredStyle      lipgloss.Style // Style for a blurred item/field
+	SelectedIndicator lipgloss.Style // The vertical bar "|" or pointer "▸"
+	ActiveIndicator   lipgloss.Style // Accent indicator for the active pane
+
+	// --- Layout & Containers ---
+	BoxStyle           lipgloss.Style // General pane container
+	ActivePanelStyle   lipgloss.Style // Border for the active pane
+	InactivePanelStyle lipgloss.Style // Border for inactive panes
+	SeparatorStyle     lipgloss.Style // Vertical or horizontal dividers
+	DarkroomStyle      lipgloss.Style // Extremely subtle text for backgrounds during overlay
+
+	// --- Components ---
 	BannerStyle    lipgloss.Style
-	SeparatorStyle lipgloss.Style
 	HelpStyle      lipgloss.Style
 	InfoLabelStyle lipgloss.Style
-
-	// Panel styles for focus system.
-	ActivePanelStyle   lipgloss.Style
-	InactivePanelStyle lipgloss.Style
+	ErrorStyle     lipgloss.Style
+	SuccessStyle   lipgloss.Style
 }
 
 func DefaultTheme() Theme {
+	// Selection indicators
+	focusedIndicator := lipgloss.NewStyle().Foreground(Accent).Bold(true).SetString("▎")
+	activeIndicator := lipgloss.NewStyle().Foreground(Accent).SetString("▎")
+	pink := lipgloss.Color("#f472b6") // Neon Pink
+
 	return Theme{
-		TitleStyle:  lipgloss.NewStyle().Foreground(Accent).Bold(true),
-		NormalStyle: lipgloss.NewStyle().Foreground(Text),
-		SubtleStyle: lipgloss.NewStyle().Foreground(Subtle),
-		AccentStyle: lipgloss.NewStyle().Foreground(Accent),
+		TitleStyle:       lipgloss.NewStyle().Foreground(Accent).Bold(true),
+		DescriptionStyle: lipgloss.NewStyle().Foreground(Subtle),
+		NoteStyle:        lipgloss.NewStyle().Foreground(Subtle).Italic(true),
+		NormalStyle:      lipgloss.NewStyle().Foreground(Text),
+		AccentStyle:      lipgloss.NewStyle().Foreground(Accent),
+		SecondaryAccent:  lipgloss.NewStyle().Foreground(pink),
+
+		FocusedStyle:      lipgloss.NewStyle().Foreground(Text).Bold(true),
+		BlurredStyle:      lipgloss.NewStyle().Foreground(Subtle),
+		SelectedIndicator: focusedIndicator,
+		ActiveIndicator:   activeIndicator,
+
 		BoxStyle: lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(Accent).
 			Padding(1, 2),
-		BannerStyle:    lipgloss.NewStyle().Foreground(Banner).Bold(true),
-		SeparatorStyle: lipgloss.NewStyle().Foreground(Subtle),
-		HelpStyle:      lipgloss.NewStyle().Foreground(Subtle),
-		InfoLabelStyle: lipgloss.NewStyle().Foreground(InfoLabel),
-
 		ActivePanelStyle: lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(ActiveBorder).
@@ -41,5 +63,14 @@ func DefaultTheme() Theme {
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(DimBorder).
 			Padding(0, 1),
+		SeparatorStyle:     lipgloss.NewStyle().Foreground(DimBorder),
+		DarkroomStyle:      lipgloss.NewStyle().Foreground(lipgloss.Color("#374151")),
+
+		BannerStyle:    lipgloss.NewStyle().Foreground(Banner).Bold(true),
+
+		HelpStyle:      lipgloss.NewStyle().Foreground(Subtle),
+		InfoLabelStyle: lipgloss.NewStyle().Foreground(InfoLabel),
+		ErrorStyle:     lipgloss.NewStyle().Foreground(Overdue),
+		SuccessStyle:   lipgloss.NewStyle().Foreground(Success),
 	}
 }

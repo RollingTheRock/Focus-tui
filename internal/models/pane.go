@@ -38,6 +38,10 @@ const (
 	PaneStatusPassive  PaneStatus = "passive"
 )
 
+func (s PaneStatus) String() string {
+	return string(s)
+}
+
 // PaneMeta stores app-level metadata for routing and titles.
 type PaneMeta struct {
 	ID             PaneID

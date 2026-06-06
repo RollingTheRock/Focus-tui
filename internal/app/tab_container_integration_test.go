@@ -13,7 +13,7 @@ func TestTabContainerViaRouteToPane(t *testing.T) {
 	adr := newAdrPane(paneDAG+"-adr", models.PaneMeta{}, common, "")
 	tc := newTabContainer(paneDAG, models.PaneMeta{}, common, dag, adr)
 
-	p := newPage(common, nil, nil)
+	p := newPage(common, nil, nil, "")
 	p.registerPane(paneDAG, tc, models.PaneMeta{ID: paneDAG, Type: models.PaneTypeWorktree})
 	p.focused = paneDAG
 

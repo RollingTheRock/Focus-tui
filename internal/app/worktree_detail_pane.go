@@ -355,28 +355,26 @@ func (p *worktreeDetailPane) View() tea.View {
 }
 
 func (p *worktreeDetailPane) renderTabs(w int) string {
+	theme := p.common.Theme
 	var parts []string
 	for i, name := range detailTabNames {
 		label := fmt.Sprintf(" %d %s ", i+1, name)
 		if detailTab(i) == p.activeTab {
-			parts = append(parts, tabActiveStyle.Render(label))
+			parts = append(parts, theme.FocusedStyle.Underline(true).Render(label))
 		} else {
-			parts = append(parts, tabInactiveStyle.Render(label))
+			parts = append(parts, theme.DescriptionStyle.Render(label))
 		}
 	}
 	bar := lipgloss.JoinHorizontal(lipgloss.Left, parts...)
-	padding := w - lipgloss.Width(bar)
-	if padding < 0 {
-		padding = 0
-	}
-	return bar + strings.Repeat(" ", padding)
+	return bar
 }
 
 // --- Tasks tab ---
 
 func (p *worktreeDetailPane) renderTasks(w, h int) string {
+	theme := p.common.Theme
 	if len(p.tasks) == 0 {
-		return lipgloss.NewStyle().MaxWidth(w).Render("  No tasks assigned to this worktree.")
+		return theme.DescriptionStyle.MaxWidth(w).Render("  No tasks assigned to this worktree.")
 	}
 	if p.taskCursor >= len(p.tasks) {
 		p.taskCursor = len(p.tasks) - 1
@@ -385,47 +383,40 @@ func (p *worktreeDetailPane) renderTasks(w, h int) string {
 		p.taskCursor = 0
 	}
 
-	header := detailMetaStyle.Render(fmt.Sprintf("  tasks %d  position %d/%d  %s", len(p.tasks), p.taskCursor+1, len(p.tasks), p.gitSummary()))
 	var lines []string
-	lines = append(lines, header, "")
 
-	rowBudget := h - len(lines)
-	if rowBudget < 2 {
-		rowBudget = 2
-	}
+	rowBudget := h
 	start, end, showUp, showDown := taskWindow(len(p.tasks), p.taskCursor, rowBudget)
 	if showUp {
-		lines = append(lines, detailMetaStyle.Render(fmt.Sprintf("  ▲ %d hidden", start)))
+		lines = append(lines, theme.NoteStyle.Render(fmt.Sprintf("  ▲ %d hidden", start)))
 	}
 	for i := start; i < end; i++ {
-		t := p.tasks[i]
-		state := t.State
-		if state == "" {
-			state = "ready"
-		}
-		cursor := "  "
+		indicator := "  "
+		style := theme.NormalStyle
 		if i == p.taskCursor {
-			cursor = "▸ "
+			indicator = theme.SelectedIndicator.String() + " "
+			style = theme.FocusedStyle
 		}
-		stateBadge := detailStateBadge(state)
-		priorityBadge := detailPriorityBadge(t.Priority)
-		title := clipDisplayText(t.Title, max(10, w-32))
-		line := fmt.Sprintf("%s%s %s %s", cursor, stateBadge, priorityBadge, title)
-		if i == p.taskCursor {
-			line = detailSelectedRowStyle.Render(ansi.Truncate(line, w, "…"))
-		} else {
-			line = ansi.Truncate(line, w, "…")
-		}
-		lines = append(lines, line)
-		if i == p.taskCursor && strings.TrimSpace(t.NextStep) != "" {
-			next := detailMetaStyle.Render("   next: " + ansi.Truncate(strings.TrimSpace(strings.ReplaceAll(t.NextStep, "\n", " ")), max(8, w-9), "…"))
-			lines = append(lines, next)
-		}
+		lines = append(lines, indicator+style.Render(p.formatTaskRow(p.tasks[i], w-4)))
 	}
 	if showDown {
-		lines = append(lines, detailMetaStyle.Render(fmt.Sprintf("  ▼ %d hidden", len(p.tasks)-end)))
+		lines = append(lines, theme.NoteStyle.Render(fmt.Sprintf("  ▼ %d hidden", len(p.tasks)-end)))
 	}
-	return lipgloss.NewStyle().MaxWidth(w).Render(strings.Join(lines, "\n"))
+
+	return strings.Join(lines, "\n")
+}
+
+func (p *worktreeDetailPane) formatTaskRow(t models.TaskContextRecord, w int) string {
+	state := t.State
+	if state == "" {
+		state = "ready"
+	}
+	dot := p.stateDot(state)
+	priority := strings.ToUpper(t.Priority)
+	if priority == "" {
+		priority = "MEDIUM"
+	}
+	return fmt.Sprintf("%s [%s] {%s} %s", dot, strings.ToUpper(state), priority, t.Title)
 }
 
 // --- Context tab ---
@@ -619,55 +610,12 @@ func emptyLine(w, h int) string {
 	return lipgloss.NewStyle().Width(w).Height(h).Render("")
 }
 
-var (
-	detailMetaStyle        = lipgloss.NewStyle().Foreground(styles.Subtle)
-	detailSelectedRowStyle = lipgloss.NewStyle().Background(styles.Highlight)
-)
-
 func clipDisplayText(value string, maxW int) string {
 	value = strings.TrimSpace(strings.ReplaceAll(value, "\n", " "))
 	if value == "" || maxW <= 0 {
 		return ""
 	}
 	return ansi.Truncate(value, maxW, "…")
-}
-
-func detailStateBadge(state string) string {
-	label := strings.ToUpper(state)
-	if label == "" {
-		label = "READY"
-	}
-	switch state {
-	case "active":
-		return lipgloss.NewStyle().Foreground(styles.StateActive).Bold(true).Render("[" + label + "]")
-	case "paused":
-		return lipgloss.NewStyle().Foreground(styles.StatePaused).Bold(true).Render("[" + label + "]")
-	case "blocked":
-		return lipgloss.NewStyle().Foreground(styles.StateBlocked).Bold(true).Render("[" + label + "]")
-	case "done":
-		return lipgloss.NewStyle().Foreground(styles.StateDone).Bold(true).Render("[" + label + "]")
-	case "archived":
-		return lipgloss.NewStyle().Foreground(styles.StateIdle).Bold(true).Render("[" + label + "]")
-	default:
-		return lipgloss.NewStyle().Foreground(styles.StateReady).Bold(true).Render("[" + label + "]")
-	}
-}
-
-func detailPriorityBadge(priority string) string {
-	label := strings.ToUpper(strings.TrimSpace(priority))
-	if label == "" {
-		label = "MEDIUM"
-	}
-	switch strings.ToLower(priority) {
-	case "critical":
-		return lipgloss.NewStyle().Foreground(styles.PriorityCritical).Bold(true).Render("{" + label + "}")
-	case "high":
-		return lipgloss.NewStyle().Foreground(styles.PriorityHigh).Bold(true).Render("{" + label + "}")
-	case "low":
-		return lipgloss.NewStyle().Foreground(styles.PriorityLow).Render("{" + label + "}")
-	default:
-		return lipgloss.NewStyle().Foreground(styles.PriorityMedium).Render("{" + label + "}")
-	}
 }
 
 func taskWindow(total, cursor, rowBudget int) (start, end int, showUp, showDown bool) {
@@ -695,6 +643,8 @@ func taskWindow(total, cursor, rowBudget int) (start, end int, showUp, showDown 
 	}
 	return start, end, start > 0, end < total
 }
+
+var detailMetaStyle = lipgloss.NewStyle().Foreground(styles.Subtle)
 
 func detailSessionStateStyle(state agents.SessionState) lipgloss.Style {
 	switch state {
@@ -757,6 +707,20 @@ func containsString(list []string, s string) bool {
 		}
 	}
 	return false
+}
+
+func (p *worktreeDetailPane) stateDot(state string) string {
+	theme := p.common.Theme
+	switch strings.ToLower(state) {
+	case "active", "running":
+		return theme.AccentStyle.Render("●")
+	case "paused":
+		return theme.ErrorStyle.Render("●") // Warning color
+	case "done", "completed":
+		return theme.SuccessStyle.Render("●")
+	default:
+		return theme.DescriptionStyle.Render("○")
+	}
 }
 
 func (p *worktreeDetailPane) gitSummary() string {
