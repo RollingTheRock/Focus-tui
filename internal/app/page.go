@@ -14,8 +14,8 @@ import (
 	"focus/internal/models"
 	"focus/internal/plugins"
 	editorplugin "focus/internal/plugins/editor"
-	gitfiletree "focus/internal/plugins/gitfiletree"
 	gitplugin "focus/internal/plugins/git"
+	gitfiletree "focus/internal/plugins/gitfiletree"
 	"focus/internal/render"
 	"focus/internal/store"
 	"focus/internal/ui/footer"
@@ -53,7 +53,12 @@ type page struct {
 
 	snapshot    *PageSnapshot
 	initialized bool
-	
+
+	// overlayPaneSet  and overlayPaneOrder replace the hard-coded
+	// activeOverlayPane()/isOverlayPane() if-else chains.
+	overlayPaneSet   map[models.PaneID]struct{}
+	overlayPaneOrder []models.PaneID
+
 	// Cache for active sessions to avoid DB queries on the render path
 	activeSessionCache   map[string]bool
 	activeSessionCacheTs time.Time
@@ -98,23 +103,24 @@ func (p *PageSnapshot) toStore() store.PageSnapshot {
 }
 
 func newPage(common *models.CommonModel, pluginRegistry *plugins.Registry, adapterManager *adapters.Manager, repoRoot string) *page {
-	return &page{
-		common:         common,
-		pluginRegistry: pluginRegistry,
-		adapterManager: adapterManager,
-		repoRoot:       repoRoot,
-		panes:          make(map[models.PaneID]models.Panel),
-		paneMeta:       make(map[models.PaneID]models.PaneMeta),
-		returnFocus:    make(map[models.PaneID]models.PaneID),
-		nextShell:      2,
-		nextEditor:     1,
+	p := &page{
+		common:             common,
+		pluginRegistry:     pluginRegistry,
+		adapterManager:     adapterManager,
+		repoRoot:           repoRoot,
+		panes:              make(map[models.PaneID]models.Panel),
+		paneMeta:           make(map[models.PaneID]models.PaneMeta),
+		returnFocus:        make(map[models.PaneID]models.PaneID),
+		nextShell:          2,
+		nextEditor:         1,
 		activeSessionCache: make(map[string]bool),
 	}
+	p.initOverlayRegistry()
+	return p
 }
 
 func newOverviewPage(common *models.CommonModel, pluginRegistry *plugins.Registry, adapterManager *adapters.Manager, cfg config.Config, store models.Store, cwd, repoRoot string) *page {
 	p := newPage(common, pluginRegistry, adapterManager, repoRoot)
-
 
 	dagMeta := models.PaneMeta{ID: paneDAG, Name: "DAG", Type: models.PaneTypeWorktree, CWD: cwd, RepoID: cwd, WorktreeID: cwd, Status: models.PaneStatusIdle, Closable: false}
 	worktreeMeta := models.PaneMeta{ID: paneWorktree, Name: "Worktrees", Type: models.PaneTypeWorktree, CWD: cwd, RepoID: cwd, WorktreeID: cwd, Status: models.PaneStatusIdle, Closable: false}
@@ -498,6 +504,58 @@ func (p *page) restoreZoom() {
 	p.updateSizes(p.bodyBoundsSize())
 }
 
+// initOverlayRegistry sets up the declarative overlay pane registry.
+// Adding a new overlay pane only requires inserting its ID here.
+func (p *page) initOverlayRegistry() {
+	p.overlayPaneSet = map[models.PaneID]struct{}{
+		paneHelpOverlay:           {},
+		paneTodoOverlay:           {},
+		paneWorktreeCreate:        {},
+		paneGitCommit:             {},
+		paneTaskEdit:              {},
+		panePlanEdit:              {},
+		paneAgentSelect:           {},
+		paneProviderSelect:        {},
+		paneAgentInstallHint:      {},
+		paneAgentRegister:         {},
+		paneAgentStore:            {},
+		paneGitFileTree:           {},
+		paneGitDiff:               {},
+		paneWorktreeHistory:       {},
+		paneWorktreeDeleteConfirm: {},
+		paneTaskDeleteConfirm:     {},
+		paneDAGMiniOverlay:        {},
+		paneADRDetail:             {},
+		paneCityPicker:            {},
+		paneTaskArchive:           {},
+		paneTaskArchiveConfirm:    {},
+	}
+	// Priority order: highest first (help > todo > editor > everything else).
+	p.overlayPaneOrder = []models.PaneID{
+		paneHelpOverlay,
+		paneTodoOverlay,
+		paneWorktreeCreate,
+		paneGitCommit,
+		paneTaskEdit,
+		panePlanEdit,
+		paneAgentSelect,
+		paneProviderSelect,
+		paneAgentInstallHint,
+		paneAgentRegister,
+		paneAgentStore,
+		paneGitFileTree,
+		paneGitDiff,
+		paneWorktreeHistory,
+		paneWorktreeDeleteConfirm,
+		paneTaskDeleteConfirm,
+		paneDAGMiniOverlay,
+		paneADRDetail,
+		paneCityPicker,
+		paneTaskArchive,
+		paneTaskArchiveConfirm,
+	}
+}
+
 func (p *page) removePaneOrder(id models.PaneID) {
 	filtered := p.paneOrder[:0]
 	for _, existing := range p.paneOrder {
@@ -509,81 +567,36 @@ func (p *page) removePaneOrder(id models.PaneID) {
 }
 
 func (p *page) activeOverlayPane() models.PaneID {
-	// Help overlay (highest priority — can be opened over any other overlay).
-	if _, ok := p.paneMeta[paneHelpOverlay]; ok {
-		return paneHelpOverlay
+	for _, id := range p.overlayPaneOrder {
+		if id == paneWorktreeHistory {
+			if editorID := p.activeEditorOverlayPane(); editorID != "" {
+				return editorID
+			}
+		}
+		if id == paneTodoOverlay {
+			if tp, ok := p.pane(id).(*todo.Model); ok && tp.Visible() {
+				return id
+			}
+			continue
+		}
+		if _, ok := p.paneMeta[id]; ok {
+			return id
+		}
 	}
-	// Persistent todo overlay (visibility-toggled, highest priority).
-	if tp, ok := p.pane(paneTodoOverlay).(*todo.Model); ok && tp.Visible() {
-		return paneTodoOverlay
-	}
-	if _, ok := p.paneMeta[paneWorktreeCreate]; ok {
-		return paneWorktreeCreate
-	}
-	if _, ok := p.paneMeta[paneGitCommit]; ok {
-		return paneGitCommit
-	}
-	if _, ok := p.paneMeta[paneTaskEdit]; ok {
-		return paneTaskEdit
-	}
-	if _, ok := p.paneMeta[panePlanEdit]; ok {
-		return panePlanEdit
-	}
-	if _, ok := p.paneMeta[paneAgentSelect]; ok {
-		return paneAgentSelect
-	}
-	if _, ok := p.paneMeta[paneProviderSelect]; ok {
-		return paneProviderSelect
-	}
-	if _, ok := p.paneMeta[paneAgentInstallHint]; ok {
-		return paneAgentInstallHint
-	}
-	if _, ok := p.paneMeta[paneAgentRegister]; ok {
-		return paneAgentRegister
-	}
-	if _, ok := p.paneMeta[paneAgentStore]; ok {
-		return paneAgentStore
-	}
-	if _, ok := p.paneMeta[paneGitFileTree]; ok {
-		return paneGitFileTree
-	}
-	if _, ok := p.paneMeta[paneGitDiff]; ok {
-		return paneGitDiff
-	}
+	return p.activeEditorOverlayPane()
+}
+
+func (p *page) activeEditorOverlayPane() models.PaneID {
 	for id, meta := range p.paneMeta {
 		if meta.Type == models.PaneTypeEditor {
 			return id
 		}
 	}
-	if _, ok := p.paneMeta[paneWorktreeHistory]; ok {
-		return paneWorktreeHistory
-	}
-	if _, ok := p.paneMeta[paneWorktreeDeleteConfirm]; ok {
-		return paneWorktreeDeleteConfirm
-	}
-	if _, ok := p.paneMeta[paneTaskDeleteConfirm]; ok {
-		return paneTaskDeleteConfirm
-	}
-	if _, ok := p.paneMeta[paneDAGMiniOverlay]; ok {
-		return paneDAGMiniOverlay
-	}
-	if _, ok := p.paneMeta[paneADRDetail]; ok {
-		return paneADRDetail
-	}
-	if _, ok := p.paneMeta[paneCityPicker]; ok {
-		return paneCityPicker
-	}
-	if _, ok := p.paneMeta[paneTaskArchive]; ok {
-		return paneTaskArchive
-	}
-	if _, ok := p.paneMeta[paneTaskArchiveConfirm]; ok {
-		return paneTaskArchiveConfirm
-	}
 	return ""
 }
 
 func (p *page) isOverlayPane(id models.PaneID) bool {
-	if id == paneHelpOverlay || id == paneTodoOverlay || id == paneGitFileTree || id == paneGitCommit || id == paneWorktreeCreate || id == paneTaskEdit || id == panePlanEdit || id == paneAgentSelect || id == paneProviderSelect || id == paneAgentStore || id == paneAgentInstallHint || id == paneAgentRegister || id == paneWorktreeHistory || id == paneWorktreeDeleteConfirm || id == paneTaskDeleteConfirm || id == paneDAGMiniOverlay || id == paneADRDetail || id == paneGitDiff || id == paneCityPicker || id == paneTaskArchive || id == paneTaskArchiveConfirm {
+	if _, ok := p.overlayPaneSet[id]; ok {
 		return true
 	}
 	if meta, ok := p.paneMeta[id]; ok && meta.Type == models.PaneTypeEditor {
@@ -674,35 +687,38 @@ func (p *page) renderBody(w, h int, overlay OverlayKind) string {
 		panel := p.pane(id)
 		active := id == p.focused
 		content := panel.View()
-		
+
 		meta, ok := p.paneMeta[id]
 		if !ok {
 			continue
 		}
-		title := meta.Name 
-		
+		title := meta.Name
+
 		// Extract description from pane meta if available
 		description := ""
 		if meta.Status != "" {
 			description = meta.Status.String()
 		}
-		
+
 		// Broaden dynamic detection: Check if any agent session is active for this worktree
 		isRunning := false
-		if (meta.ID == paneDAG || meta.ID == paneWorktreeDetail) && meta.WorktreeID != "" {
+		if meta.ID == paneWorktreeDetail && meta.WorktreeID != "" {
 			if p.hasActiveSession(meta.WorktreeID) {
 				isRunning = true
 				if description != "" {
 					description += " • "
 				}
-				description += "running" 
+				description += "running"
 			}
 		}
-		
+
 		// If status itself is running/starting, mark it
-		if strings.Contains(strings.ToLower(meta.Status.String()), "running") || 
-		   strings.Contains(strings.ToLower(meta.Status.String()), "starting") {
-			isRunning = true
+		if strings.Contains(strings.ToLower(meta.Status.String()), "running") ||
+			strings.Contains(strings.ToLower(meta.Status.String()), "starting") {
+			// Shell pane only shows glitch effect when focused
+			if meta.Type != models.PaneTypeShell || active {
+				isRunning = true
+			}
 		}
 
 		if meta.CWD != "" {
@@ -747,8 +763,16 @@ func (p *page) renderBodyCanvas(w, h int, overlay OverlayKind) string {
 			if meta.Status != "" {
 				description = meta.Status.String()
 			}
-			if meta.ID == paneDAG || meta.ID == paneWorktreeDetail {
+			if meta.ID == paneWorktreeDetail {
 				if meta.WorktreeID != "" && p.hasActiveSession(meta.WorktreeID) {
+					isRunning = true
+				}
+			}
+			// If status itself is running/starting, mark it
+			if strings.Contains(strings.ToLower(meta.Status.String()), "running") ||
+				strings.Contains(strings.ToLower(meta.Status.String()), "starting") {
+				// Shell pane only shows glitch effect when focused
+				if meta.Type != models.PaneTypeShell || active {
 					isRunning = true
 				}
 			}
@@ -910,7 +934,7 @@ func (p *page) isLargeOverlayPane(id models.PaneID) bool {
 func dimCanvas(s string) string {
 	lines := strings.Split(s, "\n")
 	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#374151"))
-	
+
 	for i, line := range lines {
 		if strings.TrimSpace(line) == "" {
 			continue
@@ -936,7 +960,7 @@ func (p *page) renderOverlayPane(base string, id models.PaneID) string {
 		overlayW, overlayH = p.overlayContentSize()
 	}
 	panel.SetSize(overlayW, overlayH)
-	
+
 	meta, ok := p.paneMeta[id]
 	title := ""
 	description := ""
@@ -944,8 +968,8 @@ func (p *page) renderOverlayPane(base string, id models.PaneID) string {
 	if ok {
 		title = meta.Name
 		description = meta.Status.String()
-		if strings.Contains(strings.ToLower(meta.Status.String()), "running") || 
-		   strings.Contains(strings.ToLower(meta.Status.String()), "starting") {
+		if strings.Contains(strings.ToLower(meta.Status.String()), "running") ||
+			strings.Contains(strings.ToLower(meta.Status.String()), "starting") {
 			isRunning = true
 		}
 	}
@@ -993,7 +1017,7 @@ func (p *page) renderOverlayPaneToCanvas(canvas *render.Canvas, id models.PaneID
 	} else {
 		panel.SetSize(overlayW, overlayH)
 		content := panel.View()
-		
+
 		meta, ok := p.paneMeta[id]
 		title := ""
 		description := ""
@@ -1001,8 +1025,8 @@ func (p *page) renderOverlayPaneToCanvas(canvas *render.Canvas, id models.PaneID
 		if ok {
 			title = meta.Name
 			description = meta.Status.String()
-			if strings.Contains(strings.ToLower(meta.Status.String()), "running") || 
-			   strings.Contains(strings.ToLower(meta.Status.String()), "starting") {
+			if strings.Contains(strings.ToLower(meta.Status.String()), "running") ||
+				strings.Contains(strings.ToLower(meta.Status.String()), "starting") {
 				isRunning = true
 			}
 		}
@@ -1212,12 +1236,12 @@ func (p *page) openAgentStorePane() tea.Cmd {
 	}
 
 	meta := models.PaneMeta{
-		ID:         paneAgentStore,
-		Name:       "Agent Store",
-		Type:       paneTypeAgentStore,
-		RepoID:     p.currentRepoID(),
-		Status:     models.PaneStatusReady,
-		Closable:   true,
+		ID:       paneAgentStore,
+		Name:     "Agent Store",
+		Type:     paneTypeAgentStore,
+		RepoID:   p.currentRepoID(),
+		Status:   models.PaneStatusReady,
+		Closable: true,
 	}
 	panel := newAgentStorePane(meta.ID, meta, *p.common)
 	p.registerPane(meta.ID, panel, meta)
@@ -1239,12 +1263,12 @@ func (p *page) openAgentInstallHintPane(agentID string) tea.Cmd {
 	}
 
 	meta := models.PaneMeta{
-		ID:         paneAgentInstallHint,
-		Name:       "Install Hint",
-		Type:       paneTypeAgentInstallHint,
-		RepoID:     p.currentRepoID(),
-		Status:     models.PaneStatusReady,
-		Closable:   true,
+		ID:       paneAgentInstallHint,
+		Name:     "Install Hint",
+		Type:     paneTypeAgentInstallHint,
+		RepoID:   p.currentRepoID(),
+		Status:   models.PaneStatusReady,
+		Closable: true,
 	}
 	panel := newAgentInstallHintPane(meta.ID, meta, *p.common, agentID)
 	p.registerPane(meta.ID, panel, meta)
@@ -1266,12 +1290,12 @@ func (p *page) openAgentRegisterPane() tea.Cmd {
 	}
 
 	meta := models.PaneMeta{
-		ID:         paneAgentRegister,
-		Name:       "Register Agent",
-		Type:       paneTypeAgentRegister,
-		RepoID:     p.currentRepoID(),
-		Status:     models.PaneStatusReady,
-		Closable:   true,
+		ID:       paneAgentRegister,
+		Name:     "Register Agent",
+		Type:     paneTypeAgentRegister,
+		RepoID:   p.currentRepoID(),
+		Status:   models.PaneStatusReady,
+		Closable: true,
 	}
 	panel := newAgentRegisterPane(meta.ID, meta, *p.common)
 	p.registerPane(meta.ID, panel, meta)
@@ -1772,7 +1796,7 @@ func (p *page) hasActiveSession(worktreeID string) bool {
 	if p.common == nil || p.common.Store == nil || worktreeID == "" {
 		return false
 	}
-	
+
 	// Throttled cache: 1 second TTL
 	if time.Since(p.activeSessionCacheTs) < 1*time.Second {
 		return p.activeSessionCache[worktreeID]
@@ -1783,7 +1807,7 @@ func (p *page) hasActiveSession(worktreeID string) bool {
 	if err != nil {
 		return false
 	}
-	
+
 	isActive := false
 	for _, s := range sessions {
 		if s.State == "running" || s.State == "starting" {
@@ -1791,7 +1815,7 @@ func (p *page) hasActiveSession(worktreeID string) bool {
 			break
 		}
 	}
-	
+
 	p.activeSessionCache[worktreeID] = isActive
 	p.activeSessionCacheTs = time.Now()
 	return isActive

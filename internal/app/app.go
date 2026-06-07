@@ -152,6 +152,11 @@ type model struct {
 
 	lastAgentSync time.Time
 
+	// Debounce + cache for syncWorktreeActivities to avoid main-thread blocking.
+	syncWorktreeActivitiesAt time.Time
+	cachedWorktreeList       []gitmodel.Worktree
+	cachedWorktreeListAt     time.Time
+
 	orch          *orchestrator.Orchestrator
 	notifications []orchestrator.Notification
 
@@ -253,10 +258,10 @@ func New(cfg config.Config, store models.Store) tea.Model {
 	m.registerMCPTools()
 	m.registerMCPResources()
 	if err := m.mcpServer.Start(); err != nil {
-		fmt.Fprintf(os.Stderr, "focus: mcp server start failed: %v\n", err)
+		log.Printf("focus: mcp server start failed: %v", err)
 	}
 	if url, err := m.mcpServer.StartHTTP(); err != nil {
-		fmt.Fprintf(os.Stderr, "focus: mcp http start failed: %v\n", err)
+		log.Printf("focus: mcp http start failed: %v", err)
 	} else if url != "" {
 		m.common.Cfg.Agent.MCPSocket = url
 	}
@@ -1225,6 +1230,24 @@ func (m *model) mcpPlanExpandToTasksTool(params map[string]any) (map[string]any,
 	dependencies := make([]map[string]any, 0)
 	var firstTaskID string
 
+	originalPlan := *plan
+	originalStepsByID := make(map[string]models.PlanStepRecord, len(steps))
+	for _, step := range steps {
+		originalStepsByID[step.ID] = step
+	}
+
+	// rollback attempts to restore plan/step state and clean up partially
+	// created tasks on failure.
+	rollback := func(created []string) {
+		_ = m.cmdBus.Send(context.Background(), &commands.UpdatePlan{Record: originalPlan})
+		for _, step := range originalStepsByID {
+			_ = m.cmdBus.Send(context.Background(), &commands.UpdatePlanStep{Record: step})
+		}
+		for _, tid := range created {
+			_ = m.cmdBus.Send(context.Background(), &commands.DeleteTask{TaskID: tid})
+		}
+	}
+
 	for i, step := range steps {
 		taskID := uuid.NewString()
 		taskIDMap[step.OrderIndex] = taskID
@@ -1244,6 +1267,7 @@ func (m *model) mcpPlanExpandToTasksTool(params map[string]any) (map[string]any,
 			Goal:   step.Notes,
 			State:  state,
 		}); err != nil {
+			rollback(taskIDs)
 			return nil, fmt.Errorf("save task for step %q: %w", step.Title, err)
 		}
 		m.syncTaskCreateToTrellis(taskID)
@@ -1251,6 +1275,7 @@ func (m *model) mcpPlanExpandToTasksTool(params map[string]any) (map[string]any,
 		// Update step with expanded task ID
 		step.ExpandedTaskID = taskID
 		if err := m.cmdBus.Send(context.Background(), &commands.UpdatePlanStep{Record: step}); err != nil {
+			rollback(taskIDs)
 			return nil, fmt.Errorf("update step %q: %w", step.Title, err)
 		}
 	}
@@ -1267,6 +1292,7 @@ func (m *model) mcpPlanExpandToTasksTool(params map[string]any) (map[string]any,
 			ToTaskID:       toID,
 			DependencyType: "hard",
 		}); err != nil {
+			rollback(taskIDs)
 			return nil, fmt.Errorf("save dependency: %w", err)
 		}
 		dependencies = append(dependencies, map[string]any{
@@ -1278,6 +1304,7 @@ func (m *model) mcpPlanExpandToTasksTool(params map[string]any) (map[string]any,
 	// Update plan status to active
 	plan.Status = "active"
 	if err := m.cmdBus.Send(context.Background(), &commands.UpdatePlan{Record: *plan}); err != nil {
+		rollback(taskIDs)
 		return nil, err
 	}
 
@@ -4954,8 +4981,21 @@ func (m *model) syncWorktreeActivities() {
 	if m.pages == nil {
 		return
 	}
+	// Debounce only expensive external discovery; DB-backed UI state still
+	// refreshes so callers do not lose recent session/task changes.
+	recentSync := time.Since(m.syncWorktreeActivitiesAt) < 50*time.Millisecond
+	if !recentSync {
+		m.syncWorktreeActivitiesAt = time.Now()
+	}
 
-	shouldDiscover := time.Since(m.lastAgentSync) >= time.Second
+	start := time.Now()
+	defer func() {
+		if d := time.Since(start); d > 50*time.Millisecond {
+			log.Printf("syncWorktreeActivities slow: %v", d)
+		}
+	}()
+
+	shouldDiscover := !recentSync && time.Since(m.lastAgentSync) >= time.Second
 	if shouldDiscover {
 		m.lastAgentSync = time.Now()
 	}
@@ -4987,7 +5027,13 @@ func (m *model) syncWorktreeActivities() {
 	}
 	var worktreeList []gitmodel.Worktree
 	if m.adapterManager != nil && m.adapterManager.Git() != nil {
-		worktreeList, _ = m.adapterManager.Git().ListWorktrees(repoPath)
+		if time.Since(m.cachedWorktreeListAt) < time.Second {
+			worktreeList = m.cachedWorktreeList
+		} else {
+			worktreeList, _ = m.adapterManager.Git().ListWorktrees(repoPath)
+			m.cachedWorktreeList = worktreeList
+			m.cachedWorktreeListAt = time.Now()
+		}
 	}
 	if len(worktreeList) == 0 && m.activePage != nil {
 		if wp, ok := m.activePage.pane(paneWorktree).(*gitplugin.WorktreePane); ok {
@@ -6202,17 +6248,26 @@ func (m *model) syncTaskCreateToTrellis(taskID string) {
 		return
 	}
 	go func() {
-		task, err := m.common.Store.GetTaskContext(taskID)
-		if err != nil || task == nil {
-			return
-		}
-		plans, _ := m.common.Store.ListTaskPlans(taskID)
-		var plan *models.TaskPlanRecord
-		if len(plans) > 0 {
-			plan = &plans[0]
-		}
-		if _, err := m.trellisBridge.SyncTaskCreate(*task, plan); err != nil {
-			log.Printf("syncTaskCreateToTrellis: %v", err)
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			task, err := m.common.Store.GetTaskContext(taskID)
+			if err != nil || task == nil {
+				return
+			}
+			plans, _ := m.common.Store.ListTaskPlans(taskID)
+			var plan *models.TaskPlanRecord
+			if len(plans) > 0 {
+				plan = &plans[0]
+			}
+			if _, err := m.trellisBridge.SyncTaskCreate(*task, plan); err != nil {
+				log.Printf("syncTaskCreateToTrellis: %v", err)
+			}
+		}()
+		select {
+		case <-done:
+		case <-time.After(10 * time.Second):
+			log.Printf("syncTaskCreateToTrellis: timeout for task %s", taskID)
 		}
 	}()
 }
@@ -6223,19 +6278,28 @@ func (m *model) syncTaskStateToTrellis(taskID string, newState string) {
 		return
 	}
 	go func() {
-		switch newState {
-		case "active":
-			if err := m.trellisBridge.SyncTaskStart(taskID); err != nil {
-				log.Printf("syncTaskStateToTrellis start: %v", err)
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			switch newState {
+			case "active":
+				if err := m.trellisBridge.SyncTaskStart(taskID); err != nil {
+					log.Printf("syncTaskStateToTrellis start: %v", err)
+				}
+			case "done":
+				if err := m.trellisBridge.SyncTaskFinish(taskID); err != nil {
+					log.Printf("syncTaskStateToTrellis finish: %v", err)
+				}
+			case "archived":
+				if err := m.trellisBridge.SyncTaskArchive(taskID); err != nil {
+					log.Printf("syncTaskStateToTrellis archive: %v", err)
+				}
 			}
-		case "done":
-			if err := m.trellisBridge.SyncTaskFinish(taskID); err != nil {
-				log.Printf("syncTaskStateToTrellis finish: %v", err)
-			}
-		case "archived":
-			if err := m.trellisBridge.SyncTaskArchive(taskID); err != nil {
-				log.Printf("syncTaskStateToTrellis archive: %v", err)
-			}
+		}()
+		select {
+		case <-done:
+		case <-time.After(10 * time.Second):
+			log.Printf("syncTaskStateToTrellis: timeout for task %s state %s", taskID, newState)
 		}
 	}()
 }

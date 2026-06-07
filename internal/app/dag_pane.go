@@ -44,6 +44,10 @@ type dagPane struct {
 	creating   bool
 	createForm *huh.Form
 	createErr  error
+
+	// DAG render cache: skip re-rendering when data hasn't changed.
+	dagCacheKey   string
+	dagCacheValue string
 }
 
 func newDagPane(id models.PaneID, meta models.PaneMeta, common *models.CommonModel, repoID string, adapter adapters.GitAdapter) *dagPane {
@@ -87,30 +91,30 @@ func (p *dagPane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 		p.buildDAG()
 		return p, nil
 
-		case tea.KeyPressMsg:
-			if p.creating && p.createForm != nil {
-				if msg.Keystroke() == "esc" {
-					p.exitCreateMode()
-					return p, nil
-				}
-				m, cmd := p.createForm.Update(msg)
-				if f, ok := m.(*huh.Form); ok {
-					p.createForm = f
-				}
-				// Only flush on Enter to avoid per-keystroke overhead in production.
-				if msg.Keystroke() == "enter" {
-					p.flushFormCmds(cmd)
-				}
-				if p.createForm.State == huh.StateCompleted {
-					title := strings.TrimSpace(p.createForm.GetString("title"))
-					goal := strings.TrimSpace(p.createForm.GetString("goal"))
-					p.exitCreateMode()
-					return p, p.submitCreate(title, goal)
-				}
-				return p, cmd
+	case tea.KeyPressMsg:
+		if p.creating && p.createForm != nil {
+			if msg.Keystroke() == "esc" {
+				p.exitCreateMode()
+				return p, nil
 			}
+			m, cmd := p.createForm.Update(msg)
+			if f, ok := m.(*huh.Form); ok {
+				p.createForm = f
+			}
+			// Only flush on Enter to avoid per-keystroke overhead in production.
+			if msg.Keystroke() == "enter" {
+				p.flushFormCmds(cmd)
+			}
+			if p.createForm.State == huh.StateCompleted {
+				title := strings.TrimSpace(p.createForm.GetString("title"))
+				goal := strings.TrimSpace(p.createForm.GetString("goal"))
+				p.exitCreateMode()
+				return p, p.submitCreate(title, goal)
+			}
+			return p, cmd
+		}
 
-			switch msg.Keystroke() {
+		switch msg.Keystroke() {
 		case "R":
 			return p, p.refreshCmd()
 		case "j", "down":
@@ -750,7 +754,13 @@ func (p *dagPane) View() tea.View {
 	}
 
 	// Render full DAG without height limit, then apply vertical scrolling.
-	dagStr := renderHorizontalDAG(p.nodes, p.edges, p.levels, p.layerIDs, p.maxLevel, p.cursorNode, w, 0)
+	cacheKey := p.renderCacheKey(w)
+	dagStr := p.dagCacheValue
+	if p.dagCacheKey != cacheKey {
+		dagStr = renderHorizontalDAG(p.nodes, p.edges, p.levels, p.layerIDs, p.maxLevel, p.cursorNode, w, 0)
+		p.dagCacheKey = cacheKey
+		p.dagCacheValue = dagStr
+	}
 	dagLines := strings.Split(dagStr, "\n")
 
 	// Clamp scrollOffset in case DAG shrank (e.g. after refresh).
@@ -780,6 +790,50 @@ func (p *dagPane) View() tea.View {
 	}
 
 	return tea.NewView(p.clampAndJoin(lines, h, w))
+}
+
+func (p *dagPane) renderCacheKey(width int) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "w=%d|cursor=%s|max=%d|nodes=%d|edges=%d|", width, p.cursorNode, p.maxLevel, len(p.nodes), len(p.edges))
+
+	nodeIDs := make([]string, 0, len(p.nodes))
+	for id := range p.nodes {
+		nodeIDs = append(nodeIDs, id)
+	}
+	sort.Strings(nodeIDs)
+	for _, id := range nodeIDs {
+		n := p.nodes[id]
+		fmt.Fprintf(&b, "n=%s,%s,%s,%s;", n.ID, n.Title, n.State, n.Priority)
+	}
+
+	for _, e := range p.edges {
+		fmt.Fprintf(&b, "e=%s,%s,%s;", e.From, e.To, e.Type)
+	}
+
+	levelIDs := make([]string, 0, len(p.levels))
+	for id := range p.levels {
+		levelIDs = append(levelIDs, id)
+	}
+	sort.Strings(levelIDs)
+	for _, id := range levelIDs {
+		fmt.Fprintf(&b, "l=%s,%d;", id, p.levels[id])
+	}
+
+	layers := make([]int, 0, len(p.layerIDs))
+	for lv := range p.layerIDs {
+		layers = append(layers, lv)
+	}
+	sort.Ints(layers)
+	for _, lv := range layers {
+		fmt.Fprintf(&b, "layer=%d:", lv)
+		for _, id := range p.layerIDs[lv] {
+			b.WriteString(id)
+			b.WriteByte(',')
+		}
+		b.WriteByte(';')
+	}
+
+	return b.String()
 }
 
 func dagHelpHint(width int, creating bool) string {
