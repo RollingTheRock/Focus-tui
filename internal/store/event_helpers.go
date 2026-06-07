@@ -12,9 +12,6 @@ import (
 // Failures are logged but never block the caller. It is used by all Store write
 // methods during the dual-write migration phase.
 func (s *Store) tryAppendEvent(aggregateType, aggregateID, eventType string, payload any, scopeType, scopeID string) {
-	if s.events == nil {
-		return
-	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
@@ -24,7 +21,7 @@ func (s *Store) tryAppendEvent(aggregateType, aggregateID, eventType string, pay
 		return
 	}
 
-	_, err = s.events.AppendEvent(ctx, events.Event{
+	ev := events.Event{
 		OccurredAt:    time.Now(),
 		AggregateType: aggregateType,
 		AggregateID:   aggregateID,
@@ -33,8 +30,17 @@ func (s *Store) tryAppendEvent(aggregateType, aggregateID, eventType string, pay
 		ActorType:     events.ActorSystem,
 		ScopeType:     scopeType,
 		ScopeID:       scopeID,
-	})
-	if err != nil {
-		log.Printf("[event-store] append %s event failed (non-critical): %v", eventType, err)
+	}
+
+	if s.events != nil {
+		// PostgreSQL mode: EventStore persists and then publishes internally.
+		_, err = s.events.AppendEvent(ctx, ev)
+		if err != nil {
+			log.Printf("[event-store] append %s event failed (non-critical): %v", eventType, err)
+		}
+	} else if s.bus != nil {
+		// SQLite mode: no EventStore, publish directly to the bus so that
+		// the Orchestrator and other real-time consumers still receive events.
+		s.bus.Publish(ev)
 	}
 }
