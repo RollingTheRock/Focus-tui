@@ -9,6 +9,9 @@ import (
 )
 
 func TestMCPHTTPServerStartsWithTUI(t *testing.T) {
+	if testing.Short() {
+		t.Skip("MCP HTTP integration test skipped in short mode")
+	}
 	cfg := config.DefaultConfig()
 	cfg.Agent.MCPPort = "127.0.0.1:18767" // dedicated test port to avoid conflicts with other tests
 	st, _ := store.New(":memory:")

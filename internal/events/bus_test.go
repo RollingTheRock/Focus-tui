@@ -153,6 +153,9 @@ func TestEventBus_MultipleChannelsPerSubscriber(t *testing.T) {
 // ── Stress Tests ──
 
 func TestEventBus_StressManySubscribers(t *testing.T) {
+	if testing.Short() {
+		t.Skip("stress test skipped in short mode")
+	}
 	bus := NewEventBus()
 	const numSubs = 25
 	const numEvents = 1000
@@ -199,6 +202,9 @@ func TestEventBus_StressManySubscribers(t *testing.T) {
 }
 
 func TestEventBus_StressFilteredSubscribers(t *testing.T) {
+	if testing.Short() {
+		t.Skip("stress test skipped in short mode")
+	}
 	bus := NewEventBus()
 	const numEvents = 5000
 	const numTaskSubs = 20
@@ -262,6 +268,9 @@ func TestEventBus_StressFilteredSubscribers(t *testing.T) {
 }
 
 func TestEventBus_StressConcurrentPublish(t *testing.T) {
+	if testing.Short() {
+		t.Skip("stress test skipped in short mode")
+	}
 	bus := NewEventBus()
 	const numPublishers = 5
 	const eventsPerPublisher = 20

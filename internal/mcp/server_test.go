@@ -11,7 +11,15 @@ import (
 	"time"
 )
 
+func skipMCPHTTPInShortMode(t *testing.T) {
+	t.Helper()
+	if testing.Short() {
+		t.Skip("MCP HTTP integration test skipped in short mode")
+	}
+}
+
 func TestServerHTTPStartsAndResponds(t *testing.T) {
+	skipMCPHTTPInShortMode(t)
 	s := NewServer("", "127.0.0.1:0")
 	if err := s.RegisterTool("task.ping", "Ping the task system", nil, func(params map[string]any) (map[string]any, error) {
 		return map[string]any{"ok": true}, nil
@@ -44,6 +52,7 @@ func TestServerHTTPStartsAndResponds(t *testing.T) {
 }
 
 func TestServerHTTPInitialize(t *testing.T) {
+	skipMCPHTTPInShortMode(t)
 	s := NewServer("", "127.0.0.1:0")
 	url, err := s.StartHTTP()
 	if err != nil {
@@ -71,6 +80,7 @@ func TestServerHTTPInitialize(t *testing.T) {
 }
 
 func TestServerHTTPToolsList(t *testing.T) {
+	skipMCPHTTPInShortMode(t)
 	s := NewServer("", "127.0.0.1:0")
 	_ = s.RegisterTool("task.create", "Create a task", map[string]any{
 		"type":       "object",
@@ -101,6 +111,7 @@ func TestServerHTTPToolsList(t *testing.T) {
 }
 
 func TestServerHTTPToolsCall(t *testing.T) {
+	skipMCPHTTPInShortMode(t)
 	s := NewServer("", "127.0.0.1:0")
 	_ = s.RegisterTool("task.echo", "Echo a task", nil, func(params map[string]any) (map[string]any, error) {
 		return map[string]any{
@@ -140,6 +151,7 @@ func TestServerHTTPToolsCall(t *testing.T) {
 }
 
 func TestServerHTTPUnknownMethod(t *testing.T) {
+	skipMCPHTTPInShortMode(t)
 	s := NewServer("", "127.0.0.1:0")
 	url, err := s.StartHTTP()
 	if err != nil {
@@ -162,6 +174,7 @@ func TestServerHTTPUnknownMethod(t *testing.T) {
 }
 
 func TestServerHTTPMethodNotAllowed(t *testing.T) {
+	skipMCPHTTPInShortMode(t)
 	s := NewServer("", "127.0.0.1:0")
 	url, err := s.StartHTTP()
 	if err != nil {
@@ -256,6 +269,7 @@ func unixSocketNotPermitted(err error) bool {
 
 // TestServerHTTPConcurrentCalls verifies the HTTP server handles concurrent requests safely.
 func TestServerHTTPConcurrentCalls(t *testing.T) {
+	skipMCPHTTPInShortMode(t)
 	s := NewServer("", "127.0.0.1:0")
 	_ = s.RegisterTool("task.counter", "Counter", nil, func(params map[string]any) (map[string]any, error) {
 		return map[string]any{"count": 1}, nil
@@ -297,6 +311,7 @@ func TestServerHTTPConcurrentCalls(t *testing.T) {
 
 // TestServerHTTPPing verifies the ping method.
 func TestServerHTTPPing(t *testing.T) {
+	skipMCPHTTPInShortMode(t)
 	s := NewServer("", "127.0.0.1:0")
 	url, err := s.StartHTTP()
 	if err != nil {
@@ -317,6 +332,7 @@ func TestServerHTTPPing(t *testing.T) {
 
 // TestServerRegisterToolDuplicateOverwrites verifies duplicate registration updates the tool.
 func TestServerRegisterToolDuplicateOverwrites(t *testing.T) {
+	skipMCPHTTPInShortMode(t)
 	s := NewServer("", "127.0.0.1:0")
 	_ = s.RegisterTool("task.x", "First", nil, func(params map[string]any) (map[string]any, error) {
 		return map[string]any{"v": 1}, nil
@@ -354,6 +370,7 @@ func TestServerRegisterToolDuplicateOverwrites(t *testing.T) {
 
 // TestServerRegisterResourceAndRead verifies resource registration, list, and read.
 func TestServerRegisterResourceAndRead(t *testing.T) {
+	skipMCPHTTPInShortMode(t)
 	s := NewServer("", "127.0.0.1:0")
 	_ = s.RegisterResource("context://tasks", "Tasks", "All tasks", "application/json", func(uri string) (ResourceContent, error) {
 		return ResourceContent{URI: uri, MimeType: "application/json", Text: `[{"id":"1"}]`}, nil
@@ -440,6 +457,7 @@ func TestServerRegisterResourceAndRead(t *testing.T) {
 
 // TestServerReadResourceNotFound verifies 404-like behavior for unknown resources.
 func TestServerReadResourceNotFound(t *testing.T) {
+	skipMCPHTTPInShortMode(t)
 	s := NewServer("", "127.0.0.1:0")
 	url, err := s.StartHTTP()
 	if err != nil {
@@ -465,6 +483,7 @@ func TestServerReadResourceNotFound(t *testing.T) {
 // (requests without an id) return HTTP 202 Accepted with no body, per MCP
 // Streamable HTTP transport specification.
 func TestServerHTTPNotificationReturns202(t *testing.T) {
+	skipMCPHTTPInShortMode(t)
 	s := NewServer("", "127.0.0.1:0")
 	url, err := s.StartHTTP()
 	if err != nil {

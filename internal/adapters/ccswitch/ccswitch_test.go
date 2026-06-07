@@ -216,9 +216,9 @@ func TestProviderEnvVars_EnvNotMap(t *testing.T) {
 func TestProviderEnvVars_ValidEnv(t *testing.T) {
 	p := Provider{SettingsConfig: map[string]any{
 		"env": map[string]any{
-			"GEMINI_API_KEY":        "sk-abc123",
+			"GEMINI_API_KEY":         "sk-abc123",
 			"GOOGLE_GEMINI_BASE_URL": "https://api.example.com",
-			"GEMINI_MODEL":          "gemini-pro",
+			"GEMINI_MODEL":           "gemini-pro",
 		},
 	}}
 	got := p.envVars()
@@ -241,9 +241,9 @@ func TestProviderEnvVars_ValidEnv(t *testing.T) {
 func TestProviderEnvVars_SkipsEmptyValues(t *testing.T) {
 	p := Provider{SettingsConfig: map[string]any{
 		"env": map[string]any{
-			"SET":    "value",
-			"EMPTY":  "",
-			"ZERO":   "0", // "0" is non-empty, should be included
+			"SET":   "value",
+			"EMPTY": "",
+			"ZERO":  "0", // "0" is non-empty, should be included
 		},
 	}}
 	got := p.envVars()
@@ -273,10 +273,10 @@ func TestProviderEnvVars_FuzzLikeValues(t *testing.T) {
 	// Values that look like they might be valid but aren't.
 	p := Provider{SettingsConfig: map[string]any{
 		"env": map[string]any{
-			"KEY_WITH_EQUALS":    "val=ue",
-			"KEY_WITH_NEWLINE":   "val\nue",
-			"KEY_WITH_SPACES":    " val ",
-			"UNICODE_KEY":        "välüe",
+			"KEY_WITH_EQUALS":  "val=ue",
+			"KEY_WITH_NEWLINE": "val\nue",
+			"KEY_WITH_SPACES":  " val ",
+			"UNICODE_KEY":      "välüe",
 		},
 	}}
 	got := p.envVars()
@@ -296,7 +296,15 @@ func TestProviderEnvVars_FuzzLikeValues(t *testing.T) {
 
 // ---- GetProviderEnvVars (integration with real cc-switch) ---------------------
 
+func skipRealCCSwitchInShortMode(t *testing.T) {
+	t.Helper()
+	if testing.Short() {
+		t.Skip("real cc-switch integration test skipped in short mode")
+	}
+}
+
 func TestGetProviderEnvVars_Gemini_RealCCSwitch(t *testing.T) {
+	skipRealCCSwitchInShortMode(t)
 	if !IsInstalled() {
 		t.Skip("cc-switch not installed")
 	}
@@ -308,6 +316,7 @@ func TestGetProviderEnvVars_Gemini_RealCCSwitch(t *testing.T) {
 }
 
 func TestGetProviderEnvVars_OpenCode_RealCCSwitch(t *testing.T) {
+	skipRealCCSwitchInShortMode(t)
 	if !IsInstalled() {
 		t.Skip("cc-switch not installed")
 	}
@@ -333,6 +342,7 @@ func TestGetProviderEnvVars_OpenCode_RealCCSwitch(t *testing.T) {
 }
 
 func TestGetProviderEnvVars_Gemini_Cubence_RealCCSwitch(t *testing.T) {
+	skipRealCCSwitchInShortMode(t)
 	if !IsInstalled() {
 		t.Skip("cc-switch not installed")
 	}
@@ -353,6 +363,7 @@ func TestGetProviderEnvVars_Gemini_Cubence_RealCCSwitch(t *testing.T) {
 }
 
 func TestGetProviderEnvVars_NonexistentProvider(t *testing.T) {
+	skipRealCCSwitchInShortMode(t)
 	if !IsInstalled() {
 		t.Skip("cc-switch not installed")
 	}
@@ -363,6 +374,7 @@ func TestGetProviderEnvVars_NonexistentProvider(t *testing.T) {
 }
 
 func TestGetProviderEnvVars_NonexistentApp(t *testing.T) {
+	skipRealCCSwitchInShortMode(t)
 	if !IsInstalled() {
 		t.Skip("cc-switch not installed")
 	}
@@ -373,6 +385,7 @@ func TestGetProviderEnvVars_NonexistentApp(t *testing.T) {
 }
 
 func TestGetProviderEnvVars_UnsupportedApp(t *testing.T) {
+	skipRealCCSwitchInShortMode(t)
 	if !IsInstalled() {
 		t.Skip("cc-switch not installed")
 	}
@@ -397,6 +410,7 @@ func TestIsInstalled(t *testing.T) {
 // ---- ListProviders - real cc-switch integration -------------------------------
 
 func TestListProviders_Claude_RealCCSwitch(t *testing.T) {
+	skipRealCCSwitchInShortMode(t)
 	if !IsInstalled() {
 		t.Skip("cc-switch not installed")
 	}
@@ -421,6 +435,7 @@ func TestListProviders_Claude_RealCCSwitch(t *testing.T) {
 }
 
 func TestListProviders_Gemini_RealCCSwitch(t *testing.T) {
+	skipRealCCSwitchInShortMode(t)
 	if !IsInstalled() {
 		t.Skip("cc-switch not installed")
 	}
@@ -439,6 +454,7 @@ func TestListProviders_Gemini_RealCCSwitch(t *testing.T) {
 }
 
 func TestListProviders_OpenCode_RealCCSwitch(t *testing.T) {
+	skipRealCCSwitchInShortMode(t)
 	if !IsInstalled() {
 		t.Skip("cc-switch not installed")
 	}
@@ -452,6 +468,7 @@ func TestListProviders_OpenCode_RealCCSwitch(t *testing.T) {
 }
 
 func TestListProviders_AllAppTypes_RoundTrip(t *testing.T) {
+	skipRealCCSwitchInShortMode(t)
 	if !IsInstalled() {
 		t.Skip("cc-switch not installed")
 	}
