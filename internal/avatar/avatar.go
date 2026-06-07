@@ -1,7 +1,7 @@
 package avatar
 
 import (
-	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -191,6 +191,6 @@ func BackendName(imagePath string) string {
 func init() {
 	// Suppress "chafa not found" warnings by checking early.
 	if _, err := exec.LookPath("chafa"); err != nil {
-		fmt.Fprintf(os.Stderr, "focus: hint: install chafa for avatar display (apt install chafa)\n")
+		log.Printf("focus: hint: install chafa for avatar display (apt install chafa)")
 	}
 }

@@ -135,6 +135,9 @@ func (m *Model) startShell() tea.Cmd {
 		if m.autoType != "" {
 			go func() {
 				time.Sleep(200 * time.Millisecond)
+				if !m.running || m.pty == nil {
+					return
+				}
 				if m.pty != nil {
 					m.pty.Write([]byte(m.autoType + "\r"))
 				}

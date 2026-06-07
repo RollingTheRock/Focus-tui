@@ -1,7 +1,7 @@
 package config
 
 import (
-	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 
@@ -111,13 +111,13 @@ func Load() Config {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if !os.IsNotExist(err) {
-			fmt.Fprintf(os.Stderr, "focus: warning: could not read config: %v\n", err)
+			log.Printf("focus: warning: could not read config: %v", err)
 		}
 		return cfg
 	}
 
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		fmt.Fprintf(os.Stderr, "focus: warning: could not parse config: %v\n", err)
+		log.Printf("focus: warning: could not parse config: %v", err)
 		return DefaultConfig()
 	}
 
