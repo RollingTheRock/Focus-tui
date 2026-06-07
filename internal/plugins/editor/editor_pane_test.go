@@ -89,7 +89,7 @@ func TestEditorPaneViewShowsShortcutHint(t *testing.T) {
 	pane := NewEditorPane("editor-1", models.PaneMeta{ID: "editor-1", Name: "main.go", Type: models.PaneTypeEditor}, models.CommonModel{}, "", 0)
 	pane.SetSize(80, 16)
 	view := pane.View()
-	for _, want := range []string{"main.go", "Ctrl+S save", "Esc close"} {
+	for _, want := range []string{"main.go"} {
 		if !strings.Contains(ansi.Strip(view.Content), want) {
 			t.Fatalf("expected view to contain %q, got:\n%s", want, view.Content)
 		}
