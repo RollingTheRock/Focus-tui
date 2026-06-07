@@ -1,6 +1,7 @@
 package events
 
 import (
+	"log"
 	"sync"
 )
 
@@ -36,7 +37,7 @@ func NewEventBus() *EventBus {
 func (eb *EventBus) Subscribe(subscriberID string, filter EventFilter) <-chan Event {
 	eb.mu.Lock()
 	defer eb.mu.Unlock()
-	ch := make(chan Event, 64)
+	ch := make(chan Event, 256)
 	eb.subscribers[subscriberID] = append(eb.subscribers[subscriberID], subscription{ch: ch, filter: filter})
 	return ch
 }
@@ -57,7 +58,7 @@ func (eb *EventBus) Unsubscribe(subscriberID string) {
 func (eb *EventBus) Publish(e Event) {
 	eb.mu.RLock()
 	defer eb.mu.RUnlock()
-	for _, subs := range eb.subscribers {
+	for subscriberID, subs := range eb.subscribers {
 		for _, sub := range subs {
 			if sub.filter != nil && !sub.filter(e) {
 				continue
@@ -65,7 +66,7 @@ func (eb *EventBus) Publish(e Event) {
 			select {
 			case sub.ch <- e:
 			default:
-				// channel full, drop event for this subscriber
+				log.Printf("[event-bus] dropped event %s for subscriber %s (channel full)", e.EventType, subscriberID)
 			}
 		}
 	}
