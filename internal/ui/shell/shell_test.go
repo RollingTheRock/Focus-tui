@@ -19,9 +19,9 @@ func TestSessionStatus(t *testing.T) {
 		{name: "exited shell", m: Model{exited: true}, want: models.PaneStatusExited},
 	}
 
-	for _, tt := range tests {
-		if got := tt.m.SessionStatus(); got != tt.want {
-			t.Fatalf("%s: expected %q, got %q", tt.name, tt.want, got)
+	for i := range tests {
+		if got := tests[i].m.SessionStatus(); got != tests[i].want {
+			t.Fatalf("%s: expected %q, got %q", tests[i].name, tests[i].want, got)
 		}
 	}
 }
