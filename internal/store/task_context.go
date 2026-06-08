@@ -30,8 +30,9 @@ func (s *Store) SaveTaskContext(record TaskContextRecord) error {
 		record.Priority = "medium"
 	}
 
-	// Phase 1: dual-write to Event Store (best-effort).
-	if s.events != nil {
+	// Phase 1: dual-write to Event Store (best-effort), or publish directly
+	// to the in-memory bus in SQLite mode.
+	if s.events != nil || s.bus != nil {
 		s.tryAppendTaskEvent(record)
 	}
 
@@ -107,7 +108,7 @@ func (s *Store) tryAppendTaskEvent(record TaskContextRecord) {
 		return
 	}
 
-	_, err := s.events.AppendEvent(ctx, events.Event{
+	ev := events.Event{
 		OccurredAt:    time.Now(),
 		AggregateType: events.AggregateTask,
 		AggregateID:   record.ID,
@@ -116,9 +117,15 @@ func (s *Store) tryAppendTaskEvent(record TaskContextRecord) {
 		ActorType:     events.ActorSystem,
 		ScopeType:     events.AggregateTask,
 		ScopeID:       record.ID,
-	})
-	if err != nil {
-		log.Printf("[event-store] append task event failed (non-critical): %v", err)
+	}
+
+	if s.events != nil {
+		_, err := s.events.AppendEvent(ctx, ev)
+		if err != nil {
+			log.Printf("[event-store] append task event failed (non-critical): %v", err)
+		}
+	} else if s.bus != nil {
+		s.bus.Publish(ev)
 	}
 }
 

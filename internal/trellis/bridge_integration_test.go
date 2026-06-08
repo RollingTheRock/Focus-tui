@@ -3,6 +3,7 @@ package trellis
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -17,6 +18,12 @@ import (
 //   - python3 >= 3.9
 //   - .trellis/ initialized (run `trellis init -u dev --claude --gemini -y`)
 func TestBridgeIntegration(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test skipped in short mode")
+	}
+	if _, err := exec.LookPath("trellis"); err != nil {
+		t.Skip("trellis CLI not installed")
+	}
 	repoRoot, _ := filepath.Abs("../..")
 	bridge := NewBridge(repoRoot, "test-wt", nil)
 

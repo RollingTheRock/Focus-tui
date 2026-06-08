@@ -1,7 +1,7 @@
 package config
 
 import (
-	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 
@@ -32,17 +32,18 @@ type Config struct {
 		Notify               bool `yaml:"notify"`
 		FocusReminderMinutes int  `yaml:"focus_reminder_minutes"`
 	} `yaml:"pomodoro"`
-	AdrDir     string `yaml:"adr_dir"`   // optional override for ADR directory (default: repoRoot/docs/adr)
+	AdrDir     string `yaml:"adr_dir"` // optional override for ADR directory (default: repoRoot/docs/adr)
 	TimeFormat string `yaml:"time_format"`
 	Agent      struct {
-		ExternalTerminal     bool   `yaml:"external_terminal"`
-		TerminalEmulator     string `yaml:"terminal_emulator"`
-		MCPSocket            string `yaml:"mcp_socket"`
-		MCPPort              string `yaml:"mcp_port"`
-		A2ASocket            string `yaml:"a2a_socket"`
-		ResearchProvider     string `yaml:"research_provider"`
-		ArchitectureProvider string `yaml:"architecture_provider"`
-		CodingProvider       string `yaml:"coding_provider"`
+		ExternalTerminal       bool   `yaml:"external_terminal"`
+		TerminalEmulator       string `yaml:"terminal_emulator"`
+		MCPSocket              string `yaml:"mcp_socket"`
+		MCPPort                string `yaml:"mcp_port"`
+		A2ASocket              string `yaml:"a2a_socket"`
+		ResearchProvider       string `yaml:"research_provider"`
+		ArchitectureProvider   string `yaml:"architecture_provider"`
+		CodingProvider         string `yaml:"coding_provider"`
+		HeartbeatNotifications bool   `yaml:"heartbeat_notifications"`
 	} `yaml:"agent"`
 	Experimental struct {
 		UseCanvasCompositor bool `yaml:"use_canvas_compositor"`
@@ -73,6 +74,7 @@ func DefaultConfig() Config {
 	cfg.Agent.ResearchProvider = "kimi"
 	cfg.Agent.ArchitectureProvider = "claude"
 	cfg.Agent.CodingProvider = "codex,kimi,claude"
+	cfg.Agent.HeartbeatNotifications = false
 	return cfg
 }
 
@@ -111,13 +113,13 @@ func Load() Config {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if !os.IsNotExist(err) {
-			fmt.Fprintf(os.Stderr, "focus: warning: could not read config: %v\n", err)
+			log.Printf("focus: warning: could not read config: %v", err)
 		}
 		return cfg
 	}
 
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		fmt.Fprintf(os.Stderr, "focus: warning: could not parse config: %v\n", err)
+		log.Printf("focus: warning: could not parse config: %v", err)
 		return DefaultConfig()
 	}
 

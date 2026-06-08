@@ -217,6 +217,9 @@ func TestBridgePreparesRealWorktreeContextFiles(t *testing.T) {
 }
 
 func TestBridgeFullTaskWorktreeContextAndCompletionLoop(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test skipped in short mode")
+	}
 	sourceRoot, err := filepath.Abs("../..")
 	if err != nil {
 		t.Fatalf("source root: %v", err)

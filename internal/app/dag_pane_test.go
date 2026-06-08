@@ -1,6 +1,7 @@
 package app
 
 import (
+	"strings"
 	"testing"
 
 	"focus/internal/models"
@@ -178,5 +179,31 @@ func TestBuildDAG_CursorOnlyPhases(t *testing.T) {
 
 	if p.cursorNode != "phase-a" {
 		t.Fatalf("expected cursor on phase-a, got %s", p.cursorNode)
+	}
+}
+
+func TestDAGPaneViewRefreshesWhenNodeContentChanges(t *testing.T) {
+	cm := &models.CommonModel{}
+	p := newDagPane(paneDAG, models.PaneMeta{}, cm, "/repo/main", nil)
+	p.SetSize(100, 12)
+	p.nodes = map[string]dagNode{
+		"task-1": {ID: "task-1", Title: "Alpha", State: "active", Priority: "medium"},
+	}
+	p.levels = map[string]int{"task-1": 0}
+	p.layerIDs = map[int][]string{0: []string{"task-1"}}
+	p.cursorNode = "task-1"
+
+	first := p.View().Content
+	if !strings.Contains(first, "Alpha") {
+		t.Fatalf("expected first render to contain Alpha, got:\n%s", first)
+	}
+
+	p.nodes["task-1"] = dagNode{ID: "task-1", Title: "Beta", State: "active", Priority: "medium"}
+	second := p.View().Content
+	if !strings.Contains(second, "Beta") {
+		t.Fatalf("expected second render to contain updated title Beta, got:\n%s", second)
+	}
+	if strings.Contains(second, "Alpha") {
+		t.Fatalf("expected stale title Alpha to disappear, got:\n%s", second)
 	}
 }

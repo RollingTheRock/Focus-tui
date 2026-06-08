@@ -38,9 +38,9 @@ type TaskContext struct {
 
 // PlanStep is a lightweight view of a plan step for the orchestrator.
 type PlanStep struct {
-	ID     string
-	Title  string
-	State  string
+	ID    string
+	Title string
+	State string
 }
 
 // Notification is an actionable alert produced by the orchestrator.
@@ -67,21 +67,40 @@ type Store interface {
 // enforces workflow rules. It never auto-launches agents; it only
 // notifies humans via the notification channel.
 type Orchestrator struct {
-	store    Store
-	bus      *events.EventBus
-	notifCh  chan Notification
-	stopCh   chan struct{}
-	wg       sync.WaitGroup
+	store                  Store
+	bus                    *events.EventBus
+	notifCh                chan Notification
+	stopCh                 chan struct{}
+	wg                     sync.WaitGroup
+	heartbeatNotifications bool
+}
+
+// Option configures an Orchestrator.
+type Option func(*Orchestrator)
+
+// WithHeartbeatNotifications enables or disables user-visible notifications
+// produced by the heartbeat monitor. When disabled, the orchestrator still
+// tracks session health and marks disconnected sessions, but stays silent
+// in the UI.
+func WithHeartbeatNotifications(enabled bool) Option {
+	return func(o *Orchestrator) {
+		o.heartbeatNotifications = enabled
+	}
 }
 
 // New creates an orchestrator. Call Start to begin background processing.
-func New(store Store, bus *events.EventBus) *Orchestrator {
-	return &Orchestrator{
-		store:   store,
-		bus:     bus,
-		notifCh: make(chan Notification, 64),
-		stopCh:  make(chan struct{}),
+func New(store Store, bus *events.EventBus, opts ...Option) *Orchestrator {
+	o := &Orchestrator{
+		store:                  store,
+		bus:                    bus,
+		notifCh:                make(chan Notification, 64),
+		stopCh:                 make(chan struct{}),
+		heartbeatNotifications: true,
 	}
+	for _, opt := range opts {
+		opt(o)
+	}
+	return o
 }
 
 // Start launches the event and heartbeat loops.
@@ -298,13 +317,15 @@ func (o *Orchestrator) checkHeartbeats() {
 		}
 		if now.Sub(*s.LastHeartbeat) > timeout {
 			_ = o.store.MarkSessionDisconnected(s.ID, "heartbeat timeout")
-			o.send(Notification{
-				Type:     "heartbeat_timeout",
-				Title:    "Agent 心跳超时",
-				Body:     fmt.Sprintf("Session %s (%s) 超过2分钟未报告心跳", s.ID, s.Provider),
-				TaskID:   s.TaskID,
-				Severity: "warning",
-			})
+			if o.heartbeatNotifications {
+				o.send(Notification{
+					Type:     "heartbeat_timeout",
+					Title:    "Agent 心跳超时",
+					Body:     fmt.Sprintf("Session %s (%s) 超过2分钟未报告心跳", s.ID, s.Provider),
+					TaskID:   s.TaskID,
+					Severity: "warning",
+				})
+			}
 		}
 	}
 }

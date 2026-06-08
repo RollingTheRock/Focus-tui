@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 
@@ -13,7 +14,14 @@ import (
 	"focus/internal/store"
 )
 
+var version = "dev"
+
 func main() {
+	if len(os.Args) > 1 && (os.Args[1] == "--version" || os.Args[1] == "-v") {
+		fmt.Printf("focus %s\n", version)
+		os.Exit(0)
+	}
+
 	cfg := config.Load()
 
 	cwd, err := os.Getwd()
@@ -40,6 +48,16 @@ func main() {
 		os.Exit(1)
 	}
 	defer st.Close()
+
+	// Redirect log output to a file so that log.Printf does not corrupt
+	// the TUI terminal rendering (bubbletea owns stdout/stderr).
+	logDir := filepath.Join(projectRoot, ".focus", "journal")
+	if err := os.MkdirAll(logDir, 0o755); err == nil {
+		logPath := filepath.Join(logDir, "focus.log")
+		if f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644); err == nil {
+			log.SetOutput(f)
+		}
+	}
 
 	// Derive per-project MCP addresses to avoid conflicts when running
 	// multiple focus instances across different projects.

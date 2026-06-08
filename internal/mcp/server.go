@@ -274,6 +274,13 @@ func (s *Server) acceptLoop(listener net.Listener) {
 func (s *Server) handleConn(conn net.Conn) {
 	defer s.wg.Done()
 	defer func() { _ = conn.Close() }()
+
+	// Prevent goroutine leak when client keeps connection open without sending data.
+	const connIdleTimeout = 5 * time.Minute
+	if dconn, ok := conn.(interface{ SetReadDeadline(time.Time) error }); ok {
+		dconn.SetReadDeadline(time.Now().Add(connIdleTimeout))
+	}
+
 	decoder := json.NewDecoder(conn)
 	encoder := json.NewEncoder(conn)
 	for {
@@ -287,6 +294,9 @@ func (s *Server) handleConn(conn net.Conn) {
 		resp := s.handleJSONRPC(req)
 		if err := encoder.Encode(resp); err != nil {
 			return
+		}
+		if dconn, ok := conn.(interface{ SetReadDeadline(time.Time) error }); ok {
+			dconn.SetReadDeadline(time.Now().Add(connIdleTimeout))
 		}
 	}
 }

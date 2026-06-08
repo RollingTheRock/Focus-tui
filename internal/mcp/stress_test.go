@@ -13,6 +13,7 @@ import (
 
 // TestServerHTTPStressConcurrentResources verifies concurrent resource reads.
 func TestServerHTTPStressConcurrentResources(t *testing.T) {
+	skipMCPHTTPInShortMode(t)
 	s := NewServer("", "127.0.0.1:0")
 
 	var counter atomic.Int64
@@ -68,6 +69,7 @@ func TestServerHTTPStressConcurrentResources(t *testing.T) {
 
 // TestServerHTTPStressToolsAndResourcesMixed interleaves tool calls and resource reads.
 func TestServerHTTPStressToolsAndResourcesMixed(t *testing.T) {
+	skipMCPHTTPInShortMode(t)
 	s := NewServer("", "127.0.0.1:0")
 
 	var toolCalls atomic.Int64
@@ -137,4 +139,3 @@ func TestServerHTTPStressToolsAndResourcesMixed(t *testing.T) {
 	t.Logf("MCP mixed stress: %d concurrent requests in %v (%.0f reqs/sec)",
 		numReqs, took, float64(numReqs)/took.Seconds())
 }
-

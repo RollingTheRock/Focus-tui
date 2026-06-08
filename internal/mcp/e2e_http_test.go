@@ -10,6 +10,7 @@ import (
 )
 
 func TestMCPHTTPFullFlow(t *testing.T) {
+	skipMCPHTTPInShortMode(t)
 	srv := NewServer("", "127.0.0.1:0")
 	_ = srv.RegisterTool("task.ping", "Ping the system", nil, func(params map[string]any) (map[string]any, error) {
 		return map[string]any{"ok": true, "ts": time.Now().Unix()}, nil
@@ -34,7 +35,7 @@ func TestMCPHTTPFullFlow(t *testing.T) {
 		"method": "initialize",
 		"params": map[string]any{
 			"protocolVersion": "2024-11-05",
-			"clientInfo": map[string]any{"name": "test", "version": "1.0"},
+			"clientInfo":      map[string]any{"name": "test", "version": "1.0"},
 		},
 	})
 	resp, err := http.Post(url, "application/json", bytes.NewReader(body))
@@ -78,7 +79,7 @@ func TestMCPHTTPFullFlow(t *testing.T) {
 		"jsonrpc": "2.0", "id": 3,
 		"method": "tools/call",
 		"params": map[string]any{
-			"name": "task.ping",
+			"name":      "task.ping",
 			"arguments": map[string]any{},
 		},
 	})

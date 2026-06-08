@@ -143,7 +143,6 @@ func (p *cityPickerOverlay) View() tea.View {
 		}
 	}
 		return tea.NewView(b.String())
-	return tea.NewView(b.String())
 }
 
 func (p *cityPickerOverlay) SetSize(width, height int) {
