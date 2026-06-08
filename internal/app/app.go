@@ -298,7 +298,10 @@ func New(cfg config.Config, store models.Store) tea.Model {
 
 	// Phase 4: start resident orchestrator when event bus is available.
 	if bus := store.EventBus(); bus != nil {
-		m.orch = orchestrator.New(appOrchestratorStore{model: &m}, bus)
+		opts := []orchestrator.Option{
+			orchestrator.WithHeartbeatNotifications(m.common.Cfg.Agent.HeartbeatNotifications),
+		}
+		m.orch = orchestrator.New(appOrchestratorStore{model: &m}, bus, opts...)
 	}
 
 	return m

@@ -3,6 +3,7 @@ package store
 import (
 	"database/sql"
 	"fmt"
+	"log"
 	"time"
 
 	"focus/internal/events"
@@ -218,6 +219,9 @@ func (s *Store) UpdateAgentSessionHeartbeat(sessionID string, at time.Time, stat
 	if at.IsZero() {
 		at = time.Now()
 	}
+
+	log.Printf("[agent-session] heartbeat received: session_id=%s state=%q at=%s",
+		sessionID, state, at.Format(time.RFC3339))
 
 	s.tryAppendEvent(events.AggregateAgentSession, sessionID, events.AgentSessionHeartbeat,
 		events.AgentSessionHeartbeatPayload{State: state},
