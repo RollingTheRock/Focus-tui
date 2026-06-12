@@ -236,7 +236,7 @@ func (p *WorktreePane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 					return OpenWorktreeDeleteConfirmMsg{Worktree: wt, Force: false}
 				}
 			}
-		case "X":
+		case "X", "shift+x":
 			if wt, ok := p.selectedWorktree(); ok {
 				if wt.IsMain {
 					p.err = fmt.Errorf("cannot remove the main worktree")
