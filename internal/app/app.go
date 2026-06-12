@@ -178,6 +178,7 @@ type trellisBridge interface {
 	EnsureInitialized() error
 	SetWorktreeID(id string)
 	EnsureWorktreeLinks(worktreePath string) error
+	CleanupWorktreeLinks(worktreePath string) error
 	SyncTaskCreate(task models.TaskContextRecord, plan *models.TaskPlanRecord) (string, error)
 	BuildAgentContext(session *agents.Session) (*agents.AgentSpec, error)
 	AddTaskOutput(taskID, output string) error
@@ -4808,6 +4809,14 @@ func (m *model) removeWorktree(msg gitplugin.RequestRemoveWorktreeMsg) tea.Cmd {
 		}
 		if err := adapter.RemoveWorktree(repoPath, worktreePath, gitmodel.RemoveWorktreeOptions{Force: msg.Force}); err != nil {
 			return gitplugin.WorktreeActionFailedMsg{Action: "remove", Err: err}
+		}
+		// Remove any .trellis/.kimi/... symlinks that pointed into the deleted
+		// worktree so the main repo and remaining worktrees don't end up with
+		// dangling symlinks.
+		if m.trellisBridge != nil {
+			if err := m.trellisBridge.CleanupWorktreeLinks(worktreePath); err != nil {
+				log.Printf("removeWorktree: cleanup trellis links: %v", err)
+			}
 		}
 		return gitplugin.WorktreeRemovedMsg{Path: worktreePath, Force: msg.Force}
 	}

@@ -73,6 +73,8 @@ func (f *fakeTrellisBridge) EnsureWorktreeLinks(worktreePath string) error {
 	return nil
 }
 
+func (f *fakeTrellisBridge) CleanupWorktreeLinks(worktreePath string) error { return nil }
+
 func (f *fakeTrellisBridge) SyncTaskCreate(task models.TaskContextRecord, plan *models.TaskPlanRecord) (string, error) {
 	f.syncedTaskID = task.ID
 	return ".trellis/tasks/test-task", nil
