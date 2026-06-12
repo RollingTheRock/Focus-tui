@@ -214,6 +214,7 @@ func New(cfg config.Config, store models.Store) tea.Model {
 
 	cwd, _ := os.Getwd()
 	repoRoot, _ := gitRepoRoot(cwd)
+	trellisRoot, _ := mainRepoRoot(cwd)
 
 	m := model{
 		common:             cm,
@@ -245,8 +246,10 @@ func New(cfg config.Config, store models.Store) tea.Model {
 	}
 
 	// Initialize Trellis bridge if trellis is installed.
-	if repoRoot != "" {
-		m.trellisBridge = trellis.NewBridge(repoRoot, "", store)
+	// Use the main repository root as the canonical Trellis root so that
+	// deleting any single worktree does not break Trellis for all others.
+	if trellisRoot != "" {
+		m.trellisBridge = trellis.NewBridge(trellisRoot, "", store)
 		// Trigger async initialization so .trellis/ and platform files are
 		// ready before the user launches an agent.
 		go func() {
@@ -3335,6 +3338,21 @@ func gitRepoRoot(path string) (string, bool) {
 		return "", false
 	}
 	return root, true
+}
+
+// mainRepoRoot returns the main repository root (not the current worktree's
+// toplevel). This is the correct canonical location for repo-level state like
+// .trellis/ and .kimi/.
+func mainRepoRoot(path string) (string, bool) {
+	output, err := exec.Command("git", "-C", path, "rev-parse", "--path-format=absolute", "--git-common-dir").Output()
+	if err != nil {
+		return "", false
+	}
+	commonDir := strings.TrimSpace(string(output))
+	if commonDir == "" {
+		return "", false
+	}
+	return filepath.Clean(filepath.Dir(commonDir)), true
 }
 
 func (m model) bodyBounds() models.PaneFrame {
