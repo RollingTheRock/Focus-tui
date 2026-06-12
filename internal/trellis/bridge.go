@@ -301,7 +301,26 @@ func (b *Bridge) EnsureInitialized() error {
 
 	// 3. Ensure .trellis/ exists.
 	trellisDir := filepath.Join(b.repoRoot, ".trellis")
-	if _, err := os.Stat(trellisDir); os.IsNotExist(err) {
+	needsInit := false
+	if info, err := os.Lstat(trellisDir); err != nil {
+		if os.IsNotExist(err) {
+			needsInit = true
+		} else {
+			return fmt.Errorf("stat .trellis: %w", err)
+		}
+	} else if info.Mode()&os.ModeSymlink != 0 {
+		// A broken symlink means a previous worktree was deleted and left the
+		// main repo pointing at nothing. Remove it so trellis init can recreate
+		// a real .trellis directory at the canonical repo root.
+		if _, err := os.Stat(trellisDir); err != nil {
+			log.Printf("trellis: .trellis is a broken symlink, removing and re-initializing: %v", err)
+			if rmErr := os.Remove(trellisDir); rmErr != nil {
+				return fmt.Errorf("remove broken .trellis symlink: %w", rmErr)
+			}
+			needsInit = true
+		}
+	}
+	if needsInit {
 		platforms := b.detectInstalledPlatforms()
 		flags := b.buildTrellisInitFlags(platforms)
 		devName := b.gitUserName()

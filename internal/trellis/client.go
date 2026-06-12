@@ -27,7 +27,7 @@ func NewClient(repoRoot, pythonCmd string) *Client {
 
 // Init runs `trellis init` with the given developer name and platform flags.
 func (c *Client) Init(developerName string, platformFlags []string) error {
-	args := []string{"init", "-u", developerName}
+	args := []string{"init", "-y", "-u", developerName}
 	args = append(args, platformFlags...)
 	cmd := exec.Command("trellis", args...)
 	cmd.Dir = c.repoRoot
