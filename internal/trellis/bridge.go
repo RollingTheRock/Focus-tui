@@ -93,6 +93,72 @@ func (b *Bridge) EnsureWorktreeLinks(worktreePath string) error {
 	return nil
 }
 
+// CleanupWorktreeLinks removes .trellis/.kimi/... symlinks that point into a
+// deleted worktree. This prevents the main repo and remaining worktrees from
+// being left with dangling symlinks after a worktree is removed.
+func (b *Bridge) CleanupWorktreeLinks(deletedWorktreePath string) error {
+	if b.repoRoot == "" || deletedWorktreePath == "" {
+		return nil
+	}
+	deleted, err := filepath.Abs(deletedWorktreePath)
+	if err != nil {
+		deleted = deletedWorktreePath
+	}
+
+	dirs, err := b.listWorktreeDirs()
+	if err != nil {
+		return err
+	}
+	// Also include the main repo root in the scan.
+	dirs = append(dirs, b.repoRoot)
+	dirs = uniqueStrings(dirs)
+
+	for _, dir := range dirs {
+		for _, name := range []string{".trellis", ".kimi", ".claude", ".codex", ".gemini", ".opencode"} {
+			linkPath := filepath.Join(dir, name)
+			target, err := os.Readlink(linkPath)
+			if err != nil {
+				continue // not a symlink
+			}
+			if !filepath.IsAbs(target) {
+				target = filepath.Join(dir, target)
+			}
+			target = filepath.Clean(target)
+			if isSameOrUnderPath(target, deleted) {
+				if rmErr := os.Remove(linkPath); rmErr != nil {
+					log.Printf("trellis cleanup: remove %s -> %s: %v", linkPath, target, rmErr)
+				} else {
+					log.Printf("trellis cleanup: removed dangling %s -> %s", linkPath, target)
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func (b *Bridge) listWorktreeDirs() ([]string, error) {
+	output, err := exec.Command("git", "-C", b.repoRoot, "worktree", "list", "--porcelain").Output()
+	if err != nil {
+		return nil, fmt.Errorf("list worktrees: %w", err)
+	}
+	var dirs []string
+	for _, line := range strings.Split(string(output), "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "worktree ") {
+			continue
+		}
+		dir := strings.TrimPrefix(line, "worktree ")
+		if dir == "" {
+			continue
+		}
+		if abs, err := filepath.Abs(dir); err == nil {
+			dir = abs
+		}
+		dirs = append(dirs, dir)
+	}
+	return dirs, nil
+}
+
 // ensureSymlink creates a symlink at linkPath pointing to targetPath.
 // If linkPath already exists as a directory (e.g. trellis init created it),
 // it is removed and replaced with a symlink. If linkPath already exists as
@@ -301,7 +367,26 @@ func (b *Bridge) EnsureInitialized() error {
 
 	// 3. Ensure .trellis/ exists.
 	trellisDir := filepath.Join(b.repoRoot, ".trellis")
-	if _, err := os.Stat(trellisDir); os.IsNotExist(err) {
+	needsInit := false
+	if info, err := os.Lstat(trellisDir); err != nil {
+		if os.IsNotExist(err) {
+			needsInit = true
+		} else {
+			return fmt.Errorf("stat .trellis: %w", err)
+		}
+	} else if info.Mode()&os.ModeSymlink != 0 {
+		// A broken symlink means a previous worktree was deleted and left the
+		// main repo pointing at nothing. Remove it so trellis init can recreate
+		// a real .trellis directory at the canonical repo root.
+		if _, err := os.Stat(trellisDir); err != nil {
+			log.Printf("trellis: .trellis is a broken symlink, removing and re-initializing: %v", err)
+			if rmErr := os.Remove(trellisDir); rmErr != nil {
+				return fmt.Errorf("remove broken .trellis symlink: %w", rmErr)
+			}
+			needsInit = true
+		}
+	}
+	if needsInit {
 		platforms := b.detectInstalledPlatforms()
 		flags := b.buildTrellisInitFlags(platforms)
 		devName := b.gitUserName()
@@ -894,4 +979,30 @@ func isPythonVersionOK(ver string) bool {
 		return false
 	}
 	return major > 3 || (major == 3 && minor >= 9)
+}
+
+func uniqueStrings(ss []string) []string {
+	seen := make(map[string]struct{}, len(ss))
+	out := make([]string, 0, len(ss))
+	for _, s := range ss {
+		if _, ok := seen[s]; ok {
+			continue
+		}
+		seen[s] = struct{}{}
+		out = append(out, s)
+	}
+	return out
+}
+
+// isSameOrUnderPath reports whether child is the same directory as parent or
+// located somewhere underneath it.
+func isSameOrUnderPath(child, parent string) bool {
+	if child == parent {
+		return true
+	}
+	sep := string(os.PathSeparator)
+	if !strings.HasSuffix(parent, sep) {
+		parent += sep
+	}
+	return strings.HasPrefix(child, parent)
 }
