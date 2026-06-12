@@ -273,3 +273,32 @@ func TestWorktreePaneForceRemoveDirtyWorktree(t *testing.T) {
 	}
 }
 
+func TestWorktreePaneForceRemoveDirtyWorktreeShiftX(t *testing.T) {
+	adapter := &fakeGitAdapter{worktrees: []gitmodel.Worktree{{Path: "/repo/main", Branch: "main", IsMain: true}, {Path: "/repo/feature-a", Branch: "feature-a", DirtySummary: gitmodel.DirtySummary{Unstaged: 1}}}}
+	pane := NewWorktreePane("worktree-1", models.PaneMeta{ID: "worktree-1", Type: models.PaneTypeWorktree, CWD: "/repo/main"}, models.CommonModel{}, adapter)
+	updated, _ := pane.Update(worktreesLoadedMsg{worktrees: adapter.worktrees})
+	pane = updated.(*WorktreePane)
+	updated, _ = pane.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	pane = updated.(*WorktreePane)
+
+	updated, _ = pane.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
+	pane = updated.(*WorktreePane)
+	if pane.err == nil || !strings.Contains(pane.err.Error(), "Shift+X") {
+		t.Fatalf("expected dirty warning, got %v", pane.err)
+	}
+
+	updated, cmd := pane.Update(tea.KeyPressMsg{Code: 'x', Text: "X", Mod: tea.ModShift})
+	pane = updated.(*WorktreePane)
+	if cmd == nil {
+		t.Fatalf("expected force delete confirm command for shift+x")
+	}
+	msg := runCmd(t, cmd)
+	confirmMsg, ok := msg.(OpenWorktreeDeleteConfirmMsg)
+	if !ok {
+		t.Fatalf("expected OpenWorktreeDeleteConfirmMsg, got %T", msg)
+	}
+	if confirmMsg.Worktree.Path != "/repo/feature-a" || !confirmMsg.Force {
+		t.Fatalf("unexpected force delete confirm %+v", confirmMsg)
+	}
+}
+
