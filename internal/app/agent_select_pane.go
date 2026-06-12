@@ -65,30 +65,40 @@ var (
 )
 
 func newAgentSelectPane(id models.PaneID, meta models.PaneMeta, common models.CommonModel, worktree string) *agentSelectPane {
-	// Load enabled agents from the store.
+	// Load enabled agents from the store. The IsInstalled flag in the database
+	// is only refreshed when the Agent Store runs a scan, so perform a real-time
+	// PATH lookup for the displayed status. An agent is shown only if it is
+	// enabled and currently resolvable on PATH.
 	var opts []agentOption
-	if defs, err := common.Store.ListAgentDefinitions(); err == nil {
+	defs, err := common.Store.ListAgentDefinitions()
+	if err == nil && len(defs) > 0 {
 		for _, def := range defs {
-			if def.IsInstalled && def.IsEnabled {
-				opts = append(opts, agentOptionFromDef(def))
+			if !def.IsEnabled {
+				continue
+			}
+			opt := agentOptionFromDef(def)
+			opt.installed = agents.IsInstalled(opt.provider)
+			if opt.installed {
+				opts = append(opts, opt)
 			}
 		}
 	}
 
-	// Fallback to built-in hardcoded list if store is empty or fails.
-	if len(opts) == 0 {
+	// Fallback to built-in hardcoded list only when the store has no records.
+	// Each option is also checked against PATH so the status is accurate.
+	if len(opts) == 0 && (err != nil || len(defs) == 0) {
 		opts = []agentOption{
-			{provider: agents.ProviderKimi, name: "Kimi", desc: "Moonshot AI", agentID: "kimi"},
-			{provider: agents.ProviderCodex, name: "Codex", desc: "OpenAI", agentID: "codex"},
-			{provider: agents.ProviderClaude, name: "Claude Code", desc: "Anthropic", agentID: "claude"},
-			{provider: agents.ProviderOpenCode, name: "OpenCode", desc: "Community", agentID: "opencode"},
-			{provider: agents.ProviderGemini, name: "Gemini CLI", desc: "Google", agentID: "gemini"},
+			{provider: agents.ProviderKimi, name: "Kimi", desc: "Moonshot AI", agentID: "kimi", installed: agents.IsInstalled(agents.ProviderKimi)},
+			{provider: agents.ProviderCodex, name: "Codex", desc: "OpenAI", agentID: "codex", installed: agents.IsInstalled(agents.ProviderCodex)},
+			{provider: agents.ProviderClaude, name: "Claude Code", desc: "Anthropic", agentID: "claude", installed: agents.IsInstalled(agents.ProviderClaude)},
+			{provider: agents.ProviderOpenCode, name: "OpenCode", desc: "Community", agentID: "opencode", installed: agents.IsInstalled(agents.ProviderOpenCode)},
+			{provider: agents.ProviderGemini, name: "Gemini CLI", desc: "Google", agentID: "gemini", installed: agents.IsInstalled(agents.ProviderGemini)},
 		}
 	}
 
 	// Move the first installed option to the top as a sensible default.
 	for i, opt := range opts {
-		if agents.IsInstalled(opt.provider) {
+		if opt.installed {
 			opts[0], opts[i] = opts[i], opts[0]
 			break
 		}
@@ -156,7 +166,8 @@ func (p *agentSelectPane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 		case "esc":
 			if p.showResume {
 				p.showResume = false
-				return p, nil}
+				return p, nil
+			}
 			return p, func() tea.Msg {
 				return CloseAgentSelectMsg{ID: p.id}
 			}
