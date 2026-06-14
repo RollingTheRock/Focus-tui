@@ -1,184 +1,184 @@
-# focus
+<p align="center">
+  <img src="docs/assets/focus-logo.png" alt="focus" width="500">
+</p>
 
-> Stop juggling terminals.  
-> Run parallel agent development across multiple worktrees without losing control.
+<p align="center">
+  <strong>A terminal-native execution workbench for parallel agent development.</strong>
+</p>
 
-`focus` is a terminal-native execution workbench designed for one hard problem:
-**how to run multiple coding agents across multiple worktrees in parallel without losing control of context, dependencies, state, and handoff.**
+<p align="center">
+  Stop juggling terminals. Run multiple coding agents across multiple git worktrees<br>
+  without losing control of context, dependencies, and handoff.
+</p>
 
----
+<p align="center">
+  <a href="README.zh.md">简体中文</a> ·
+  <a href="#quickstart">Quick Start</a> ·
+  <a href="#key-features">Features</a> ·
+  <a href="docs/architecture/">Architecture</a> ·
+  <a href="docs/releases/">Releases</a>
+</p>
 
-## The Real Problem
+<p align="center">
+  <a href="https://github.com/RollingTheRock/focus-tui/actions/workflows/go-test.yml"><img src="https://github.com/RollingTheRock/focus-tui/actions/workflows/go-test.yml/badge.svg" alt="ci"></a>
+  <a href="https://github.com/RollingTheRock/focus-tui/releases"><img src="https://img.shields.io/github/v/release/RollingTheRock/focus-tui?style=flat-square&color=2563eb" alt="release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/RollingTheRock/focus-tui?style=flat-square&color=16a34a" alt="license"></a>
+  <a href="go.mod"><img src="https://img.shields.io/badge/go-1.25%2B-0f766e?style=flat-square" alt="go"></a>
+</p>
 
-Parallel development does not fail because people cannot open enough terminals.
-It fails because execution becomes invisible and brittle:
+<p align="center">
+  <a href="https://github.com/RollingTheRock/focus-tui/stargazers"><img src="https://img.shields.io/github/stars/RollingTheRock/focus-tui?style=flat-square&color=eab308" alt="stars"></a>
+  <a href="https://github.com/RollingTheRock/focus-tui/issues"><img src="https://img.shields.io/github/issues/RollingTheRock/focus-tui?style=flat-square&color=e67e22" alt="issues"></a>
+  <a href="https://github.com/RollingTheRock/focus-tui/pulls"><img src="https://img.shields.io/github/issues-pr/RollingTheRock/focus-tui?style=flat-square&color=9b59b6" alt="pull requests"></a>
+</p>
 
-- multiple agents run at the same time, but ownership and progress are unclear
-- multiple worktrees evolve in parallel, but task-to-branch mapping drifts
-- upstream/downstream task dependencies break silently
-- session outputs exist, but handoff is not structured for reliable takeover
-- humans become manual schedulers across window chaos
+<p align="center">
+  <img src="docs/assets/focus-demo.gif" alt="focus demo" width="860">
+</p>
 
-`focus` is not built to replace coding agents.
-It is built to make parallel execution **observable, controllable, and auditable**.
+<p align="center"><i>Launch. Observe. Orchestrate.</i></p>
 
----
+## Why focus
 
-## Agent Neutral, Operator Sovereign
+Running multiple agents across multiple worktrees quickly turns your terminal into a control tower with no radar:
 
-One core principle of `focus` is:
-**developers should not be locked into a single agent coding tool.**
+- **Ownership fades** — several agents run, but it is unclear who owns which task.
+- **Dependencies break silently** — one agent finishes, the next never starts.
+- **State scatters** — worktrees evolve, but the task-to-branch map drifts.
+- **Handoff fails** — when you switch sessions, context is lost and you start over.
 
-In practice, delivery stability is usually decided less by headline model differences and more by:
+`focus` does not replace your agents. It gives them a shared execution system.
 
-- runtime stability in your real workflow
-- response speed and predictability
-- provider-native integration quality
+## Key Features
 
-That is why advanced users often run multiple tools side by side, for example:
+**◆ Worktree-native execution**  
+Each phase runs in its own isolated git worktree. Branches stay clean, context stays local.
 
-- `Kimi CLI`
-- `Codex`
-- `Claude Code`
-- `OpenCode` (for models without mature first-party agent tooling)
+**◇ Agent-neutral orchestration**  
+Plug in the agents you already trust. No lock-in to a single model or vendor.
 
-`focus` does not ask you to switch preferences.
-It unifies your preferred agent stack into one execution system.
+**▣ Phase-driven DAG**  
+Humans steer at the phase level; agents schedule their own steps. Dependencies flow automatically.
 
-- plug in the agents you already trust
-- manage them under one workbench
-- coordinate multi-agent execution against shared task/worktree structure
-- use built-in `cc-switch` to launch and switch provider-specific `Claude Code` and `Codex`
+**◉ Shared context protocol**  
+Agents read and write the same state through MCP. No manual handover between sessions.
 
-You choose the best agent for the moment.
-`focus` keeps the system coherent.
+**◆ Agent Store**  
+`focus` detects the agents you already have — Claude, Codex, Kimi, OpenCode, Gemini — and lets you enable, register, or discover more.
 
----
+**◇ Trellis-aware context**  
+Optional integration with [Trellis](https://github.com/mindfold-ai/trellis) gives every worktree durable specs, PRDs, workflow state, and handoff journals.
 
-## How focus Handles Parallel Multi-Agent Work
+**▣ Structured handoff**  
+Session summaries capture progress, blockers, and decisions so the next agent or human can continue without starting over.
 
-`focus` uses a structured execution model:
-
-- **Worktree as execution container**
-  each worktree acts as an isolated execution unit for branch/task/session activity
-- **Task DAG as source of truth**
-  dependency flow is explicit rather than informal
-- **Session-to-worktree mapping**
-  agent sessions are anchored to worktree/task context
-- **Protocol-driven coordination (MCP)**
-  shared state is managed through explicit tools/resources
-- **Structured handoff**
-  session completion is captured as takeover-ready context
-
-This is not “chat-first coding.”
-This is execution-system design for real parallel delivery.
-
----
-
-## Philosophy
-
-1. **Human Sovereign**  
-   humans own decisions and arbitration; agents execute
-2. **Agent Native**  
-   multi-agent parallelism is a default, not an afterthought
-3. **Structure First**  
-   `ADR -> Plan -> Task -> Session` is operational scaffolding, not decoration
-4. **Terminal Realism**  
-   real engineering happens in shell, git, worktree, and scripts
-5. **Auditable Execution**  
-   progress must be inspectable, reproducible, and reversible
-
----
+**◉ Terminal-native TUI**  
+Built for the shell. Fast, keyboard-driven, no browser required.
 
 ## Quickstart
 
-### Prerequisites
+```bash
+# Install
+go install github.com/RollingTheRock/focus-tui/cmd/focus@latest
 
-- Go `1.25+`
+# Run inside a git repository
+cd your-project
+focus
+```
+
+focus launches with a live dashboard. Press `Tab` to move focus between the DAG, worktree list, and detail panes. Press `?` to see the help overlay, and `S` to open the Agent Store.
+
+## Agent-Neutral, Operator Sovereign
+
+`focus` does not replace your agents. It does not pick winners between models, vendors, or interfaces.
+
+The **Agent Store** scans your system for the agent binaries you already use — Claude Code, Codex, Kimi CLI, OpenCode, Gemini CLI, and more — and lets you enable, disable, or register custom agents. Recommended agents come with one-line install hints, never bundled.
+
+If you use [Trellis](https://github.com/mindfold-ai/trellis), `focus` keeps every worktree’s specs, PRDs, workflow state, and handoff journals in sync. Agents start from structured intent, not conversational memory.
+
+You choose the best tool for the moment. `focus` keeps the system coherent.
+
+### A note on Kimi Code
+
+While `focus` stays agent-neutral, the author's daily driver is **[Kimi Code](https://github.com/MoonshotAI/kimi-code)**. `focus` includes a first-class integration layer for Kimi Code: the `.kimi/hooks/session-start.py` hook automatically injects the current Trellis task context into every Kimi Code session, so the agent starts from structured intent rather than an empty workspace.
+
+## Architecture at a Glance
+
+```mermaid
+graph LR
+  A[ADR / Plan] --> B[Phase DAG]
+  B --> C[Worktree]
+  C --> D[Agent Session]
+  D --> E[MCP Shared State]
+  E --> B
+```
+
+`focus` treats the worktree as the execution container, the DAG as the source of truth, and MCP as the shared context protocol. Agents run in their native terminals; `focus` coordinates them.
+
+For the full architecture, see [`docs/architecture/`](docs/architecture/).
+
+## Installation
+
+| Method | Command |
+|---|---|
+| Go install | `go install github.com/RollingTheRock/focus-tui/cmd/focus@latest` |
+| Release binary | Download from [GitHub Releases](https://github.com/RollingTheRock/focus-tui/releases) |
+| Build from source | `git clone https://github.com/RollingTheRock/focus-tui.git && cd focus-tui && go build ./cmd/focus` |
+
+**Requirements**
+
+- Go 1.25+
 - Unix-like terminal environment recommended
+- macOS / Linux
 
-### Build
+## Configuration
 
-```bash
-go build ./cmd/focus
+`focus` keeps project state in a `.focus/` directory inside your repository and user-level preferences in `~/.config/focus/config.yaml`.
+
+```yaml
+# ~/.config/focus/config.yaml
+agent:
+  external_terminal: true      # launch agents in an external terminal
+  terminal_emulator: kitty     # auto-detected if left empty
+  research_provider: kimi
+  architecture_provider: claude
+  coding_provider: "codex,kimi,claude"
+
+editor:
+  command: nvim
 ```
 
-### Run
+- `~/.config/focus/config.yaml` — editor, theme, MCP transport, store backend.
+- `.focus/focus.db` — SQLite database for tasks, sessions, and worktree context (default).
 
-```bash
-./focus
-```
+See [`docs/architecture/`](docs/architecture/) for the full architecture and protocol documentation.
 
-### Test
+## Philosophy
 
-```bash
-go test ./...
-```
-
-Note: in restricted environments, some MCP HTTP/socket tests may fail due to OS permission constraints.
-
----
-
-## Internal Release Policy (Current)
-
-`focus` currently uses an **internal testing release strategy**.
-It is not positioned as a public stable release pipeline yet.
-
-### Versioning
-
-- `v0.x.y-rc.N`
-- `v0.x.y-internal.N`
-
-### Release Gates
-
-1. `go build ./cmd/focus` passes
-2. core tests pass in a non-restricted environment
-3. parallel-critical smoke paths pass:
-   - worktree list/switch workflow
-   - task DAG transitions
-   - agent session mapping
-   - MCP baseline tool/resource interactions
-
-### Artifacts
-
-- multi-platform binaries
-- `checksums.txt`
-- internal release notes (changes, risks, rollback guidance)
-
----
-
-## Repository Map
-
-```text
-cmd/                   # application entrypoints
-internal/app/          # top-level TUI runtime and page orchestration
-internal/plugins/git/  # worktree/git panes and interactions
-internal/agents/       # agent session model and drivers
-internal/mcp/          # MCP server and protocol layer
-internal/orchestrator/ # task-state orchestration
-internal/store/        # persistence for task/plan/session/worktree context
-docs/adr/              # architecture decision records
-docs/architecture/     # architecture specifications
-docs/plans/            # implementation and cleanup plans
-docs/research/         # analysis and audit artifacts
-docs/releases/         # release process docs
-docs/archive/          # historical archived documents
-```
-
----
-
-## Documentation
-
-- `docs/architecture/`
-- `docs/adr/`
-- `docs/plans/`
-- `docs/research/`
-- `docs/releases/`
-- `docs/archive/`
-
----
+1. **Human sovereign** — humans own decisions; agents execute.
+2. **Agent native** — multi-agent parallelism is the default, not an afterthought.
+3. **Structure first** — ADR → Plan → Task → Session is operational scaffolding.
+4. **Terminal realism** — real engineering happens in shell, git, worktree, and scripts.
+5. **Auditable execution** — progress must be inspectable, reproducible, and reversible.
 
 ## Who focus Is For
 
-If you only need a single-agent coding chat surface, `focus` may feel heavy.
-If you are running **multi-worktree, multi-agent, parallel software execution** and need control instead of terminal chaos, this is what `focus` is built for.
+If you only need a single-agent chat surface, `focus` may feel heavy.
+
+If you are running **multi-worktree, multi-agent, parallel software execution** and need control instead of terminal chaos, `focus` is built for you.
+
+## Related Projects
+
+- **[Kimi Code](https://github.com/MoonshotAI/kimi-code)** — the author's preferred terminal-native coding agent. `focus` ships a `SessionStart` hook that injects Trellis context into every Kimi Code session.
+- **[Trellis](https://github.com/mindfold-ai/trellis)** — durable specs, PRDs, workflow state, and handoff journals for every worktree. Optional but recommended.
+
+## Documentation
+
+- [`docs/architecture/`](docs/architecture/) — system design and protocols.
+- [`docs/adr/`](docs/adr/) — architecture decision records.
+- [`docs/plans/`](docs/plans/) — migration plans (currently no active plans; historical plans archived).
+- [`docs/releases/`](docs/releases/) — release notes and process.
+
+## License
+
+[Apache-2.0](LICENSE)

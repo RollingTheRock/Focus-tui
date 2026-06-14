@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+# Mock Claude Code agent for README demo recording.
+# Place this in PATH ahead of the real `claude` binary when running VHS.
+# It emits deterministic architecture-agent output and writes a tiny ADR so
+# the demo shows real artifacts inside the active worktree.
+
+set -e
+
+WORKTREE_DIR="${PWD}"
+TASK_ID="${FOCUS_TASK_ID:-${TRELLIS_CONTEXT_ID:-demo-phase-auth}}"
+CONTEXT_ID="${FOCUS_TRELLIS_CONTEXT:-${TRELLIS_CONTEXT_ID:-$TASK_ID}}"
+SESSION_ID="${FOCUS_SESSION_ID:-${TRELLIS_CONTEXT_ID:-demo-session}}"
+
+# Trellis-style: confirm that injected context arrived.
+echo ""
+echo "╭────────────────────────────────────────────────────────╮"
+echo "│  Claude Code (mock) — Architecture Agent               │"
+echo "╰────────────────────────────────────────────────────────╯"
+echo ""
+sleep 0.3
+
+echo "Worktree : ${WORKTREE_DIR}"
+echo "Session  : ${SESSION_ID}"
+echo "Task     : ${TASK_ID}"
+echo "Context  : ${CONTEXT_ID}"
+echo ""
+sleep 0.3
+
+echo "Reading task context from Focus MCP..."
+sleep 0.3
+echo "Injecting Trellis context into agent environment..."
+sleep 0.3
+echo "Analyzing repository structure and conventions..."
+sleep 0.3
+echo ""
+
+echo "Generated execution plan:"
+echo "  Phase 1: Research JWT authentication patterns"
+echo "  Phase 2: Design token schema and session management"
+echo "  Phase 3: Implement login/logout API endpoints"
+echo "  Phase 4: Write tests and integration docs"
+echo ""
+sleep 0.3
+
+# Write a tiny ADR into the worktree so the demo has a real artifact.
+ADR_DIR="${WORKTREE_DIR}/docs/adr"
+ADR_FILE="${ADR_DIR}/012-jwt-authentication.md"
+mkdir -p "${ADR_DIR}" || true
+if [ -d "${ADR_DIR}" ]; then
+  cat > "${ADR_FILE}" <<'EOF'
+# ADR 012: JWT Authentication
+
+## Status
+Accepted
+
+## Context
+The API needs stateless authentication. We chose JWT for portability.
+
+## Decision
+- Access tokens expire after 15 minutes.
+- Refresh tokens rotate on every use and are stored hashed.
+- Claims include `sub`, `roles`, and `iat`.
+
+## Consequences
+Simpler horizontal scaling; requires secure key rotation.
+EOF
+  echo "Created ADR: docs/adr/012-jwt-authentication.md"
+fi
+
+echo "Created plan: authentication-system"
+echo "Created worktree: .worktrees/feat-auth-design"
+echo ""
+sleep 0.3
+
+echo "Architecture agent session complete."
+echo "Next: select a phase and start a coding agent."
+echo ""
