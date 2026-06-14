@@ -1,60 +1,73 @@
-# Focus-tui 架构设计
+# Focus-tui Architecture
 
-本文档描述 Focus-tui 的完整系统架构，基于 [ADR-0004: Protocol-Driven Multi-Agent Orchestration](../adr/0004-protocol-driven-multi-agent-orchestration.md)。
+This directory describes the current system architecture of Focus-tui. The authoritative consolidated decision is [ADR-0007: Current Implementation Consolidation](../adr/0007-current-implementation-consolidation.md).
 
-## 文档导航
+## Document Navigation
 
-| 文档 | 内容 |
-|------|------|
-| [architecture.md](./architecture.md) | 完整架构设计：组件、数据流、状态机、接口契约 |
-| [ADR-0000](../adr/0000-constitution-for-adr-driven-execution.md) | 宪法：ADR → Plan → Task → Session 层级 |
-| [ADR-0001](../adr/0001-product-positioning-human-sovereign-agent-native-workbench.md) | 产品定位：人类主权、Agent 原生 |
-| [ADR-0004](../adr/0004-protocol-driven-multi-agent-orchestration.md) | 架构决策：去中心化 Agent Mesh、外部终端执行 |
+| Document | Content |
+|----------|---------|
+| [architecture.md](./architecture.md) | Current architecture: components, data model, protocols, state machines, flows |
+| [mcp-a2a-refactor-plan.md](./mcp-a2a-refactor-plan.md) | Historical refactor plan that moved MCP to HTTP and deprecated A2A |
+| [ADR-0000](../adr/0000-constitution-for-adr-driven-execution.md) | Constitution: ADR → Plan → Task → Session hierarchy |
+| [ADR-0001](../adr/0001-product-positioning-human-sovereign-agent-native-workbench.md) | Product positioning: human sovereign, agent native |
+| [ADR-0004](../adr/0004-protocol-driven-multi-agent-orchestration.md) | Decision to move to decentralized Agent Mesh and external terminals |
+| [ADR-0006](../adr/0006-dag-pane-phase-step-hierarchy.md) | Phase-Step task layering |
+| [ADR-0007](../adr/0007-current-implementation-consolidation.md) | Consolidated snapshot of the current implementation |
 
-## 架构核心
+## System at a Glance
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                     Focus-tui（指挥中心）                         │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐ │
-│  │ Dashboard   │  │ Task Board  │  │ Agent Grid              │ │
-│  │（调度状态）   │  │（任务依赖图） │  │（Agent 状态卡片）        │ │
-│  └─────────────┘  └─────────────┘  └─────────────────────────┘ │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐ │
-│  │ ADR Browser │  │ Knowledge   │  │ Human Shell             │ │
-│  │（约束查询）   │  │ Graph       │  │（人类工作区）            │ │
-│  └─────────────┘  └─────────────┘  └─────────────────────────┘ │
-│                                                                 │
-│  ┌─────────────────────────────────────────────────────────┐   │
-│  │ Orchestrator（调度器）─ 纯规则引擎                         │   │
-│  │ MCP Server（共享状态）─ SQLite 包装                        │   │
-│  │ A2A Router（信号层）─ 本地 Socket                          │   │
-│  └─────────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-          ┌───────────────────┼───────────────────┐
-          │ MCP               │ A2A               │ 进程管理
-          ▼                   ▼                   ▼
-┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐
-│  Terminal 1      │  │  Terminal 2      │  │  Terminal 3      │
-│  $ claude        │  │  $ opencode      │  │  $ kimi          │
-│  Agent-1         │  │  Agent-2         │  │  Agent-3         │
-│  （自由运行）     │  │  （自由运行）     │  │  （自由运行）     │
-└─────────────────┘  └─────────────────┘  └─────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│                         User (TUI)                          │
+│  ┌─────────┐  ┌─────────┐  ┌─────────────┐  ┌───────────┐  │
+│  │ DAG     │  │Worktree │  │ Worktree    │  │  Shell    │  │
+│  │ Pane    │  │ List    │  │ Detail      │  │  Pane     │  │
+│  └────┬────┘  └────┬────┘  └──────┬──────┘  └─────┬─────┘  │
+│       └─────────────┴──────────────┴───────────────┘        │
+│                         │                                   │
+│                  Bubble Tea Model                           │
+│                         │                                   │
+└─────────────────────────┼───────────────────────────────────┘
+                          │
+                          ▼
+┌─────────────────────────────────────────────────────────────┐
+│                      MCP Server (HTTP)                      │
+│  tools: task.*, plan.*, dag.*, session.*, kg.*, context.*   │
+│  resources: context://tasks, plans, worktrees               │
+└─────────────────────────┬───────────────────────────────────┘
+                          │
+          ┌───────────────┼───────────────┐
+          │               │               │
+          ▼               ▼               ▼
+   ┌────────────┐  ┌────────────┐  ┌────────────┐
+   │  Command   │  │   Store    │  │Orchestrator│
+   │    Bus     │  │(SQLite/PG) │  │            │
+   └────────────┘  └────────────┘  └────────────┘
+          │               │               │
+          └───────────────┼───────────────┘
+                          │
+                          ▼
+┌─────────────────────────────────────────────────────────────┐
+│                      Agent (external)                       │
+│  Claude / Kimi / Codex / OpenCode / Gemini / generic        │
+│  Runs in its own terminal, connected via FOCUS_MCP_URL      │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-## 关键特征
+## Key Characteristics
 
-- **Agent 在外部终端自由运行**：每个 Agent 是独立进程，拥有完整的终端体验
-- **Focus-tui 纯指挥中心**：不显示 Agent 输出，只显示调度状态和数据视图
-- **协议驱动**：MCP（共享状态）+ A2A（轻量信号）
-- **人类主权**：人类直接操作 MCP 共享状态，不通过 Agent 中转
-- **去中心化**：无 Global Agent，无中心大脑
+- **Agents run in external terminals.** Each agent is an independent process with its own native terminal experience.
+- **Focus-tui is a command center.** It shows scheduling state, worktrees, and task context, not agent output.
+- **Protocol-driven.** The UI and agents share the same MCP interface.
+- **Human sovereign.** The orchestrator notifies but never auto-launches agents.
+- **Decentralized.** No Global Agent, no central brain.
+- **Worktree-native.** Each Phase binds to one git worktree; agents execute inside it.
 
-## 快速链接
+## Quick Links
 
-- [组件架构](./architecture.md#组件架构)
-- [数据流](./architecture.md#数据流)
-- [状态机](./architecture.md#状态机)
-- [接口契约](./architecture.md#接口契约)
-- [数据库 Schema](./architecture.md#数据库设计)
+- [Core Components](./architecture.md#3-core-components)
+- [Data Model](./architecture.md#4-data-model)
+- [Communication Protocol](./architecture.md#5-communication-protocol)
+- [State Machines](./architecture.md#6-state-machines)
+- [Key Flows](./architecture.md#7-key-flows)
+- [Configuration](./architecture.md#8-configuration)

@@ -173,7 +173,8 @@ func (s *Store) EventStore() any {
 	return s.events
 }
 
-// EventBus returns the in-memory event bus (nil in sqlite mode).
+// EventBus returns the in-memory event bus. Available in both sqlite and
+// postgresql modes.
 func (s *Store) EventBus() *events.EventBus {
 	return s.bus
 }
