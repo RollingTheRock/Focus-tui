@@ -98,6 +98,10 @@ If you use [Trellis](https://github.com/mindfold-ai/trellis), `focus` keeps ever
 
 You choose the best tool for the moment. `focus` keeps the system coherent.
 
+### A note on Kimi Code
+
+While `focus` stays agent-neutral, the author's daily driver is **[Kimi Code](https://github.com/MoonshotAI/kimi-code)**. `focus` includes a first-class integration layer for Kimi Code: the `.kimi/hooks/session-start.py` hook automatically injects the current Trellis task context into every Kimi Code session, so the agent starts from structured intent rather than an empty workspace.
+
 ## Architecture at a Glance
 
 ```mermaid
@@ -131,6 +135,19 @@ For the full architecture, see [`docs/architecture/`](docs/architecture/).
 
 `focus` keeps project state in a `.focus/` directory inside your repository and user-level preferences in `~/.config/focus/config.yaml`.
 
+```yaml
+# ~/.config/focus/config.yaml
+agent:
+  external_terminal: true      # launch agents in an external terminal
+  terminal_emulator: kitty     # auto-detected if left empty
+  research_provider: kimi
+  architecture_provider: claude
+  coding_provider: "codex,kimi,claude"
+
+editor:
+  command: nvim
+```
+
 - `~/.config/focus/config.yaml` — editor, theme, MCP transport, store backend.
 - `.focus/focus.db` — SQLite database for tasks, sessions, and worktree context (default).
 
@@ -150,13 +167,18 @@ If you only need a single-agent chat surface, `focus` may feel heavy.
 
 If you are running **multi-worktree, multi-agent, parallel software execution** and need control instead of terminal chaos, `focus` is built for you.
 
+## Related Projects
+
+- **[Kimi Code](https://github.com/MoonshotAI/kimi-code)** — the author's preferred terminal-native coding agent. `focus` ships a `SessionStart` hook that injects Trellis context into every Kimi Code session.
+- **[Trellis](https://github.com/mindfold-ai/trellis)** — durable specs, PRDs, workflow state, and handoff journals for every worktree. Optional but recommended.
+
 ## Documentation
 
 - [`docs/architecture/`](docs/architecture/) — system design and protocols.
 - [`docs/adr/`](docs/adr/) — architecture decision records.
-- [`docs/plans/`](docs/plans/) — implementation and migration plans.
+- [`docs/plans/`](docs/plans/) — migration plans (currently no active plans; historical plans archived).
 - [`docs/releases/`](docs/releases/) — release notes and process.
 
 ## License
 
-[MIT](LICENSE)
+[Apache-2.0](LICENSE)

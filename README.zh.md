@@ -98,6 +98,10 @@ focus
 
 你根据当下场景选择最合适的工具，`focus` 让系统保持连贯。
 
+### 关于 Kimi Code
+
+虽然 `focus` 保持 Agent 中立，但作者日常最常用的 Agent 是 **[Kimi Code](https://github.com/MoonshotAI/kimi-code)**。`focus` 为 Kimi Code 提供了一流集成：`.kimi/hooks/session-start.py` 钩子会在每次 Kimi Code 会话启动时自动注入当前 Trellis 任务上下文，让 Agent 从结构化意图出发，而不是面对空白工作区。
+
 ## 架构一览
 
 ```mermaid
@@ -131,6 +135,19 @@ graph LR
 
 `focus` 将项目状态保存在仓库内的 `.focus/` 目录中，用户级偏好设置保存在 `~/.config/focus/config.yaml`。
 
+```yaml
+# ~/.config/focus/config.yaml
+agent:
+  external_terminal: true      # 在外部终端启动 Agent
+  terminal_emulator: kitty     # 留空则自动检测
+  research_provider: kimi
+  architecture_provider: claude
+  coding_provider: "codex,kimi,claude"
+
+editor:
+  command: nvim
+```
+
 - `~/.config/focus/config.yaml` —— 编辑器、主题、MCP 传输层、存储后端。
 - `.focus/focus.db` —— SQLite 数据库，用于任务、Session 与 worktree 上下文（默认）。
 
@@ -150,13 +167,18 @@ graph LR
 
 如果你在运行 **多 worktree、多 Agent、并行软件执行**，并且需要控制而非终端混乱，`focus` 就是为你而建。
 
+## 相关项目
+
+- **[Kimi Code](https://github.com/MoonshotAI/kimi-code)** —— 作者首选的终端原生编码 Agent。`focus` 内置 `SessionStart` 钩子，为每个 Kimi Code 会话注入 Trellis 上下文。
+- **[Trellis](https://github.com/mindfold-ai/trellis)** —— 为每个 worktree 提供持久的 Spec、PRD、工作流状态与交接日志。可选但推荐。
+
 ## 文档
 
 - [`docs/architecture/`](docs/architecture/) —— 系统设计与协议。
 - [`docs/adr/`](docs/adr/) —— 架构决策记录。
-- [`docs/plans/`](docs/plans/) —— 实现与迁移计划。
+- [`docs/plans/`](docs/plans/) —— 迁移计划（当前无活跃计划；历史计划已归档）。
 - [`docs/releases/`](docs/releases/) —— 发布说明与流程。
 
 ## 许可
 
-[MIT](LICENSE)
+[Apache-2.0](LICENSE)
