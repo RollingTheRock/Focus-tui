@@ -43,3 +43,21 @@ func TestMCPHTTPServerStartsWithTUI(t *testing.T) {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
 }
+
+func TestMCPSocketConfigNotOverwrittenWithHTTPURL(t *testing.T) {
+	if testing.Short() {
+		t.Skip("MCP config preservation test skipped in short mode")
+	}
+	cfg := config.DefaultConfig()
+	cfg.Agent.MCPSocket = ""
+	cfg.Agent.MCPPort = "127.0.0.1:18768" // dedicated test port to avoid conflicts
+	st, _ := store.New(":memory:")
+	defer st.Close()
+
+	m := New(cfg, st).(model)
+	defer m.closeShellPanes()
+
+	if m.common.Cfg.Agent.MCPSocket != "" {
+		t.Fatalf("MCPSocket config was overwritten with HTTP URL: got %q", m.common.Cfg.Agent.MCPSocket)
+	}
+}

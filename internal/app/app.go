@@ -267,7 +267,7 @@ func New(cfg config.Config, store models.Store) tea.Model {
 	if url, err := m.mcpServer.StartHTTP(); err != nil {
 		log.Printf("focus: mcp http start failed: %v", err)
 	} else if url != "" {
-		m.common.Cfg.Agent.MCPSocket = url
+		log.Printf("focus: mcp http url: %s", url)
 	}
 
 	gitAdapter := adapters.NewGitLocalAdapter()
