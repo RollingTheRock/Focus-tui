@@ -64,9 +64,6 @@ func main() {
 	if cfg.Agent.MCPSocket == "" {
 		cfg.Agent.MCPSocket = filepath.Join(projectRoot, ".focus", "mcp.sock")
 	}
-	if cfg.Agent.MCPPort == config.DefaultConfig().Agent.MCPPort {
-		cfg.Agent.MCPPort = "127.0.0.1:0"
-	}
 
 	// Mark overdue todos from previous days.
 	_ = st.MarkOverdue()
