@@ -33,7 +33,7 @@
 </p>
 
 <p align="center">
-  <video src="https://raw.githubusercontent.com/RollingTheRock/Focus-tui/feat-readme-demo/docs/assets/focus-demo.mp4" width="860" autoplay loop muted playsinline></video>
+  <video src="https://private-user-images.githubusercontent.com/249453433/608074885-2c9041e7-cdd7-4aaf-9a51-89735c9d0936.mp4" width="860" autoplay loop muted playsinline></video>
 </p>
 
 <p align="center"><i>启动。观察。编排。</i></p>
