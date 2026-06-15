@@ -3,12 +3,15 @@
 </p>
 
 <p align="center">
-  <strong>A terminal-native execution workbench for parallel agent development.</strong>
+  <strong>A terminal-native execution workbench for parallel agent development.</strong><br>
+  <strong>面向并行 Agent 开发的终端原生执行工作台</strong>
 </p>
 
 <p align="center">
   Stop juggling terminals. Run multiple coding agents across multiple git worktrees<br>
-  without losing control of context, dependencies, and handoff.
+  without losing control of context, dependencies, and handoff.<br>
+  不再在终端间疲于奔命。在多个 Git worktree 上并行运行多个编码 Agent，<br>
+  同时保持上下文、依赖关系与交接的完全可控。
 </p>
 
 <p align="center">
@@ -20,20 +23,20 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/RollingTheRock/focus-tui/actions/workflows/go-test.yml"><img src="https://github.com/RollingTheRock/focus-tui/actions/workflows/go-test.yml/badge.svg" alt="ci"></a>
-  <a href="https://github.com/RollingTheRock/focus-tui/releases"><img src="https://img.shields.io/github/v/release/RollingTheRock/focus-tui?style=flat-square&color=2563eb" alt="release"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/github/license/RollingTheRock/focus-tui?style=flat-square&color=16a34a" alt="license"></a>
+  <a href="https://github.com/RollingTheRock/Focus-tui/actions/workflows/go-test.yml"><img src="https://github.com/RollingTheRock/Focus-tui/actions/workflows/go-test.yml/badge.svg" alt="ci"></a>
+  <a href="https://github.com/RollingTheRock/Focus-tui/releases"><img src="https://img.shields.io/github/v/release/RollingTheRock/Focus-tui?style=flat-square&color=2563eb" alt="release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/RollingTheRock/Focus-tui?style=flat-square&color=16a34a" alt="license"></a>
   <a href="go.mod"><img src="https://img.shields.io/badge/go-1.25%2B-0f766e?style=flat-square" alt="go"></a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/RollingTheRock/focus-tui/stargazers"><img src="https://img.shields.io/github/stars/RollingTheRock/focus-tui?style=flat-square&color=eab308" alt="stars"></a>
-  <a href="https://github.com/RollingTheRock/focus-tui/issues"><img src="https://img.shields.io/github/issues/RollingTheRock/focus-tui?style=flat-square&color=e67e22" alt="issues"></a>
-  <a href="https://github.com/RollingTheRock/focus-tui/pulls"><img src="https://img.shields.io/github/issues-pr/RollingTheRock/focus-tui?style=flat-square&color=9b59b6" alt="pull requests"></a>
+  <a href="https://github.com/RollingTheRock/Focus-tui/stargazers"><img src="https://img.shields.io/github/stars/RollingTheRock/Focus-tui?style=flat-square&color=eab308" alt="stars"></a>
+  <a href="https://github.com/RollingTheRock/Focus-tui/issues"><img src="https://img.shields.io/github/issues/RollingTheRock/Focus-tui?style=flat-square&color=e67e22" alt="issues"></a>
+  <a href="https://github.com/RollingTheRock/Focus-tui/pulls"><img src="https://img.shields.io/github/issues-pr/RollingTheRock/Focus-tui?style=flat-square&color=9b59b6" alt="pull requests"></a>
 </p>
 
 <p align="center">
-  <video src="docs/assets/focus-demo.mp4" width="860" autoplay loop muted playsinline></video>
+  <video src="https://private-user-images.githubusercontent.com/249453433/608074885-2c9041e7-cdd7-4aaf-9a51-89735c9d0936.mp4" width="860" autoplay loop muted playsinline></video>
 </p>
 
 <p align="center"><i>Launch. Observe. Orchestrate.</i></p>
@@ -79,7 +82,7 @@ Built for the shell. Fast, keyboard-driven, no browser required.
 
 ```bash
 # Install
-go install github.com/RollingTheRock/focus-tui/cmd/focus@latest
+go install github.com/RollingTheRock/Focus-tui/cmd/focus@latest
 
 # Run inside a git repository
 cd your-project
@@ -121,9 +124,9 @@ For the full architecture, see [`docs/architecture/`](docs/architecture/).
 
 | Method | Command |
 |---|---|
-| Go install | `go install github.com/RollingTheRock/focus-tui/cmd/focus@latest` |
-| Release binary | Download from [GitHub Releases](https://github.com/RollingTheRock/focus-tui/releases) |
-| Build from source | `git clone https://github.com/RollingTheRock/focus-tui.git && cd focus-tui && go build ./cmd/focus` |
+| Go install | `go install github.com/RollingTheRock/Focus-tui/cmd/focus@latest` |
+| Release binary | Download from [GitHub Releases](https://github.com/RollingTheRock/Focus-tui/releases) |
+| Build from source | `git clone https://github.com/RollingTheRock/Focus-tui.git && cd focus-tui && go build ./cmd/focus` |
 
 **Requirements**
 

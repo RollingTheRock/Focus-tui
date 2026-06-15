@@ -20,20 +20,20 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/RollingTheRock/focus-tui/actions/workflows/go-test.yml"><img src="https://github.com/RollingTheRock/focus-tui/actions/workflows/go-test.yml/badge.svg" alt="ci"></a>
-  <a href="https://github.com/RollingTheRock/focus-tui/releases"><img src="https://img.shields.io/github/v/release/RollingTheRock/focus-tui?style=flat-square&color=2563eb" alt="release"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/github/license/RollingTheRock/focus-tui?style=flat-square&color=16a34a" alt="license"></a>
+  <a href="https://github.com/RollingTheRock/Focus-tui/actions/workflows/go-test.yml"><img src="https://github.com/RollingTheRock/Focus-tui/actions/workflows/go-test.yml/badge.svg" alt="ci"></a>
+  <a href="https://github.com/RollingTheRock/Focus-tui/releases"><img src="https://img.shields.io/github/v/release/RollingTheRock/Focus-tui?style=flat-square&color=2563eb" alt="release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/RollingTheRock/Focus-tui?style=flat-square&color=16a34a" alt="license"></a>
   <a href="go.mod"><img src="https://img.shields.io/badge/go-1.25%2B-0f766e?style=flat-square" alt="go"></a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/RollingTheRock/focus-tui/stargazers"><img src="https://img.shields.io/github/stars/RollingTheRock/focus-tui?style=flat-square&color=eab308" alt="stars"></a>
-  <a href="https://github.com/RollingTheRock/focus-tui/issues"><img src="https://img.shields.io/github/issues/RollingTheRock/focus-tui?style=flat-square&color=e67e22" alt="issues"></a>
-  <a href="https://github.com/RollingTheRock/focus-tui/pulls"><img src="https://img.shields.io/github/issues-pr/RollingTheRock/focus-tui?style=flat-square&color=9b59b6" alt="pull requests"></a>
+  <a href="https://github.com/RollingTheRock/Focus-tui/stargazers"><img src="https://img.shields.io/github/stars/RollingTheRock/Focus-tui?style=flat-square&color=eab308" alt="stars"></a>
+  <a href="https://github.com/RollingTheRock/Focus-tui/issues"><img src="https://img.shields.io/github/issues/RollingTheRock/Focus-tui?style=flat-square&color=e67e22" alt="issues"></a>
+  <a href="https://github.com/RollingTheRock/Focus-tui/pulls"><img src="https://img.shields.io/github/issues-pr/RollingTheRock/Focus-tui?style=flat-square&color=9b59b6" alt="pull requests"></a>
 </p>
 
 <p align="center">
-  <video src="docs/assets/focus-demo.mp4" width="860" autoplay loop muted playsinline></video>
+  <video src="https://private-user-images.githubusercontent.com/249453433/608074885-2c9041e7-cdd7-4aaf-9a51-89735c9d0936.mp4" width="860" autoplay loop muted playsinline></video>
 </p>
 
 <p align="center"><i>启动。观察。编排。</i></p>
@@ -79,7 +79,7 @@ Session 摘要记录进度、阻塞与决策，让下一个 Agent 或人类无�
 
 ```bash
 # 安装
-go install github.com/RollingTheRock/focus-tui/cmd/focus@latest
+go install github.com/RollingTheRock/Focus-tui/cmd/focus@latest
 
 # 在 Git 仓库中运行
 cd your-project
@@ -121,9 +121,9 @@ graph LR
 
 | 方式 | 命令 |
 |---|---|
-| Go install | `go install github.com/RollingTheRock/focus-tui/cmd/focus@latest` |
-| Release 二进制 | 从 [GitHub Releases](https://github.com/RollingTheRock/focus-tui/releases) 下载 |
-| 源码构建 | `git clone https://github.com/RollingTheRock/focus-tui.git && cd focus-tui && go build ./cmd/focus` |
+| Go install | `go install github.com/RollingTheRock/Focus-tui/cmd/focus@latest` |
+| Release 二进制 | 从 [GitHub Releases](https://github.com/RollingTheRock/Focus-tui/releases) 下载 |
+| 源码构建 | `git clone https://github.com/RollingTheRock/Focus-tui.git && cd focus-tui && go build ./cmd/focus` |
 
 **环境要求**
 
