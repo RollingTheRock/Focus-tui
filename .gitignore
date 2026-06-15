@@ -35,3 +35,6 @@ spec*.md
 .opencode/
 .trellis/
 .agents/
+
+# Brainstorming visual companion sessions
+.superpowers/
