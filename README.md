@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/focus-logo.png" alt="focus" width="500">
+  <img src="docs/assets/focus-logo.png" alt="focus" width="720">
 </p>
 
 <p align="center">
@@ -33,7 +33,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/assets/focus-demo.gif" alt="focus demo" width="860">
+  <video src="docs/assets/focus-demo.mp4" width="860" autoplay loop muted playsinline></video>
 </p>
 
 <p align="center"><i>Launch. Observe. Orchestrate.</i></p>
