@@ -37,7 +37,8 @@ README.md           # English version
 README.zh.md        # Chinese version
 docs/
   assets/
-    focus-demo.gif          # 8–12s looping GIF for hero
+    focus-logo.png          # Hero logo (PNG)
+    focus-demo.mp4          # Looping MP4 hero demo video
     focus-workflow.cast     # Asciinema source file
 ```
 
@@ -355,7 +356,8 @@ Contributions are welcome. Please open an issue or pull request. See [`CONTRIBUT
 
 ## 7. Demo Production Checklist
 
-- [ ] Record hero GIF (`docs/assets/focus-demo.gif`).
+- [x] Provide hero logo (`docs/assets/focus-logo.png`).
+- [x] Provide hero demo video (`docs/assets/focus-demo.mp4`).
 - [ ] Record Asciinema workflow (`docs/assets/focus-workflow.cast`).
 - [ ] Upload Asciinema to asciinema.org and obtain embed link.
 - [ ] Verify GIF renders correctly on GitHub dark and light themes.
@@ -373,7 +375,7 @@ Contributions are welcome. Please open an issue or pull request. See [`CONTRIBUT
 - [ ] `README.md` follows the module order in this spec.
 - [ ] `README.zh.md` exists and mirrors the structure.
 - [ ] Hero section renders within one screen on desktop GitHub.
-- [ ] GIF and Asciinema are embedded and publicly viewable.
+- [ ] MP4 demo is embedded and publicly viewable.
 - [ ] Quickstart is three commands or fewer.
 - [ ] No more than three new concepts appear above the fold.
 - [ ] "Agent-neutral" and "ecosystem coexistence" thesis is explicit.
