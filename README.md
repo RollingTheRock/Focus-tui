@@ -3,12 +3,15 @@
 </p>
 
 <p align="center">
-  <strong>A terminal-native execution workbench for parallel agent development.</strong>
+  <strong>A terminal-native execution workbench for parallel agent development.</strong><br>
+  <strong>面向并行 Agent 开发的终端原生执行工作台</strong>
 </p>
 
 <p align="center">
   Stop juggling terminals. Run multiple coding agents across multiple git worktrees<br>
-  without losing control of context, dependencies, and handoff.
+  without losing control of context, dependencies, and handoff.<br>
+  不再在终端间疲于奔命。在多个 Git worktree 上并行运行多个编码 Agent，<br>
+  同时保持上下文、依赖关系与交接的完全可控。
 </p>
 
 <p align="center">
