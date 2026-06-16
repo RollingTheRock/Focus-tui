@@ -17,6 +17,7 @@
 - [ ] tag created (`v0.x.y-internal.N` or `v0.x.y-rc.N`)
 - [ ] tag pushed
 - [ ] CI workflow triggered (`.github/workflows/internal-release.yml`)
+- [ ] CI workflow has `permissions: contents: write` so it can publish the prerelease
 - [ ] CI artifacts generated (linux/darwin/windows, amd64/arm64 where supported)
 - [ ] `checksums.txt` generated
 - [ ] GitHub prerelease published with artifacts attached

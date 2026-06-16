@@ -48,6 +48,16 @@ The CI workflow (`.github/workflows/internal-release.yml`) is tag-triggered; it 
 
 The GitHub prerelease is public, but the version string (`-internal.N` / `-rc.N`) and the prerelease flag make it clear this is not a stable release.
 
+## CI Permissions
+
+The release workflow must declare `permissions: contents: write` at the workflow level (or on the release job). The default `GITHUB_TOKEN` only has read access to repository contents; without this declaration the `Publish GitHub prerelease` step fails with:
+
+```text
+Resource not accessible by integration
+```
+
+See `.github/workflows/internal-release.yml` for the current declaration.
+
 ## Minimal Release Steps
 
 1. Sync the branch you want to release from.
