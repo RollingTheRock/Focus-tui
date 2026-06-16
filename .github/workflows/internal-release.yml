@@ -6,6 +6,9 @@ on:
       - 'v*-internal.*'
       - 'v*-rc.*'
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
