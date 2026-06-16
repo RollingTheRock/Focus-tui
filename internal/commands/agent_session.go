@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"focus/internal/models"
-	"focus/internal/store"
+	"github.com/RollingTheRock/Focus-tui/internal/models"
+	"github.com/RollingTheRock/Focus-tui/internal/store"
 )
 
 // CreateAgentSession persists an agent session record.

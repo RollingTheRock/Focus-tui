@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/MoonshotAI/kimi-agent-sdk/go/wire"
+	"github.com/RollingTheRock/Focus-tui/internal/third_party/kimi-agent-sdk/wire"
 )
 
 // SingleTurn wraps a Turn and its associated Session for single-use scenarios.

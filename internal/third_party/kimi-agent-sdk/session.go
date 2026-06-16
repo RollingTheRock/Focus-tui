@@ -18,9 +18,9 @@ import (
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
 
-	"github.com/MoonshotAI/kimi-agent-sdk/go/wire"
-	"github.com/MoonshotAI/kimi-agent-sdk/go/wire/jsonrpc2"
-	"github.com/MoonshotAI/kimi-agent-sdk/go/wire/transport"
+	"github.com/RollingTheRock/Focus-tui/internal/third_party/kimi-agent-sdk/wire"
+	"github.com/RollingTheRock/Focus-tui/internal/third_party/kimi-agent-sdk/wire/jsonrpc2"
+	"github.com/RollingTheRock/Focus-tui/internal/third_party/kimi-agent-sdk/wire/transport"
 )
 
 var (

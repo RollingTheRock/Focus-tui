@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"testing"
 
-	"focus/internal/config"
-	"focus/internal/store"
+	"github.com/RollingTheRock/Focus-tui/internal/config"
+	"github.com/RollingTheRock/Focus-tui/internal/store"
 )
 
 func TestMCPHTTPServerStartsWithTUI(t *testing.T) {

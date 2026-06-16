@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"focus/internal/events"
-	"focus/internal/models"
+	"github.com/RollingTheRock/Focus-tui/internal/events"
+	"github.com/RollingTheRock/Focus-tui/internal/models"
 )
 
 type AgentMessageRecord = models.AgentMessageRecord

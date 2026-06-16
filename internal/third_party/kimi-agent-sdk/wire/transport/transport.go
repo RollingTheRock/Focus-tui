@@ -1,7 +1,7 @@
 package transport
 
 import (
-	"github.com/MoonshotAI/kimi-agent-sdk/go/wire"
+	"github.com/RollingTheRock/Focus-tui/internal/third_party/kimi-agent-sdk/wire"
 )
 
 //go:generate go tool defc generate -T Transport -o transport_impl.go

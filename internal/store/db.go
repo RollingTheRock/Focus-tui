@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"focus/internal/events"
-	"focus/internal/store/pgconn"
+	"github.com/RollingTheRock/Focus-tui/internal/events"
+	"github.com/RollingTheRock/Focus-tui/internal/store/pgconn"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	_ "modernc.org/sqlite"

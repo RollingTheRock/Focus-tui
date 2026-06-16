@@ -3,7 +3,7 @@ package commands
 import (
 	"context"
 
-	"focus/internal/store"
+	"github.com/RollingTheRock/Focus-tui/internal/store"
 )
 
 // Executor is the interface for all domain commands.

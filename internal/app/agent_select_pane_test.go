@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"focus/internal/agents"
-	"focus/internal/models"
-	"focus/internal/store"
+	"github.com/RollingTheRock/Focus-tui/internal/agents"
+	"github.com/RollingTheRock/Focus-tui/internal/models"
+	"github.com/RollingTheRock/Focus-tui/internal/store"
 )
 
 // TestAgentSelectPaneDetectsInstalledAgentOverridesStaleStore verifies that the

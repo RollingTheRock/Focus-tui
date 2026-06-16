@@ -5,7 +5,7 @@ package transport
 import (
 	"net/rpc"
 
-	"github.com/MoonshotAI/kimi-agent-sdk/go/wire"
+	"github.com/RollingTheRock/Focus-tui/internal/third_party/kimi-agent-sdk/wire"
 	defcruntime "github.com/x5iu/defc/runtime"
 )
 

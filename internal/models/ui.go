@@ -1,9 +1,9 @@
 package models
 
 import (
-	"focus/internal/config"
-	"focus/internal/events"
-	"focus/internal/styles"
+	"github.com/RollingTheRock/Focus-tui/internal/config"
+	"github.com/RollingTheRock/Focus-tui/internal/events"
+	"github.com/RollingTheRock/Focus-tui/internal/styles"
 	"time"
 
 	tea "charm.land/bubbletea/v2"

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"focus/internal/agents"
+	"github.com/RollingTheRock/Focus-tui/internal/agents"
 )
 
 // Builder assembles a Digest from an external agent session file and git diff.

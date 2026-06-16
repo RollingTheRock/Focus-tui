@@ -4,7 +4,7 @@ import (
 	"sort"
 	"strings"
 
-	"focus/internal/styles"
+	"github.com/RollingTheRock/Focus-tui/internal/styles"
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"

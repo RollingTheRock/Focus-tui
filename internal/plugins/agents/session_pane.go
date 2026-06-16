@@ -5,10 +5,10 @@ import (
 	"path/filepath"
 	"time"
 
-	"focus/internal/agents"
-	"focus/internal/models"
-	"focus/internal/render"
-	"focus/internal/styles"
+	"github.com/RollingTheRock/Focus-tui/internal/agents"
+	"github.com/RollingTheRock/Focus-tui/internal/models"
+	"github.com/RollingTheRock/Focus-tui/internal/render"
+	"github.com/RollingTheRock/Focus-tui/internal/styles"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"

@@ -7,7 +7,7 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/MoonshotAI/kimi-agent-sdk/go/wire"
+	"github.com/RollingTheRock/Focus-tui/internal/third_party/kimi-agent-sdk/wire"
 )
 
 type Tool struct {

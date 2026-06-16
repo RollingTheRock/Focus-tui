@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"testing"
 
-	"focus/internal/models"
+	"github.com/RollingTheRock/Focus-tui/internal/models"
 )
 
 func TestLinkTaskToWorktree_Validate(t *testing.T) {

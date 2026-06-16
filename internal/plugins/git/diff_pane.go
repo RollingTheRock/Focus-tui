@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"strings"
 
-	"focus/internal/adapters"
-	"focus/internal/models"
-	editorplugin "focus/internal/plugins/editor"
-	"focus/internal/plugins/git/diffview"
-	appstyles "focus/internal/styles"
+	"github.com/RollingTheRock/Focus-tui/internal/adapters"
+	"github.com/RollingTheRock/Focus-tui/internal/models"
+	editorplugin "github.com/RollingTheRock/Focus-tui/internal/plugins/editor"
+	"github.com/RollingTheRock/Focus-tui/internal/plugins/git/diffview"
+	appstyles "github.com/RollingTheRock/Focus-tui/internal/styles"
 
 	"charm.land/bubbles/v2/spinner"
 	"charm.land/bubbles/v2/viewport"

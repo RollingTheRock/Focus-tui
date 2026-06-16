@@ -2,7 +2,7 @@ package diffview
 
 import (
 	"charm.land/lipgloss/v2"
-	appstyles "focus/internal/styles"
+	appstyles "github.com/RollingTheRock/Focus-tui/internal/styles"
 )
 
 // LineStyle defines the styles for a given line type in the diff view.

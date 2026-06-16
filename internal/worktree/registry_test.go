@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	gitmodel "focus/internal/git"
+	gitmodel "github.com/RollingTheRock/Focus-tui/internal/git"
 )
 
 func TestRefreshRepoStoresMainWorktree(t *testing.T) {

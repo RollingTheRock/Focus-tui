@@ -3,10 +3,10 @@ package app
 import (
 	"strings"
 
-	gitmodel "focus/internal/git"
-	"focus/internal/models"
-	gitplugin "focus/internal/plugins/git"
-	appstyles "focus/internal/styles"
+	gitmodel "github.com/RollingTheRock/Focus-tui/internal/git"
+	"github.com/RollingTheRock/Focus-tui/internal/models"
+	gitplugin "github.com/RollingTheRock/Focus-tui/internal/plugins/git"
+	appstyles "github.com/RollingTheRock/Focus-tui/internal/styles"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"

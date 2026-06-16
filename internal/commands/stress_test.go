@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"focus/internal/store"
+	"github.com/RollingTheRock/Focus-tui/internal/store"
 )
 
 func setupStressStore(t *testing.T) *store.Store {

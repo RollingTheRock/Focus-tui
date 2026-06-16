@@ -3,9 +3,9 @@ package app
 import (
 	"strings"
 
-	"focus/internal/config"
-	"focus/internal/models"
-	"focus/internal/styles"
+	"github.com/RollingTheRock/Focus-tui/internal/config"
+	"github.com/RollingTheRock/Focus-tui/internal/models"
+	"github.com/RollingTheRock/Focus-tui/internal/styles"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"

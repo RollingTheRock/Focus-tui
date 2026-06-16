@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"focus/internal/events"
+	"github.com/RollingTheRock/Focus-tui/internal/events"
 )
 
 // TestOrchestrator_StressEventThroughput verifies the orchestrator handles many events.

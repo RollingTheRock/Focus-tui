@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"focus/internal/adapters"
-	gitmodel "focus/internal/git"
-	"focus/internal/models"
+	"github.com/RollingTheRock/Focus-tui/internal/adapters"
+	gitmodel "github.com/RollingTheRock/Focus-tui/internal/git"
+	"github.com/RollingTheRock/Focus-tui/internal/models"
 
 	tea "charm.land/bubbletea/v2"
 )

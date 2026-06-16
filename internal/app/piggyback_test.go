@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"focus/internal/events"
+	"github.com/RollingTheRock/Focus-tui/internal/events"
 )
 
 func TestExtractScopes(t *testing.T) {

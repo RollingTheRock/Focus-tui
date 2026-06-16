@@ -1,6 +1,6 @@
 package adapters
 
-import "focus/internal/git"
+import "github.com/RollingTheRock/Focus-tui/internal/git"
 
 type GitAdapter interface {
 	Adapter

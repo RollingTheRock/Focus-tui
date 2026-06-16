@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"focus/internal/models"
+	"github.com/RollingTheRock/Focus-tui/internal/models"
 )
 
 type PageSnapshotRecord = models.PageSnapshotRecord

@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"focus/internal/models"
-	"focus/internal/styles"
-	editorplugin "focus/internal/plugins/editor"
+	"github.com/RollingTheRock/Focus-tui/internal/models"
+	"github.com/RollingTheRock/Focus-tui/internal/styles"
+	editorplugin "github.com/RollingTheRock/Focus-tui/internal/plugins/editor"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"

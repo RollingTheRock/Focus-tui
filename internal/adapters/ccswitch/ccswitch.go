@@ -11,7 +11,7 @@ import (
 	"os/exec"
 	"strings"
 
-	"focus/internal/agents"
+	"github.com/RollingTheRock/Focus-tui/internal/agents"
 )
 
 // Provider holds a single cc-switch provider entry.

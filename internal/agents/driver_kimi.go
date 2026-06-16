@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/MoonshotAI/kimi-agent-sdk/go"
-	"github.com/MoonshotAI/kimi-agent-sdk/go/wire"
+	"github.com/RollingTheRock/Focus-tui/internal/third_party/kimi-agent-sdk"
+	"github.com/RollingTheRock/Focus-tui/internal/third_party/kimi-agent-sdk/wire"
 )
 
 // KimiDriver implements AgentDriver for the Kimi CLI using the official

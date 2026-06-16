@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"focus/internal/events"
+	"github.com/RollingTheRock/Focus-tui/internal/events"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"

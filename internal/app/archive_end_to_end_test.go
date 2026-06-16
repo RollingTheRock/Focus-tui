@@ -5,9 +5,9 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
-	"focus/internal/config"
-	"focus/internal/models"
-	"focus/internal/store"
+	"github.com/RollingTheRock/Focus-tui/internal/config"
+	"github.com/RollingTheRock/Focus-tui/internal/models"
+	"github.com/RollingTheRock/Focus-tui/internal/store"
 )
 
 // Helper: create a model with an in-memory store and seed tasks.

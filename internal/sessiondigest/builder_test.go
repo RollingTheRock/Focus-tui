@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"focus/internal/agents"
+	"github.com/RollingTheRock/Focus-tui/internal/agents"
 )
 
 func TestBuilderInferSummary(t *testing.T) {

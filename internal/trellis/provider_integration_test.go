@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"focus/internal/agents"
+	"github.com/RollingTheRock/Focus-tui/internal/agents"
 )
 
 // TestProviderDetection verifies that all 5 first-class agent providers

@@ -3,8 +3,8 @@ package store
 import (
 	"fmt"
 
-	"focus/internal/events"
-	"focus/internal/models"
+	"github.com/RollingTheRock/Focus-tui/internal/events"
+	"github.com/RollingTheRock/Focus-tui/internal/models"
 )
 
 type TaskWorktreeLinkRecord = models.TaskWorktreeLinkRecord

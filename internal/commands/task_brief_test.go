@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"focus/internal/models"
+	"github.com/RollingTheRock/Focus-tui/internal/models"
 )
 
 func TestUpdateTaskBrief_Validate(t *testing.T) {

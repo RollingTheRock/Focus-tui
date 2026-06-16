@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"strings"
 
-	"focus/internal/adapters/ccswitch"
-	"focus/internal/agents"
-	"focus/internal/models"
-	appstyles "focus/internal/styles"
+	"github.com/RollingTheRock/Focus-tui/internal/adapters/ccswitch"
+	"github.com/RollingTheRock/Focus-tui/internal/agents"
+	"github.com/RollingTheRock/Focus-tui/internal/models"
+	appstyles "github.com/RollingTheRock/Focus-tui/internal/styles"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"

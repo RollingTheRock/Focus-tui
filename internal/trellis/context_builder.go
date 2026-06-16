@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"focus/internal/agents"
-	"focus/internal/models"
+	"github.com/RollingTheRock/Focus-tui/internal/agents"
+	"github.com/RollingTheRock/Focus-tui/internal/models"
 )
 
 // buildFocusMetadataLayer assembles Layer A: Focus-specific metadata that

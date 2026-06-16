@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"focus/internal/agents"
-	"focus/internal/models"
+	"github.com/RollingTheRock/Focus-tui/internal/agents"
+	"github.com/RollingTheRock/Focus-tui/internal/models"
 )
 
 // Bridge is the primary adapter between Focus and Trellis.

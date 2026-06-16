@@ -3,7 +3,7 @@ package agents
 import (
 	"testing"
 
-	"focus/internal/models"
+	"github.com/RollingTheRock/Focus-tui/internal/models"
 )
 
 func TestPluginName(t *testing.T) {

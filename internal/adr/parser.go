@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	"focus/internal/models"
+	"github.com/RollingTheRock/Focus-tui/internal/models"
 
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/ast"

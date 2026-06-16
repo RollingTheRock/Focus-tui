@@ -11,7 +11,7 @@ import (
 	"os/exec"
 	"runtime"
 
-	"focus/internal/x/term"
+	"github.com/RollingTheRock/Focus-tui/internal/x/term"
 	"github.com/creack/pty"
 )
 

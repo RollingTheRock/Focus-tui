@@ -5,9 +5,9 @@ import (
 	"sort"
 	"strings"
 
-	gitmodel "focus/internal/git"
-	"focus/internal/models"
-	gitplugin "focus/internal/plugins/git"
+	gitmodel "github.com/RollingTheRock/Focus-tui/internal/git"
+	"github.com/RollingTheRock/Focus-tui/internal/models"
+	gitplugin "github.com/RollingTheRock/Focus-tui/internal/plugins/git"
 )
 
 type workbenchContextSource interface {

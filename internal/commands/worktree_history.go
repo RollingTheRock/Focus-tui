@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"focus/internal/models"
-	"focus/internal/store"
+	"github.com/RollingTheRock/Focus-tui/internal/models"
+	"github.com/RollingTheRock/Focus-tui/internal/store"
 )
 
 // RecordWorktreeHistory saves a worktree history entry.

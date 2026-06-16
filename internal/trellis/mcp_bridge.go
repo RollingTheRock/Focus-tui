@@ -2,7 +2,7 @@ package trellis
 
 import (
 
-	"focus/internal/models"
+	"github.com/RollingTheRock/Focus-tui/internal/models"
 )
 
 // MCPBridge provides hooks for Focus MCP tool handlers to sync with Trellis.

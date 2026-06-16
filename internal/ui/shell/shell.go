@@ -9,10 +9,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"focus/internal/models"
+	"github.com/RollingTheRock/Focus-tui/internal/models"
 
-	"focus/internal/x/vt"
-	"focus/internal/x/xpty"
+	"github.com/RollingTheRock/Focus-tui/internal/x/vt"
+	"github.com/RollingTheRock/Focus-tui/internal/x/xpty"
 	tea "charm.land/bubbletea/v2"
 )
 

@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	gitmodel "focus/internal/git"
-	"focus/internal/models"
+	gitmodel "github.com/RollingTheRock/Focus-tui/internal/git"
+	"github.com/RollingTheRock/Focus-tui/internal/models"
 
 	tea "charm.land/bubbletea/v2"
 )

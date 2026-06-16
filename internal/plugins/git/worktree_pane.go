@@ -6,12 +6,12 @@ import (
 	"sort"
 	"strings"
 
-	"focus/internal/adapters"
-	"focus/internal/agents"
-	gitmodel "focus/internal/git"
-	"focus/internal/models"
-	"focus/internal/render"
-	"focus/internal/styles"
+	"github.com/RollingTheRock/Focus-tui/internal/adapters"
+	"github.com/RollingTheRock/Focus-tui/internal/agents"
+	gitmodel "github.com/RollingTheRock/Focus-tui/internal/git"
+	"github.com/RollingTheRock/Focus-tui/internal/models"
+	"github.com/RollingTheRock/Focus-tui/internal/render"
+	"github.com/RollingTheRock/Focus-tui/internal/styles"
 
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"

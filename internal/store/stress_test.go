@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"focus/internal/models"
+	"github.com/RollingTheRock/Focus-tui/internal/models"
 )
 
 // TestStore_StressBatchTaskCreation creates 1000 tasks sequentially.

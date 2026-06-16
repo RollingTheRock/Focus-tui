@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"focus/internal/models"
+	"github.com/RollingTheRock/Focus-tui/internal/models"
 )
 
 // SplitDirection controls how a branch node divides space.

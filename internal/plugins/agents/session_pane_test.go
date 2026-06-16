@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"focus/internal/agents"
-	"focus/internal/models"
-	"focus/internal/styles"
+	"github.com/RollingTheRock/Focus-tui/internal/agents"
+	"github.com/RollingTheRock/Focus-tui/internal/models"
+	"github.com/RollingTheRock/Focus-tui/internal/styles"
 
 	"github.com/charmbracelet/x/ansi"
 	tea "charm.land/bubbletea/v2"

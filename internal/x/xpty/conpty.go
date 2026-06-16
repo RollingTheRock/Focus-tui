@@ -3,7 +3,7 @@ package xpty
 import (
 	"os/exec"
 
-	"focus/internal/x/conpty"
+	"github.com/RollingTheRock/Focus-tui/internal/x/conpty"
 )
 
 // ConPty is a Windows console pty.

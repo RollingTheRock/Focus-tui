@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"focus/internal/models"
+	"github.com/RollingTheRock/Focus-tui/internal/models"
 )
 
 // TestBridgeIntegration exercises the real Bridge against the actual

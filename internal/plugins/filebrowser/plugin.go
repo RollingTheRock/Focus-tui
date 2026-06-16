@@ -3,8 +3,8 @@ package filebrowser
 import (
 	"fmt"
 
-	"focus/internal/models"
-	"focus/internal/plugins"
+	"github.com/RollingTheRock/Focus-tui/internal/models"
+	"github.com/RollingTheRock/Focus-tui/internal/plugins"
 )
 
 var _ plugins.Plugin = (*Plugin)(nil)

@@ -8,17 +8,17 @@ import (
 	"testing"
 	"time"
 
-	"focus/internal/agents"
-	"focus/internal/config"
-	gitmodel "focus/internal/git"
-	"focus/internal/models"
-	"focus/internal/orchestrator"
-	editorplugin "focus/internal/plugins/editor"
-	gitplugin "focus/internal/plugins/git"
-	"focus/internal/store"
-	"focus/internal/trellis"
-	"focus/internal/ui/layout"
-	"focus/internal/ui/shell"
+	"github.com/RollingTheRock/Focus-tui/internal/agents"
+	"github.com/RollingTheRock/Focus-tui/internal/config"
+	gitmodel "github.com/RollingTheRock/Focus-tui/internal/git"
+	"github.com/RollingTheRock/Focus-tui/internal/models"
+	"github.com/RollingTheRock/Focus-tui/internal/orchestrator"
+	editorplugin "github.com/RollingTheRock/Focus-tui/internal/plugins/editor"
+	gitplugin "github.com/RollingTheRock/Focus-tui/internal/plugins/git"
+	"github.com/RollingTheRock/Focus-tui/internal/store"
+	"github.com/RollingTheRock/Focus-tui/internal/trellis"
+	"github.com/RollingTheRock/Focus-tui/internal/ui/layout"
+	"github.com/RollingTheRock/Focus-tui/internal/ui/shell"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -111,7 +111,8 @@ func TestShortenPath(t *testing.T) {
 	}{
 		{name: "home path collapsed", path: "/home/dev/projects/focus-tui", home: "/home/dev", want: "~/projects/focus-tui"},
 		{name: "long absolute path shortened", path: "/mnt/d/dev/focus-tui/internal", home: "", want: "/.../focus-tui/internal"},
-		{name: "short relative path kept", path: "focus/internal", home: "", want: "focus/internal"},
+		{name: "short relative path kept", path: "Focus-tui/internal", home: "", want: "Focus-tui/internal"},
+		{name: "long relative path shortened", path: "github.com/RollingTheRock/Focus-tui/internal", home: "", want: ".../Focus-tui/internal"},
 	}
 
 	for _, tt := range tests {

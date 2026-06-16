@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"focus/internal/store"
+	"github.com/RollingTheRock/Focus-tui/internal/store"
 )
 
 // DeleteWorktree cleans up all records associated with a worktree.

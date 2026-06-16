@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"focus/internal/models"
+	"github.com/RollingTheRock/Focus-tui/internal/models"
 )
 
 func TestCreateSessionHandoff_Validate(t *testing.T) {

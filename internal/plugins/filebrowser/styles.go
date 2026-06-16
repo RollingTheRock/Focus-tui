@@ -1,7 +1,7 @@
 package filebrowser
 
 import (
-	appstyles "focus/internal/styles"
+	appstyles "github.com/RollingTheRock/Focus-tui/internal/styles"
 
 	"charm.land/lipgloss/v2"
 )

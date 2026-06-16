@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"focus/internal/events"
+	"github.com/RollingTheRock/Focus-tui/internal/events"
 )
 
 // Task represents a downstream task that may be ready to start.

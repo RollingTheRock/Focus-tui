@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"focus/internal/models"
+	"github.com/RollingTheRock/Focus-tui/internal/models"
 )
 
 // detectBinary checks whether a binary is available in PATH.

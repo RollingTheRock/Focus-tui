@@ -5,9 +5,9 @@ import (
 	"os"
 	"strings"
 
-	"focus/internal/adr"
-	"focus/internal/models"
-	"focus/internal/styles"
+	"github.com/RollingTheRock/Focus-tui/internal/adr"
+	"github.com/RollingTheRock/Focus-tui/internal/models"
+	"github.com/RollingTheRock/Focus-tui/internal/styles"
 
 	"charm.land/bubbles/v2/textinput"
 	"charm.land/bubbles/v2/viewport"

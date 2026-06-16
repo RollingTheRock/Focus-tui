@@ -6,11 +6,11 @@ import (
 	"sort"
 	"strings"
 
-	"focus/internal/adapters"
-	"focus/internal/agents"
-	"focus/internal/models"
-	gitplugin "focus/internal/plugins/git"
-	"focus/internal/styles"
+	"github.com/RollingTheRock/Focus-tui/internal/adapters"
+	"github.com/RollingTheRock/Focus-tui/internal/agents"
+	"github.com/RollingTheRock/Focus-tui/internal/models"
+	gitplugin "github.com/RollingTheRock/Focus-tui/internal/plugins/git"
+	"github.com/RollingTheRock/Focus-tui/internal/styles"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/huh/v2"

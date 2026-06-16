@@ -13,10 +13,10 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"focus/internal/config"
-	gitmodel "focus/internal/git"
-	gitplugin "focus/internal/plugins/git"
-	"focus/internal/store"
+	"github.com/RollingTheRock/Focus-tui/internal/config"
+	gitmodel "github.com/RollingTheRock/Focus-tui/internal/git"
+	gitplugin "github.com/RollingTheRock/Focus-tui/internal/plugins/git"
+	"github.com/RollingTheRock/Focus-tui/internal/store"
 )
 
 // TestTrellisWorktreeCreateEndToEnd runs the real focus program against a

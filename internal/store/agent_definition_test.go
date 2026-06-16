@@ -3,7 +3,7 @@ package store
 import (
 	"testing"
 
-	"focus/internal/models"
+	"github.com/RollingTheRock/Focus-tui/internal/models"
 
 	"github.com/stretchr/testify/require"
 )

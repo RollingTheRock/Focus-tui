@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	gitmodel "focus/internal/git"
+	gitmodel "github.com/RollingTheRock/Focus-tui/internal/git"
 )
 
 func TestParsePorcelainV2StagedOnlyUsesDotAsUnmodified(t *testing.T) {

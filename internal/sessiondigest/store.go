@@ -3,8 +3,8 @@ package sessiondigest
 import (
 	"time"
 
-	"focus/internal/models"
-	"focus/internal/store"
+	"github.com/RollingTheRock/Focus-tui/internal/models"
+	"github.com/RollingTheRock/Focus-tui/internal/store"
 )
 
 // Persist saves the digest into Focus-tui's SQLite store:

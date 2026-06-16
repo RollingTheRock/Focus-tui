@@ -1,7 +1,7 @@
 package git
 
 import (
-	appstyles "focus/internal/styles"
+	appstyles "github.com/RollingTheRock/Focus-tui/internal/styles"
 
 	"charm.land/lipgloss/v2"
 	"charm.land/lipgloss/v2/compat"

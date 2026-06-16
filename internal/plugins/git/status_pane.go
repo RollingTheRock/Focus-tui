@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"strings"
 
-	"focus/internal/adapters"
-	gitmodel "focus/internal/git"
-	"focus/internal/models"
-	"focus/internal/styles"
+	"github.com/RollingTheRock/Focus-tui/internal/adapters"
+	gitmodel "github.com/RollingTheRock/Focus-tui/internal/git"
+	"github.com/RollingTheRock/Focus-tui/internal/models"
+	"github.com/RollingTheRock/Focus-tui/internal/styles"
 
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"

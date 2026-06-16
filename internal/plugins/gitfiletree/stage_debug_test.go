@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"testing"
 
-	"focus/internal/adapters"
-	"focus/internal/git"
-	"focus/internal/models"
+	"github.com/RollingTheRock/Focus-tui/internal/adapters"
+	"github.com/RollingTheRock/Focus-tui/internal/git"
+	"github.com/RollingTheRock/Focus-tui/internal/models"
 
 	tea "charm.land/bubbletea/v2"
 )

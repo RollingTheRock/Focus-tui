@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	gitmodel "focus/internal/git"
+	gitmodel "github.com/RollingTheRock/Focus-tui/internal/git"
 )
 
 // Record stores one worktree's persistent identity and lightweight metadata.

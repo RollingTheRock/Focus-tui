@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"focus/internal/events"
-	"focus/internal/store"
+	"github.com/RollingTheRock/Focus-tui/internal/events"
+	"github.com/RollingTheRock/Focus-tui/internal/store"
 )
 
 // scopeKey identifies an event scope for querying.

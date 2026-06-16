@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"focus/internal/models"
+	"github.com/RollingTheRock/Focus-tui/internal/models"
 )
 
 func benchmarkBatchInsert(b *testing.B, count int) {

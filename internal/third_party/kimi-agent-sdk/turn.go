@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"sync/atomic"
 
-	"github.com/MoonshotAI/kimi-agent-sdk/go/wire"
-	"github.com/MoonshotAI/kimi-agent-sdk/go/wire/transport"
+	"github.com/RollingTheRock/Focus-tui/internal/third_party/kimi-agent-sdk/wire"
+	"github.com/RollingTheRock/Focus-tui/internal/third_party/kimi-agent-sdk/wire/transport"
 )
 
 var (

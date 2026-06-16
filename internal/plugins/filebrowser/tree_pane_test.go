@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"focus/internal/models"
-	editorplugin "focus/internal/plugins/editor"
+	"github.com/RollingTheRock/Focus-tui/internal/models"
+	editorplugin "github.com/RollingTheRock/Focus-tui/internal/plugins/editor"
 
 	tea "charm.land/bubbletea/v2"
 )

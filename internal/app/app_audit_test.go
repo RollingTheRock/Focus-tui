@@ -4,10 +4,10 @@ import (
 	"strings"
 	"testing"
 
-	"focus/internal/config"
-	"focus/internal/models"
-	"focus/internal/store"
-	"focus/internal/ui/todo"
+	"github.com/RollingTheRock/Focus-tui/internal/config"
+	"github.com/RollingTheRock/Focus-tui/internal/models"
+	"github.com/RollingTheRock/Focus-tui/internal/store"
+	"github.com/RollingTheRock/Focus-tui/internal/ui/todo"
 
 	tea "charm.land/bubbletea/v2"
 	bubblesKey "charm.land/bubbles/v2/key"

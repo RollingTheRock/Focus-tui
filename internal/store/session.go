@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"focus/internal/events"
+	"github.com/RollingTheRock/Focus-tui/internal/events"
 )
 
 // GetSessionTimeByTodoToday returns the total completed session duration for a

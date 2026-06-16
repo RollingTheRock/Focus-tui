@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"focus/internal/models"
-	"focus/internal/store"
+	"github.com/RollingTheRock/Focus-tui/internal/models"
+	"github.com/RollingTheRock/Focus-tui/internal/store"
 )
 
 func setupTestStore(t *testing.T) *store.Store {

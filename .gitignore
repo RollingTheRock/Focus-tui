@@ -38,3 +38,5 @@ spec*.md
 
 # Brainstorming visual companion sessions
 .superpowers/
+
+.focus/journal/

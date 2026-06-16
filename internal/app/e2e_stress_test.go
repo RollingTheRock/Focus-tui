@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"focus/internal/commands"
-	"focus/internal/events"
-	"focus/internal/store"
+	"github.com/RollingTheRock/Focus-tui/internal/commands"
+	"github.com/RollingTheRock/Focus-tui/internal/events"
+	"github.com/RollingTheRock/Focus-tui/internal/store"
 )
 
 // TestE2E_CommandStorm runs a full-stack command storm: create, update,

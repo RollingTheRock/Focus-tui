@@ -3,9 +3,9 @@ package app
 import (
 	"testing"
 
-	gitplugin "focus/internal/plugins/git"
-	"focus/internal/config"
-	"focus/internal/store"
+	gitplugin "github.com/RollingTheRock/Focus-tui/internal/plugins/git"
+	"github.com/RollingTheRock/Focus-tui/internal/config"
+	"github.com/RollingTheRock/Focus-tui/internal/store"
 )
 
 func TestMCPPlanCreateAndGet(t *testing.T) {

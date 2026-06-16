@@ -12,7 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"focus/internal/models"
+	"github.com/RollingTheRock/Focus-tui/internal/models"
 )
 
 // SpecLoadContext carries everything needed to assemble a context-aware

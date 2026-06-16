@@ -15,7 +15,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"focus/internal/git"
+	"github.com/RollingTheRock/Focus-tui/internal/git"
 	"github.com/fsnotify/fsnotify"
 )
 

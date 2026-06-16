@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"focus/internal/agents"
+	"github.com/RollingTheRock/Focus-tui/internal/agents"
 )
 
 // ---- LaunchCommand -----------------------------------------------------------

@@ -12,7 +12,7 @@ package transport
 import (
 	reflect "reflect"
 
-	wire "github.com/MoonshotAI/kimi-agent-sdk/go/wire"
+	wire "github.com/RollingTheRock/Focus-tui/internal/third_party/kimi-agent-sdk/wire"
 	gomock "go.uber.org/mock/gomock"
 )
 

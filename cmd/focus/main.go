@@ -8,10 +8,10 @@ import (
 	"path/filepath"
 
 	tea "charm.land/bubbletea/v2"
-	"focus/internal/app"
-	"focus/internal/config"
-	"focus/internal/projections"
-	"focus/internal/store"
+	"github.com/RollingTheRock/Focus-tui/internal/app"
+	"github.com/RollingTheRock/Focus-tui/internal/config"
+	"github.com/RollingTheRock/Focus-tui/internal/projections"
+	"github.com/RollingTheRock/Focus-tui/internal/store"
 )
 
 var version = "dev"

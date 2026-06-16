@@ -5,12 +5,12 @@ import (
 	"strings"
 	"time"
 
-	"focus/internal/config"
-	"focus/internal/models"
-	"focus/internal/quotes"
-	"focus/internal/styles"
-	"focus/internal/ui/banner"
-	"focus/internal/weather"
+	"github.com/RollingTheRock/Focus-tui/internal/config"
+	"github.com/RollingTheRock/Focus-tui/internal/models"
+	"github.com/RollingTheRock/Focus-tui/internal/quotes"
+	"github.com/RollingTheRock/Focus-tui/internal/styles"
+	"github.com/RollingTheRock/Focus-tui/internal/ui/banner"
+	"github.com/RollingTheRock/Focus-tui/internal/weather"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"

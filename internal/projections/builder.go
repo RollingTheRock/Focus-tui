@@ -7,8 +7,8 @@ import (
 	"log"
 	"time"
 
-	"focus/internal/events"
-	"focus/internal/store"
+	"github.com/RollingTheRock/Focus-tui/internal/events"
+	"github.com/RollingTheRock/Focus-tui/internal/store"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )

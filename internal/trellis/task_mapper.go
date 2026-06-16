@@ -3,7 +3,7 @@ package trellis
 import (
 	"strings"
 
-	"focus/internal/models"
+	"github.com/RollingTheRock/Focus-tui/internal/models"
 )
 
 // focusStateToTrellis maps Focus task states to Trellis task statuses.

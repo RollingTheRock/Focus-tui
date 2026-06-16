@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"focus/internal/models"
-	"focus/internal/store"
+	"github.com/RollingTheRock/Focus-tui/internal/models"
+	"github.com/RollingTheRock/Focus-tui/internal/store"
 )
 
 func TestBuildDAG_FiltersOutSteps(t *testing.T) {

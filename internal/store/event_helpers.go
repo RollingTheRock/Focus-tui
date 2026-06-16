@@ -5,7 +5,7 @@ import (
 	"log"
 	"time"
 
-	"focus/internal/events"
+	"github.com/RollingTheRock/Focus-tui/internal/events"
 )
 
 // tryAppendEvent is a best-effort helper that appends an event to the Event Store.

@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"focus/internal/models"
+	"github.com/RollingTheRock/Focus-tui/internal/models"
 
 	tea "charm.land/bubbletea/v2"
 )

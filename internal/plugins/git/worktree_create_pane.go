@@ -6,10 +6,10 @@ import (
 	"regexp"
 	"strings"
 
-	"focus/internal/adapters"
-	gitmodel "focus/internal/git"
-	"focus/internal/models"
-	appstyles "focus/internal/styles"
+	"github.com/RollingTheRock/Focus-tui/internal/adapters"
+	gitmodel "github.com/RollingTheRock/Focus-tui/internal/git"
+	"github.com/RollingTheRock/Focus-tui/internal/models"
+	appstyles "github.com/RollingTheRock/Focus-tui/internal/styles"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/huh/v2"

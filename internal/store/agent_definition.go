@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"focus/internal/models"
+	"github.com/RollingTheRock/Focus-tui/internal/models"
 )
 
 func (s *Store) ListAgentDefinitions() ([]models.AgentDefinition, error) {

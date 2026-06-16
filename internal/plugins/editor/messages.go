@@ -1,6 +1,6 @@
 package editor
 
-import "focus/internal/models"
+import "github.com/RollingTheRock/Focus-tui/internal/models"
 
 type OpenBehavior string
 

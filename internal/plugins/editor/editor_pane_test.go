@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"focus/internal/models"
+	"github.com/RollingTheRock/Focus-tui/internal/models"
 
 	"github.com/charmbracelet/x/ansi"
 	tea "charm.land/bubbletea/v2"

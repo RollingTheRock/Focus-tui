@@ -4,8 +4,8 @@ import (
 	"errors"
 	"strings"
 
-	"focus/internal/models"
-	appstyles "focus/internal/styles"
+	"github.com/RollingTheRock/Focus-tui/internal/models"
+	appstyles "github.com/RollingTheRock/Focus-tui/internal/styles"
 
 	"charm.land/huh/v2"
 	tea "charm.land/bubbletea/v2"

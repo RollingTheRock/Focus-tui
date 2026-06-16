@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"focus/internal/models"
-	appstyles "focus/internal/styles"
+	"github.com/RollingTheRock/Focus-tui/internal/models"
+	appstyles "github.com/RollingTheRock/Focus-tui/internal/styles"
 
 	"charm.land/bubbles/v2/textarea"
 	"charm.land/bubbles/v2/textinput"

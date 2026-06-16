@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	kimi "github.com/MoonshotAI/kimi-agent-sdk/go"
-	"github.com/MoonshotAI/kimi-agent-sdk/go/wire"
+	kimi "github.com/RollingTheRock/Focus-tui/internal/third_party/kimi-agent-sdk"
+	"github.com/RollingTheRock/Focus-tui/internal/third_party/kimi-agent-sdk/wire"
 )
 
 func getMockKimiPath(t *testing.T) string {

@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 
-	"focus/internal/models"
+	"github.com/RollingTheRock/Focus-tui/internal/models"
 )
 
 var (

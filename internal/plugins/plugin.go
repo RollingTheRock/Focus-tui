@@ -1,6 +1,6 @@
 package plugins
 
-import "focus/internal/models"
+import "github.com/RollingTheRock/Focus-tui/internal/models"
 
 // Plugin defines the lifecycle and pane factory contract for a pane plugin.
 type Plugin interface {

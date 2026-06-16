@@ -1,8 +1,8 @@
 package render
 
 import (
-	"focus/internal/models"
-	"focus/internal/styles"
+	"github.com/RollingTheRock/Focus-tui/internal/models"
+	"github.com/RollingTheRock/Focus-tui/internal/styles"
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"

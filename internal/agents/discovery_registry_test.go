@@ -3,7 +3,7 @@ package agents
 import (
 	"testing"
 
-	"focus/internal/store"
+	"github.com/RollingTheRock/Focus-tui/internal/store"
 
 	"github.com/stretchr/testify/require"
 )

@@ -3,7 +3,7 @@ package layout
 import (
 	"testing"
 
-	"focus/internal/models"
+	"github.com/RollingTheRock/Focus-tui/internal/models"
 )
 
 func TestComputeFramesHorizontalSplit(t *testing.T) {

@@ -4,7 +4,7 @@
 package xpty
 
 import (
-	"focus/internal/x/termios"
+	"github.com/RollingTheRock/Focus-tui/internal/x/termios"
 	"golang.org/x/sys/unix"
 )
 

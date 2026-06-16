@@ -7,9 +7,9 @@ import (
 	"charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	gitmodel "focus/internal/git"
-	"focus/internal/models"
-	editorplugin "focus/internal/plugins/editor"
+	gitmodel "github.com/RollingTheRock/Focus-tui/internal/git"
+	"github.com/RollingTheRock/Focus-tui/internal/models"
+	editorplugin "github.com/RollingTheRock/Focus-tui/internal/plugins/editor"
 )
 
 func TestPluginCreatePaneReturnsDiffPane(t *testing.T) {

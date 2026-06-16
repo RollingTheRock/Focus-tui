@@ -5,10 +5,10 @@ import (
 	"testing"
 	"time"
 
-	gitmodel "focus/internal/git"
-	"focus/internal/models"
-	gitplugin "focus/internal/plugins/git"
-	"focus/internal/store"
+	gitmodel "github.com/RollingTheRock/Focus-tui/internal/git"
+	"github.com/RollingTheRock/Focus-tui/internal/models"
+	gitplugin "github.com/RollingTheRock/Focus-tui/internal/plugins/git"
+	"github.com/RollingTheRock/Focus-tui/internal/store"
 )
 
 type dagTestContextSource struct {
