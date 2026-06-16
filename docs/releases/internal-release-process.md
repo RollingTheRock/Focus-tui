@@ -58,6 +58,32 @@ Resource not accessible by integration
 
 See `.github/workflows/internal-release.yml` for the current declaration.
 
+## Go Install
+
+Because this repository is **private**, `go install` does not use the public Go module proxy. Users must set `GOPRIVATE` so the Go toolchain fetches the module directly from GitHub:
+
+```bash
+export GOPRIVATE=github.com/RollingTheRock/Focus-tui
+go install github.com/RollingTheRock/Focus-tui/cmd/focus@v0.3.0-internal.3
+```
+
+The installed binary reads its version from Go build info, so `focus --version` reports the installed tag.
+
+Requirements:
+
+- Read access to the GitHub repository (SSH key or personal access token configured for `git`).
+- `GOPRIVATE` set so the Go toolchain bypasses the public proxy and checksum database.
+
+### File name restrictions
+
+Go module zips reject file paths containing certain characters (for example, full-width colons `：`). Before tagging, check the repository for files that would break the module zip:
+
+```bash
+find . -type f -name '*[：]*' | grep -v '.git/'
+```
+
+Rename any matching files before cutting a release.
+
 ## Minimal Release Steps
 
 1. Sync the branch you want to release from.

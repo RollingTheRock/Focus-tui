@@ -6,6 +6,7 @@
 - [ ] `go test ./...` reviewed (known env-limited failures documented)
 - [ ] `./focus --help` works
 - [ ] `./focus --version` prints the expected tag
+- [ ] no repository file paths contain characters forbidden in Go module zips (e.g. full-width colon `：`)
 - [ ] README reflects current product positioning
 - [ ] `docs/adr/README.md` indexes all accepted/superseded ADRs
 - [ ] `docs/architecture/` is consistent with current code (or marked as draft)
