@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/RollingTheRock/Focus-tui/internal/app"
@@ -16,9 +17,18 @@ import (
 
 var version = "dev"
 
+func versionString() string {
+	if info, ok := debug.ReadBuildInfo(); ok {
+		if v := info.Main.Version; v != "" && v != "(devel)" {
+			return v
+		}
+	}
+	return version
+}
+
 func main() {
 	if len(os.Args) > 1 && (os.Args[1] == "--version" || os.Args[1] == "-v") {
-		fmt.Printf("focus %s\n", version)
+		fmt.Printf("focus %s\n", versionString())
 		os.Exit(0)
 	}
 
