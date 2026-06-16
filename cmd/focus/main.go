@@ -22,6 +22,18 @@ func main() {
 		os.Exit(0)
 	}
 
+	if len(os.Args) > 1 && (os.Args[1] == "--help" || os.Args[1] == "-h") {
+		fmt.Println("focus - AI-assisted project cockpit for the terminal")
+		fmt.Println()
+		fmt.Println("Usage:")
+		fmt.Println("  focus [flags]")
+		fmt.Println()
+		fmt.Println("Flags:")
+		fmt.Println("  -h, --help     Show this help message")
+		fmt.Println("  -v, --version  Print version information")
+		os.Exit(0)
+	}
+
 	cfg := config.Load()
 
 	cwd, err := os.Getwd()
