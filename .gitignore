@@ -10,7 +10,7 @@
 .focus/*.db-wal
 
 # Generated context
-AGENTS.md
+/AGENTS.md
 CLAUDE.md
 .sidecar/
 .sidecar-agent
