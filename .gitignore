@@ -4,10 +4,8 @@
 /focus-dev
 .todos/
 
-# Runtime
-.focus/*.db
-.focus/*.db-shm
-.focus/*.db-wal
+# Runtime / legacy local state (DB, generated specs, handoff/journal; migrated to .trellis/)
+.focus/
 
 # Generated context
 AGENTS.md
@@ -38,5 +36,3 @@ spec*.md
 
 # Brainstorming visual companion sessions
 .superpowers/
-
-.focus/journal/
