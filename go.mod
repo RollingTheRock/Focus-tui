@@ -15,7 +15,7 @@ require (
 	github.com/jackc/pgx/v5 v5.9.2
 	github.com/stretchr/testify v1.11.1
 	github.com/yuin/goldmark v1.8.2
-	golang.org/x/sys v0.43.0
+	golang.org/x/sys v0.47.0
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.48.1
 )
@@ -31,7 +31,7 @@ require (
 	github.com/epilande/go-devicons v0.0.0-20250505162540-0661cab71a28
 	github.com/x5iu/defc v1.44.5
 	go.uber.org/mock v0.6.0
-	golang.org/x/text v0.32.0
+	golang.org/x/text v0.40.0
 )
 
 require (
@@ -72,9 +72,9 @@ require (
 	github.com/xi2/xz v0.0.0-20171230120015-48954b6210f8 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	github.com/yuin/goldmark-emoji v1.0.6 // indirect
-	golang.org/x/net v0.38.0 // indirect
-	golang.org/x/sync v0.20.0 // indirect
-	golang.org/x/term v0.36.0 // indirect
+	golang.org/x/net v0.57.0 // indirect
+	golang.org/x/sync v0.22.0 // indirect
+	golang.org/x/term v0.45.0 // indirect
 	modernc.org/libc v1.70.0 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
