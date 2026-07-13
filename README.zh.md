@@ -33,7 +33,7 @@
 </p>
 
 <p align="center">
-  <video src="https://private-user-images.githubusercontent.com/249453433/608074885-2c9041e7-cdd7-4aaf-9a51-89735c9d0936.mp4" width="860" autoplay loop muted playsinline></video>
+  <video src="docs/assets/focus-demo.mp4" width="860" autoplay loop muted playsinline></video>
 </p>
 
 <p align="center"><i>启动。观察。编排。</i></p>
@@ -78,8 +78,7 @@ Session 摘要记录进度、阻塞与决策，让下一个 Agent 或人类无�
 ## 快速开始
 
 ```bash
-# 安装（本仓库为 private，需要设置 GOPRIVATE）
-export GOPRIVATE=github.com/RollingTheRock/Focus-tui
+# 安装
 go install github.com/RollingTheRock/Focus-tui/cmd/focus@latest
 
 # 在 Git 仓库中运行
@@ -122,15 +121,13 @@ graph LR
 
 | 方式 | 命令 |
 |---|---|
-| Go install | `export GOPRIVATE=github.com/RollingTheRock/Focus-tui && go install github.com/RollingTheRock/Focus-tui/cmd/focus@latest` |
+| Go install | `go install github.com/RollingTheRock/Focus-tui/cmd/focus@latest` |
 | Release 二进制 | 从 [GitHub Releases](https://github.com/RollingTheRock/Focus-tui/releases) 下载 |
 | 源码构建 | `git clone https://github.com/RollingTheRock/Focus-tui.git && cd focus-tui && go build ./cmd/focus` |
 
 **环境要求**
 
 - Go 1.25+
-- 使用 `go install` 时需要本 private 仓库的读取权限（SSH key 或 PAT）
-- `GOPRIVATE=github.com/RollingTheRock/Focus-tui`，让 Go 工具链直接从 GitHub 拉取
 - 推荐使用类 Unix 终端环境
 - macOS / Linux
 
