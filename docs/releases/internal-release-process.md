@@ -60,10 +60,9 @@ See `.github/workflows/internal-release.yml` for the current declaration.
 
 ## Go Install
 
-Because this repository is **private**, `go install` does not use the public Go module proxy. Users must set `GOPRIVATE` so the Go toolchain fetches the module directly from GitHub:
+Because the module path is public (`github.com/RollingTheRock/Focus-tui`), `go install` works through the public Go module proxy by default:
 
 ```bash
-export GOPRIVATE=github.com/RollingTheRock/Focus-tui
 go install github.com/RollingTheRock/Focus-tui/cmd/focus@v0.3.0-internal.3
 ```
 
@@ -71,8 +70,8 @@ The installed binary reads its version from Go build info, so `focus --version` 
 
 Requirements:
 
-- Read access to the GitHub repository (SSH key or personal access token configured for `git`).
-- `GOPRIVATE` set so the Go toolchain bypasses the public proxy and checksum database.
+- Go 1.25+ installed.
+- A network path to the public Go module proxy (default) or direct access to GitHub if `GOPROXY=direct` is set.
 
 ### File name restrictions
 

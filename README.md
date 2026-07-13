@@ -36,7 +36,7 @@
 </p>
 
 <p align="center">
-  <video src="https://private-user-images.githubusercontent.com/249453433/608074885-2c9041e7-cdd7-4aaf-9a51-89735c9d0936.mp4" width="860" autoplay loop muted playsinline></video>
+  <video src="docs/assets/focus-demo.mp4" width="860" autoplay loop muted playsinline></video>
 </p>
 
 <p align="center"><i>Launch. Observe. Orchestrate.</i></p>
@@ -81,8 +81,7 @@ Built for the shell. Fast, keyboard-driven, no browser required.
 ## Quickstart
 
 ```bash
-# Install (this repository is private, so GOPRIVATE is required)
-export GOPRIVATE=github.com/RollingTheRock/Focus-tui
+# Install
 go install github.com/RollingTheRock/Focus-tui/cmd/focus@latest
 
 # Run inside a git repository
@@ -125,15 +124,13 @@ For the full architecture, see [`docs/architecture/`](docs/architecture/).
 
 | Method | Command |
 |---|---|
-| Go install | `export GOPRIVATE=github.com/RollingTheRock/Focus-tui && go install github.com/RollingTheRock/Focus-tui/cmd/focus@latest` |
+| Go install | `go install github.com/RollingTheRock/Focus-tui/cmd/focus@latest` |
 | Release binary | Download from [GitHub Releases](https://github.com/RollingTheRock/Focus-tui/releases) |
 | Build from source | `git clone https://github.com/RollingTheRock/Focus-tui.git && cd focus-tui && go build ./cmd/focus` |
 
 **Requirements**
 
 - Go 1.25+
-- Read access to this private GitHub repository (SSH key or PAT) when using `go install`
-- `GOPRIVATE=github.com/RollingTheRock/Focus-tui` so the Go toolchain fetches directly from GitHub
 - Unix-like terminal environment recommended
 - macOS / Linux
 
