@@ -5,13 +5,47 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"sync"
 
 	tea "charm.land/bubbletea/v2"
+
+	"github.com/RollingTheRock/Focus-tui/internal/platform"
 )
 
 func DefaultProvider() Provider {
 	return ProviderOpenCode
+}
+
+// binaryPathCache caches the results of exec.LookPath to avoid repeated
+// expensive lookups, especially on Windows where each lookup is slow.
+var (
+	binaryPathCache   = make(map[string]string)
+	binaryPathCacheMu sync.RWMutex
+)
+
+// lookupBinary finds a binary in PATH, using cache to avoid repeated lookups.
+func lookupBinary(name string) string {
+	binaryPathCacheMu.RLock()
+	if path, ok := binaryPathCache[name]; ok {
+		binaryPathCacheMu.RUnlock()
+		return path
+	}
+	binaryPathCacheMu.RUnlock()
+
+	binaryPathCacheMu.Lock()
+	defer binaryPathCacheMu.Unlock()
+	// Double-check after acquiring write lock
+	if path, ok := binaryPathCache[name]; ok {
+		return path
+	}
+	path, err := exec.LookPath(name)
+	if err != nil {
+		return ""
+	}
+	binaryPathCache[name] = path
+	return path
 }
 
 func ProviderCommand(provider Provider) (string, []string) {
@@ -36,13 +70,12 @@ func IsInstalled(provider Provider) bool {
 	if bin == "" {
 		return false
 	}
-	_, err := exec.LookPath(bin)
-	return err == nil
+	return lookupBinary(bin) != ""
 }
 
 func LaunchCommand(provider Provider, worktreeID string) tea.Cmd {
 	bin, args := ProviderCommand(provider)
-	if _, err := exec.LookPath(bin); err != nil {
+	if lookupBinary(bin) == "" {
 		return nil
 	}
 	cmd := exec.Command(bin, args...)
@@ -126,12 +159,20 @@ func DetectTerminalEmulator() string {
 	if os.Getenv("ALACRITTY_SOCKET") != "" || os.Getenv("ALACRITTY_LOG") != "" {
 		return "alacritty"
 	}
+	// Windows Terminal detection
+	if os.Getenv("WT_SESSION") != "" {
+		return "wt"
+	}
 
 	// Fallback: check PATH for known binaries.
 	for _, name := range []string{"ptyxis", "kitty", "alacritty", "wezterm", "gnome-terminal"} {
-		if _, err := exec.LookPath(name); err == nil {
+		if lookupBinary(name) != "" {
 			return name
 		}
+	}
+	// Check for Windows Terminal
+	if lookupBinary("wt.exe") != "" {
+		return "wt"
 	}
 	return ""
 }
@@ -140,13 +181,56 @@ func BuildExternalTerminalCommand(emulator, title, directory string, envVars []s
 	if emulator == "" {
 		emulator = DetectTerminalEmulator()
 		if emulator == "" {
-			emulator = "kitty"
+			if runtime.GOOS == "windows" {
+				emulator = "wt"
+			} else {
+				emulator = "kitty"
+			}
 		}
 	}
 
 	// Inject zoom scale into environment for terminals that respect it.
 	if zoom != 1.0 && zoom > 0 {
 		envVars = append([]string{"FOCUS_TERMINAL_ZOOM=" + fmt.Sprintf("%.2f", zoom)}, envVars...)
+	}
+
+	// Windows Terminal (wt.exe) - Windows-specific handling
+	if emulator == "wt" && runtime.GOOS == "windows" {
+		// Build the command to run inside the new tab
+		cmdParts := append([]string{bin}, providerArgs...)
+		cmdParts = append(cmdParts, extraArgs...)
+		cmdStr := strings.Join(cmdParts, " ")
+
+		// Build environment variable assignments for cmd.exe
+		var setCmds []string
+		for _, v := range envVars {
+			setCmds = append(setCmds, "set "+v)
+		}
+
+		// Combine: set vars && cd && run command
+		shell := platform.DefaultShell()
+		if strings.Contains(strings.ToLower(shell), "powershell") {
+			// PowerShell syntax
+			var envAssignments []string
+			for _, v := range envVars {
+				parts := strings.SplitN(v, "=", 2)
+				if len(parts) == 2 {
+					envAssignments = append(envAssignments, fmt.Sprintf("$env:%s='%s'", parts[0], parts[1]))
+				}
+			}
+			innerCmd := strings.Join(envAssignments, "; ") + "; Set-Location '" + directory + "'; " + cmdStr
+			args := []string{"new-tab", "--title", title, "--startingDirectory", directory, "powershell", "-NoExit", "-Command", innerCmd}
+			return "wt.exe", args
+		}
+
+		// cmd.exe syntax: set VAR=val && set VAR2=val2 && cd /d dir && command
+		fullCmd := strings.Join(setCmds, " && ")
+		if fullCmd != "" {
+			fullCmd += " && "
+		}
+		fullCmd += "cd /d \"" + directory + "\" && " + cmdStr
+		args := []string{"new-tab", "--title", title, "--startingDirectory", directory, "cmd", "/k", fullCmd}
+		return "wt.exe", args
 	}
 
 	switch emulator {
@@ -275,7 +359,7 @@ func LaunchExternalCommand(req ExternalLaunchRequest) tea.Cmd {
 			1.2,
 		)
 		cmd := exec.Command(name, args...)
-		f, _ := os.OpenFile("/tmp/focus_launch.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		f, _ := os.OpenFile(filepath.Join(os.TempDir(), "focus_launch.log"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 		f.WriteString(fmt.Sprintf("Launch: %s %v\n", name, args))
 		defer f.Close()
 		if err := cmd.Start(); err != nil {
@@ -306,10 +390,7 @@ func BuildExternalShellCommand(emulator, title, directory string, zoom float64) 
 		}
 	}
 
-	shell := os.Getenv("SHELL")
-	if shell == "" {
-		shell = "/bin/sh"
-	}
+	shell := platform.DefaultShell()
 
 	switch emulator {
 	case "kitty":

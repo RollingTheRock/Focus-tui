@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"runtime"
+	"sync"
 	"github.com/RollingTheRock/Focus-tui/internal/adapters"
 	"github.com/RollingTheRock/Focus-tui/internal/adapters/ccswitch"
 	"github.com/RollingTheRock/Focus-tui/internal/agents"
@@ -14,6 +16,7 @@ import (
 	"github.com/RollingTheRock/Focus-tui/internal/mcp"
 	"github.com/RollingTheRock/Focus-tui/internal/models"
 	"github.com/RollingTheRock/Focus-tui/internal/orchestrator"
+	"github.com/RollingTheRock/Focus-tui/internal/platform"
 	"github.com/RollingTheRock/Focus-tui/internal/plugins"
 	agentsplugin "github.com/RollingTheRock/Focus-tui/internal/plugins/agents"
 	editorplugin "github.com/RollingTheRock/Focus-tui/internal/plugins/editor"
@@ -156,6 +159,10 @@ type model struct {
 	syncWorktreeActivitiesAt time.Time
 	cachedWorktreeList       []gitmodel.Worktree
 	cachedWorktreeListAt     time.Time
+
+	// Windows async discovery results
+	asyncDiscoveredSessions []agents.Session
+	asyncDiscoveryMu        sync.Mutex
 
 	orch          *orchestrator.Orchestrator
 	notifications []orchestrator.Notification
@@ -2361,7 +2368,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			for _, s := range m.agentRegistry.ByWorktree(msg.Path) {
 				m.agentRegistry.Remove(s.ID)
 				if s.PID > 0 {
-					_ = exec.Command("kill", "-TERM", strconv.Itoa(s.PID)).Run()
+					_ = platform.KillProcess(s.PID)
 				}
 			}
 		}
@@ -2523,7 +2530,7 @@ func (m model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	m.invalidateView()
 
 	if overlayID := m.activeOverlayPane(); overlayID != "" {
-		f, _ := os.OpenFile("/tmp/overlay-debug.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		f, _ := os.OpenFile(filepath.Join(os.TempDir(), "overlay-debug.log"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 		if f != nil {
 			_, _ = f.WriteString(fmt.Sprintf("APP handleKey overlay=%s keystroke=%s\n", overlayID, msg.Keystroke()))
 			_ = f.Close()
@@ -2681,6 +2688,19 @@ func (m model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		cmd := m.openAgentStorePane()
 		m.invalidateView()
 		return m, cmd
+	case "s":
+		// Global shortcut: open agent select for currently selected worktree
+		worktreeID := m.activePage.currentWorktreeID()
+		if worktreeID != "" {
+			cmd := m.openAgentSelectPane(worktreeID)
+			m.invalidateView()
+			return m, cmd
+		}
+		// No worktree selected, route to focused pane
+		if m.activePage.focused != "" && m.activePage.paneMeta[m.activePage.focused].Type != models.PaneTypeShell {
+			return m, m.routeToPane(m.activePage.focused, msg)
+		}
+		return m, nil
 	case "P", "shift+p":
 		// Global archive shortcut: archives the currently selected DAG task
 		// regardless of which pane has focus.
@@ -3153,7 +3173,7 @@ func (m *model) killAgent(msg agentsplugin.KillSessionMsg) tea.Cmd {
 		m.saveAgentSessionRecord(record)
 	}
 	if msg.PID > 0 {
-		_ = exec.Command("kill", "-TERM", strconv.Itoa(msg.PID)).Run()
+		_ = platform.KillProcess(msg.PID)
 	}
 	return nil
 }
@@ -3947,10 +3967,7 @@ func (m *model) launchExternalInstall(installCmd string) tea.Cmd {
 		if emulator == "" {
 			emulator = "kitty"
 		}
-		shell := os.Getenv("SHELL")
-		if shell == "" {
-			shell = "/bin/sh"
-		}
+		shell := platform.DefaultShell()
 		cwd := m.currentCWD()
 		if cwd == "" {
 			cwd = "."
@@ -5011,6 +5028,149 @@ func (m *model) syncWorktreeActivities() {
 	if m.pages == nil {
 		return
 	}
+
+	// Windows: use async optimization to avoid blocking UI
+	if runtime.GOOS == "windows" {
+		m.syncWorktreeActivitiesWindows()
+		return
+	}
+
+	// Unix/Linux: original synchronous implementation
+	m.syncWorktreeActivitiesOriginal()
+}
+
+// syncWorktreeActivitiesWindows is the Windows-optimized async version.
+// It updates UI immediately from cache, then runs discovery in background.
+func (m *model) syncWorktreeActivitiesWindows() {
+	// Check if background discovery has completed and merge results
+	m.asyncDiscoveryMu.Lock()
+	if len(m.asyncDiscoveredSessions) > 0 {
+		discovered := m.asyncDiscoveredSessions
+		m.asyncDiscoveredSessions = nil
+		m.asyncDiscoveryMu.Unlock()
+
+		persisted := m.persistedAgentSessions()
+		persisted = m.reconcileDiscoveredAgentSessions(persisted, discovered)
+		m.refreshResumeSummaryCache(persisted)
+	} else {
+		m.asyncDiscoveryMu.Unlock()
+	}
+
+	// Fast path: update UI immediately from cached data
+	m.updateWorktreeUIFromCache()
+
+	// Slow path: run discovery asynchronously
+	recentSync := time.Since(m.syncWorktreeActivitiesAt) < 50*time.Millisecond
+	shouldDiscover := !recentSync && time.Since(m.lastAgentSync) >= time.Second
+
+	if !shouldDiscover {
+		return
+	}
+
+	m.syncWorktreeActivitiesAt = time.Now()
+	m.lastAgentSync = time.Now()
+
+	// Run discovery in background goroutine
+	go func() {
+		start := time.Now()
+		defer func() {
+			if d := time.Since(start); d > 50*time.Millisecond {
+				log.Printf("syncWorktreeActivities background discovery slow: %v", d)
+			}
+		}()
+
+		discovered := agents.DiscoverRunningAgents()
+
+		// Store results for next syncWorktreeActivities call to pick up
+		m.asyncDiscoveryMu.Lock()
+		m.asyncDiscoveredSessions = discovered
+		m.asyncDiscoveryMu.Unlock()
+	}()
+}
+
+// updateWorktreeUIFromCache updates UI using only cached data (no discovery)
+func (m *model) updateWorktreeUIFromCache() {
+	persisted := m.persistedAgentSessions()
+	m.refreshResumeSummaryCache(persisted)
+
+	runningSessions := make(map[string][]agents.Session)
+	visibleSessions := m.sortedAgentSessions(persisted)
+	if m.agentRegistry != nil {
+		m.agentRegistry.Clear()
+		for _, session := range visibleSessions {
+			if session.State != agents.SessionRunning {
+				continue
+			}
+			s := *session
+			m.agentRegistry.Register(&s)
+			runningSessions[session.WorktreeID] = append(runningSessions[session.WorktreeID], s)
+		}
+	}
+
+	repoPath := m.gitRepoPath()
+	if repoPath == "" {
+		cwd, _ := os.Getwd()
+		repoPath, _ = gitRepoRoot(cwd)
+	}
+	var worktreeList []gitmodel.Worktree
+	if m.adapterManager != nil && m.adapterManager.Git() != nil {
+		if time.Since(m.cachedWorktreeListAt) < time.Second {
+			worktreeList = m.cachedWorktreeList
+		} else {
+			worktreeList, _ = m.adapterManager.Git().ListWorktrees(repoPath)
+			m.cachedWorktreeList = worktreeList
+			m.cachedWorktreeListAt = time.Now()
+		}
+	}
+	if len(worktreeList) == 0 && m.activePage != nil {
+		if wp, ok := m.activePage.pane(paneWorktree).(*gitplugin.WorktreePane); ok {
+			wp.SetAgentSessions(runningSessions)
+			wp.SetResumeSummaries(m.resumeSummaryCache)
+		}
+		if dp, ok := m.activePage.pane(paneWorktreeDetail).(*worktreeDetailPane); ok {
+			dp.SetAgentSessions(agentSessionsForWorktree(visibleSessions, dp.worktreeID))
+		}
+		return
+	}
+
+	for _, wt := range worktreeList {
+		worktreeID := wt.Path
+		activity := gitmodel.WorktreeActivity{}
+		if m.activePage != nil {
+			for id, meta := range m.activePage.paneMeta {
+				if meta.Type == models.PaneTypeEditor {
+					activity.OpenEditors++
+				}
+				if meta.Type == models.PaneTypeShell {
+					if sh, ok := m.activePage.pane(id).(*shell.Model); ok {
+						if sh.SessionStatus() == models.PaneStatusReady || sh.SessionStatus() == models.PaneStatusStarting {
+							activity.HasShell = true
+						}
+					}
+				}
+			}
+		}
+		if worktreeID == m.currentWorktreePage {
+			activity.LastActive = "now"
+		} else {
+			activity.LastActive = ""
+		}
+		activity.AgentCount = len(runningSessions[worktreeID])
+		if wp, ok := m.activePage.pane(paneWorktree).(*gitplugin.WorktreePane); ok {
+			wp.SetActivity(worktreeID, activity)
+		}
+	}
+	if wp, ok := m.activePage.pane(paneWorktree).(*gitplugin.WorktreePane); ok {
+		wp.SetAgentSessions(runningSessions)
+		wp.SetResumeSummaries(m.resumeSummaryCache)
+	}
+	if dp, ok := m.activePage.pane(paneWorktreeDetail).(*worktreeDetailPane); ok {
+		dp.SetAgentSessions(agentSessionsForWorktree(visibleSessions, dp.worktreeID))
+	}
+}
+
+// syncWorktreeActivitiesOriginal is the original synchronous implementation for Unix/Linux
+func (m *model) syncWorktreeActivitiesOriginal() {
 	// Debounce only expensive external discovery; DB-backed UI state still
 	// refreshes so callers do not lose recent session/task changes.
 	recentSync := time.Since(m.syncWorktreeActivitiesAt) < 50*time.Millisecond

@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/RollingTheRock/Focus-tui/internal/events"
+	"github.com/RollingTheRock/Focus-tui/internal/platform"
 	"github.com/RollingTheRock/Focus-tui/internal/store/pgconn"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -179,13 +180,13 @@ func (s *Store) EventBus() *events.EventBus {
 	return s.bus
 }
 
-// DefaultDBPath returns ~/.local/share/focus/focus.db.
+// DefaultDBPath returns the platform-appropriate database path.
 func DefaultDBPath() (string, error) {
-	home, err := os.UserHomeDir()
+	dir, err := platform.DataDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, ".local", "share", "focus", "focus.db"), nil
+	return filepath.Join(dir, "focus.db"), nil
 }
 
 // ResolveProjectRoot returns the project root for the given cwd.

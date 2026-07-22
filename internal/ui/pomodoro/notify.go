@@ -14,5 +14,9 @@ func notify(message string) {
 		).Run()
 	case "linux":
 		_ = exec.Command("notify-send", "Focus", message).Run()
+	case "windows":
+		// Use PowerShell to show a Windows toast notification
+		script := `[System.Reflection.Assembly]::LoadWithPartialName("System.Windows.Forms") | Out-Null; $n = New-Object System.Windows.Forms.NotifyIcon; $n.Icon = [System.Drawing.SystemIcons]::Information; $n.Visible = $true; $n.ShowBalloonTip(5000, "Focus", "` + message + `", [System.Windows.Forms.ToolTipIcon]::Info)`
+		_ = exec.Command("powershell", "-Command", script).Run()
 	}
 }

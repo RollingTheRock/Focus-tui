@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -19,6 +20,68 @@ var knownProviders = map[Provider]string{
 }
 
 func DiscoverRunningAgents() []Session {
+	if runtime.GOOS == "windows" {
+		return discoverRunningAgentsWindows()
+	}
+	return discoverRunningAgentsUnix()
+}
+
+func discoverRunningAgentsWindows() []Session {
+	sessions := make([]Session, 0)
+
+	// Single tasklist call for all providers - much more efficient
+	out, err := exec.Command("tasklist", "/FO", "CSV", "/NH").Output()
+	if err != nil {
+		return sessions
+	}
+
+	// Build reverse map: binary name -> provider
+	binToProvider := make(map[string]Provider, len(knownProviders))
+	for provider, binName := range knownProviders {
+		binToProvider[strings.ToLower(binName+".exe")] = provider
+	}
+
+	// Parse all lines once
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "INFO:") || strings.HasPrefix(line, "信息:") {
+			continue
+		}
+
+		// CSV format: "name.exe","PID","Session","Session#","Mem"
+		parts := strings.Split(line, "\",\"")
+		if len(parts) < 2 {
+			continue
+		}
+
+		imageName := strings.ToLower(strings.Trim(parts[0], "\""))
+		provider, ok := binToProvider[imageName]
+		if !ok {
+			continue
+		}
+
+		pidStr := strings.Trim(parts[1], "\"")
+		pid, err := strconv.Atoi(pidStr)
+		if err != nil {
+			continue
+		}
+
+		sessionID := fmt.Sprintf("%s-%d", provider, pid)
+		sessions = append(sessions, Session{
+			ID:         sessionID,
+			Provider:   provider,
+			WorktreeID: "", // Windows can't get CWD without Win32 API
+			PID:        pid,
+			State:      SessionRunning,
+			StartedAt:  time.Now(),
+			UpdatedAt:  time.Now(),
+		})
+	}
+
+	return sessions
+}
+
+func discoverRunningAgentsUnix() []Session {
 	sessions := make([]Session, 0)
 	for provider, binName := range knownProviders {
 		pids := findPIDs(binName)

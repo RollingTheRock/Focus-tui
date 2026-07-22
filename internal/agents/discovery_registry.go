@@ -2,12 +2,13 @@ package agents
 
 import (
 	"fmt"
-	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 	"time"
 
 	"github.com/RollingTheRock/Focus-tui/internal/models"
+	"github.com/RollingTheRock/Focus-tui/internal/platform"
 )
 
 // detectBinary checks whether a binary is available in PATH.
@@ -22,10 +23,21 @@ func detectBinary(binary string) (string, error) {
 	}
 
 	// Fallback: start a login shell to get the user's full environment.
-	shell := os.Getenv("SHELL")
-	if shell == "" {
-		shell = "/bin/sh"
+	if runtime.GOOS == "windows" {
+		// On Windows, use "where" command instead of "command -v"
+		cmd := exec.Command("where", binary)
+		out, err := cmd.Output()
+		if err != nil {
+			return "", fmt.Errorf("not found in PATH: %w", err)
+		}
+		// "where" may return multiple paths; take the first one
+		path := strings.TrimSpace(strings.Split(string(out), "\n")[0])
+		if path == "" {
+			return "", fmt.Errorf("where returned empty for %s", binary)
+		}
+		return path, nil
 	}
+	shell := platform.DefaultShell()
 	cmd := exec.Command(shell, "-lc", fmt.Sprintf("command -v %s", binary))
 	out, err := cmd.Output()
 	if err != nil {
