@@ -5,18 +5,68 @@ import (
 	"os/exec"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
+
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/RollingTheRock/Focus-tui/internal/models"
 	"github.com/RollingTheRock/Focus-tui/internal/platform"
 )
+
+// detectCacheTTL bounds how long a cached detectBinary result is trusted.
+// Binary install state changes rarely, so a short TTL turns repeated scans
+// (e.g. re-opening the Agent Store) from N synchronous `where`/`LookPath`
+// subprocess spawns into map lookups — keeping the UI thread unblocked.
+const detectCacheTTL = 2 * time.Minute
+
+// detectCache caches detectBinary outcomes keyed by binary name.
+// A negative result (binary not found) is cached too, so absence is also
+// cheap on re-scan. Guarded by detectCacheMu.
+var (
+	detectCache   = make(map[string]detectCacheEntry)
+	detectCacheMu sync.RWMutex
+)
+
+type detectCacheEntry struct {
+	path    string    // resolved path, "" when not found
+	ok      bool      // whether the binary was found
+	checked time.Time // when the lookup was performed
+}
 
 // detectBinary checks whether a binary is available in PATH.
 // It first tries exec.LookPath (fast, uses the current process environment).
 // If that fails, it falls back to launching the user's login shell with
 // "command -v" so that PATH modifications in ~/.zshrc / ~/.bashrc are
 // picked up (e.g. after npm/pip global installs).
+// Results are cached for detectCacheTTL to avoid re-spawning `where` /
+// login-shell subprocesses on every scan — especially costly on Windows
+// where each lookup forks a process.
 func detectBinary(binary string) (string, error) {
+	// Cache check (cheap path): return a recent result if present.
+	detectCacheMu.RLock()
+	if e, ok := detectCache[binary]; ok && time.Since(e.checked) < detectCacheTTL {
+		detectCacheMu.RUnlock()
+		if e.ok {
+			return e.path, nil
+		}
+		return "", fmt.Errorf("not found in PATH (cached)")
+	}
+	detectCacheMu.RUnlock()
+
+	path, err := detectBinaryUncached(binary)
+
+	// Cache the outcome regardless of success/failure.
+	detectCacheMu.Lock()
+	detectCache[binary] = detectCacheEntry{path: path, ok: err == nil, checked: time.Now()}
+	detectCacheMu.Unlock()
+
+	return path, err
+}
+
+// detectBinaryUncached performs the actual PATH probe. Split out so
+// detectBinary can wrap it with caching without duplicating logic.
+func detectBinaryUncached(binary string) (string, error) {
 	// Fast path: current process PATH.
 	if path, err := exec.LookPath(binary); err == nil {
 		return path, nil
@@ -174,6 +224,26 @@ func (d *DiscoveryRegistry) BootstrapIfEmpty() error {
 
 	return d.Scan()
 }
+
+// ScanAsync runs Scan in a background goroutine. The caller receives a
+// tea.Cmd that, when run by the bubbletea program, delivers a
+// AgentStoreScanDoneMsg once the scan completes. This keeps the PATH
+// probing (which forks `where`/login-shell subprocesses — slow on Windows)
+// off the UI thread. The on-screen pane should already have been opened
+// from cached DB state so the user sees something immediately; the
+// AgentStoreScanDoneMsg is the signal to refresh installed flags.
+func (d *DiscoveryRegistry) ScanAsync() tea.Cmd {
+	registry := d
+	return func() tea.Msg {
+		_ = registry.Scan()
+		return AgentStoreScanDoneMsg{}
+	}
+}
+
+// AgentStoreScanDoneMsg is emitted when an asynchronous DiscoveryRegistry
+// scan finishes, so the UI can refresh the Agent Store pane from the
+// freshly-updated installed flags in the store.
+type AgentStoreScanDoneMsg struct{}
 
 // Scan checks PATH for every registered agent binary and updates IsInstalled.
 func (d *DiscoveryRegistry) Scan() error {

@@ -2348,6 +2348,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.invalidateView()
 		return m, nil
 
+	case agents.AgentStoreScanDoneMsg:
+		// Async PATH scan (kicked off by openAgentStorePane) finished.
+		// Refresh the Agent Store pane from the now-updated installed flags.
+		if panel, ok := m.activePage.pane(paneAgentStore).(*agentStorePane); ok {
+			panel.reload()
+		}
+		m.invalidateView()
+		return m, nil
+
 	case gitplugin.RequestRemoveWorktreeMsg:
 		m.closePane(paneWorktreeDeleteConfirm)
 		cmd := m.removeWorktree(msg)
@@ -3945,12 +3954,23 @@ func (m *model) openProviderSelectPane(worktreeID string, provider agents.Provid
 }
 
 func (m *model) openAgentStorePane() tea.Cmd {
+	// Bootstrap the built-in/recommended agent table if empty (a cheap DB
+	// check — no PATH probing). Do NOT call Scan() synchronously here:
+	// Scan() forks a `where`/login-shell subprocess per registered binary
+	// (~11 on a fresh install), which on Windows blocks the bubbletea UI
+	// thread for a second-plus — the "S key is slow" symptom. Instead open
+	// the pane immediately from cached DB state and kick off the PATH scan
+	// asynchronously; AgentStoreScanDoneMsg refreshes the pane when done.
+	var scanCmd tea.Cmd
 	if m.discoveryRegistry != nil {
 		_ = m.discoveryRegistry.BootstrapIfEmpty()
-		_ = m.discoveryRegistry.Scan()
+		scanCmd = m.discoveryRegistry.ScanAsync()
 	}
 	cmd := m.activePage.openAgentStorePane()
 	m.updateSizes(m.common.Width, m.common.Height)
+	if scanCmd != nil {
+		return tea.Batch(cmd, scanCmd)
+	}
 	return cmd
 }
 
