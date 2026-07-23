@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/RollingTheRock/Focus-tui/internal/platform"
+
 	embedded "github.com/fergusstrange/embedded-postgres"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -105,13 +107,13 @@ func ExternalPool(ctx context.Context, connStr string) (*pgxpool.Pool, error) {
 	return pool, nil
 }
 
-// DefaultDataDir returns ~/.local/share/focus/postgres.
+// DefaultDataDir returns the platform-appropriate postgres data directory.
 func DefaultDataDir() (string, error) {
-	home, err := os.UserHomeDir()
+	dir, err := platform.DataDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, ".local", "share", "focus", "postgres"), nil
+	return filepath.Join(dir, "postgres"), nil
 }
 
 // getFreePort asks the OS for a free TCP port.

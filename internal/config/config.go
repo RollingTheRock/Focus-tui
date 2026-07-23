@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/RollingTheRock/Focus-tui/internal/platform"
+
 	"gopkg.in/yaml.v3"
 )
 
@@ -78,14 +80,12 @@ func DefaultConfig() Config {
 	return cfg
 }
 
-// Save writes configuration to ~/.config/focus/config.yaml.
+// Save writes configuration to the platform-appropriate config file.
 func Save(cfg Config) error {
-	home, err := os.UserHomeDir()
+	dir, err := platform.ConfigDir()
 	if err != nil {
 		return err
 	}
-
-	dir := filepath.Join(home, ".config", "focus")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
@@ -99,17 +99,17 @@ func Save(cfg Config) error {
 	return os.WriteFile(path, data, 0o644)
 }
 
-// Load reads configuration from ~/.config/focus/config.yaml.
+// Load reads configuration from the platform-appropriate config file.
 // If the file does not exist or is malformed, it returns defaults.
 func Load() Config {
 	cfg := DefaultConfig()
 
-	home, err := os.UserHomeDir()
+	dir, err := platform.ConfigDir()
 	if err != nil {
 		return cfg
 	}
 
-	path := filepath.Join(home, ".config", "focus", "config.yaml")
+	path := filepath.Join(dir, "config.yaml")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if !os.IsNotExist(err) {

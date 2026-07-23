@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 )
@@ -191,6 +192,10 @@ func BackendName(imagePath string) string {
 func init() {
 	// Suppress "chafa not found" warnings by checking early.
 	if _, err := exec.LookPath("chafa"); err != nil {
-		log.Printf("focus: hint: install chafa for avatar display (apt install chafa)")
+		if runtime.GOOS == "windows" {
+			log.Printf("focus: hint: install chafa for avatar display (scoop install chafa)")
+		} else {
+			log.Printf("focus: hint: install chafa for avatar display (apt install chafa)")
+		}
 	}
 }

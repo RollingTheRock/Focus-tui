@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/RollingTheRock/Focus-tui/internal/models"
+	"github.com/RollingTheRock/Focus-tui/internal/platform"
 
 	"github.com/RollingTheRock/Focus-tui/internal/x/vt"
 	"github.com/RollingTheRock/Focus-tui/internal/x/xpty"
@@ -108,10 +109,7 @@ func (m *Model) startShell() tea.Cmd {
 		// PTY so nested TUI apps receive proper responses.
 		go io.Copy(p, vtm)
 
-		sh := os.Getenv("SHELL")
-		if sh == "" {
-			sh = "/bin/sh"
-		}
+		sh := platform.DefaultShell()
 		cmd := exec.Command(sh)
 		cmd.Env = append(os.Environ(), "TERM=xterm-256color")
 		if m.cwd != "" {

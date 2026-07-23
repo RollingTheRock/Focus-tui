@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -163,6 +164,7 @@ func (b *Bridge) listWorktreeDirs() ([]string, error) {
 // If linkPath already exists as a directory (e.g. trellis init created it),
 // it is removed and replaced with a symlink. If linkPath already exists as
 // a symlink pointing to a different target, it is updated.
+// On Windows, falls back to directory junction or copy if symlink creation fails.
 func ensureSymlink(linkPath, targetPath string) error {
 	if linkPath == "" || targetPath == "" {
 		return nil
@@ -174,7 +176,12 @@ func ensureSymlink(linkPath, targetPath string) error {
 	info, err := os.Lstat(linkPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return os.Symlink(targetPath, linkPath)
+			err := os.Symlink(targetPath, linkPath)
+			if err != nil && runtime.GOOS == "windows" {
+				// Windows symlink failed (needs admin/developer mode), try junction
+				return createJunction(targetPath, linkPath)
+			}
+			return err
 		}
 		return err
 	}
@@ -189,7 +196,11 @@ func ensureSymlink(linkPath, targetPath string) error {
 		if err := os.Remove(linkPath); err != nil {
 			return fmt.Errorf("remove stale symlink: %w", err)
 		}
-		return os.Symlink(targetPath, linkPath)
+		err = os.Symlink(targetPath, linkPath)
+		if err != nil && runtime.GOOS == "windows" {
+			return createJunction(targetPath, linkPath)
+		}
+		return err
 	}
 
 	// Exists but is a regular file or directory — remove and replace with symlink.
@@ -198,7 +209,47 @@ func ensureSymlink(linkPath, targetPath string) error {
 	if err := os.RemoveAll(linkPath); err != nil {
 		return fmt.Errorf("remove existing path for symlink: %w", err)
 	}
-	return os.Symlink(targetPath, linkPath)
+	err = os.Symlink(targetPath, linkPath)
+	if err != nil && runtime.GOOS == "windows" {
+		return createJunction(targetPath, linkPath)
+	}
+	return err
+}
+
+// createJunction creates a Windows directory junction as a fallback for symlinks.
+// Junctions don't require administrator privileges.
+func createJunction(targetPath, linkPath string) error {
+	// Resolve both paths to absolute paths so the junction target is unambiguous
+	// regardless of the calling process's current directory.
+	targetAbs, err := filepath.Abs(targetPath)
+	if err != nil {
+		return fmt.Errorf("resolve junction target: %w", err)
+	}
+	linkAbs, err := filepath.Abs(linkPath)
+	if err != nil {
+		return fmt.Errorf("resolve junction link: %w", err)
+	}
+
+	// Junctions can only point to directories.
+	info, err := os.Stat(targetAbs)
+	if err != nil {
+		return fmt.Errorf("junction target does not exist: %w", err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("junction target must be a directory: %s", targetAbs)
+	}
+
+	// mklink /J fails if linkPath already exists. Remove it first.
+	if err := os.RemoveAll(linkAbs); err != nil {
+		return fmt.Errorf("remove existing link path: %w", err)
+	}
+
+	// Create the junction and capture any error output for debugging.
+	out, err := exec.Command("cmd", "/c", "mklink", "/J", linkAbs, targetAbs).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("mklink /J %q %q failed: %w: %s", linkAbs, targetAbs, err, out)
+	}
+	return nil
 }
 
 // Version returns the installed trellis CLI version, or an empty string if
