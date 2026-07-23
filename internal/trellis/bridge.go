@@ -219,9 +219,37 @@ func ensureSymlink(linkPath, targetPath string) error {
 // createJunction creates a Windows directory junction as a fallback for symlinks.
 // Junctions don't require administrator privileges.
 func createJunction(targetPath, linkPath string) error {
-	// Use cmd /c mklink /J to create a junction
-	cmd := exec.Command("cmd", "/c", "mklink", "/J", linkPath, targetPath)
-	return cmd.Run()
+	// Resolve both paths to absolute paths so the junction target is unambiguous
+	// regardless of the calling process's current directory.
+	targetAbs, err := filepath.Abs(targetPath)
+	if err != nil {
+		return fmt.Errorf("resolve junction target: %w", err)
+	}
+	linkAbs, err := filepath.Abs(linkPath)
+	if err != nil {
+		return fmt.Errorf("resolve junction link: %w", err)
+	}
+
+	// Junctions can only point to directories.
+	info, err := os.Stat(targetAbs)
+	if err != nil {
+		return fmt.Errorf("junction target does not exist: %w", err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("junction target must be a directory: %s", targetAbs)
+	}
+
+	// mklink /J fails if linkPath already exists. Remove it first.
+	if err := os.RemoveAll(linkAbs); err != nil {
+		return fmt.Errorf("remove existing link path: %w", err)
+	}
+
+	// Create the junction and capture any error output for debugging.
+	out, err := exec.Command("cmd", "/c", "mklink", "/J", linkAbs, targetAbs).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("mklink /J %q %q failed: %w: %s", linkAbs, targetAbs, err, out)
+	}
+	return nil
 }
 
 // Version returns the installed trellis CLI version, or an empty string if

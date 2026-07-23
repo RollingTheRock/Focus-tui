@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -18,34 +19,55 @@ func DefaultProvider() Provider {
 	return ProviderOpenCode
 }
 
+// binaryPathCacheTTL bounds how long a cached PATH lookup is trusted.
+// Binary install state changes rarely, so a short TTL turns repeated scans
+// into cheap map lookups while still picking up newly installed agents.
+const binaryPathCacheTTL = 2 * time.Minute
+
+type binaryPathCacheEntry struct {
+	path  string    // resolved path, "" when not found
+	found bool      // whether the binary was found
+	at    time.Time // when the lookup was performed
+}
+
 // binaryPathCache caches the results of exec.LookPath to avoid repeated
 // expensive lookups, especially on Windows where each lookup is slow.
 var (
-	binaryPathCache   = make(map[string]string)
+	binaryPathCache   = make(map[string]binaryPathCacheEntry)
 	binaryPathCacheMu sync.RWMutex
 )
 
 // lookupBinary finds a binary in PATH, using cache to avoid repeated lookups.
+// Negative results (binary not found) are also cached so absence is cheap.
 func lookupBinary(name string) string {
+	// Fast path: return a recent cached result if present.
 	binaryPathCacheMu.RLock()
-	if path, ok := binaryPathCache[name]; ok {
+	if e, ok := binaryPathCache[name]; ok && time.Since(e.at) < binaryPathCacheTTL {
 		binaryPathCacheMu.RUnlock()
-		return path
+		if e.found {
+			return e.path
+		}
+		return ""
 	}
 	binaryPathCacheMu.RUnlock()
 
 	binaryPathCacheMu.Lock()
 	defer binaryPathCacheMu.Unlock()
-	// Double-check after acquiring write lock
-	if path, ok := binaryPathCache[name]; ok {
-		return path
-	}
-	path, err := exec.LookPath(name)
-	if err != nil {
+	// Double-check after acquiring write lock.
+	if e, ok := binaryPathCache[name]; ok && time.Since(e.at) < binaryPathCacheTTL {
+		if e.found {
+			return e.path
+		}
 		return ""
 	}
-	binaryPathCache[name] = path
-	return path
+
+	path, err := exec.LookPath(name)
+	found := err == nil
+	binaryPathCache[name] = binaryPathCacheEntry{path: path, found: found, at: time.Now()}
+	if found {
+		return path
+	}
+	return ""
 }
 
 func ProviderCommand(provider Provider) (string, []string) {
@@ -177,6 +199,49 @@ func DetectTerminalEmulator() string {
 	return ""
 }
 
+// powershellQuote returns s wrapped in single quotes, with embedded single
+// quotes escaped by doubling them. This makes s safe to embed in a PowerShell
+// single-quoted string literal.
+func powershellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
+}
+
+// buildWindowsTerminalPowerShellScript builds a PowerShell script that sets
+// environment variables, changes directory, and invokes the agent binary with
+// arguments. All user-controlled values are single-quoted and escaped so the
+// resulting script can safely be passed via -EncodedCommand.
+func buildWindowsTerminalPowerShellScript(directory, bin string, envVars, providerArgs, extraArgs []string) string {
+	var b strings.Builder
+
+	// Set environment variables at the process level.
+	for _, v := range envVars {
+		parts := strings.SplitN(v, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		b.WriteString("[Environment]::SetEnvironmentVariable(")
+		b.WriteString(powershellQuote(parts[0]))
+		b.WriteString(", ")
+		b.WriteString(powershellQuote(parts[1]))
+		b.WriteString(", 'Process'); ")
+	}
+
+	// Change to the worktree directory.
+	b.WriteString("Set-Location ")
+	b.WriteString(powershellQuote(directory))
+	b.WriteString("; ")
+
+	// Invoke the agent binary with arguments.
+	b.WriteString("& ")
+	b.WriteString(powershellQuote(bin))
+	for _, arg := range append(providerArgs, extraArgs...) {
+		b.WriteString(" ")
+		b.WriteString(powershellQuote(arg))
+	}
+
+	return b.String()
+}
+
 func BuildExternalTerminalCommand(emulator, title, directory string, envVars []string, bin string, providerArgs []string, extraArgs []string, zoom float64) (string, []string) {
 	if emulator == "" {
 		emulator = DetectTerminalEmulator()
@@ -196,40 +261,20 @@ func BuildExternalTerminalCommand(emulator, title, directory string, envVars []s
 
 	// Windows Terminal (wt.exe) - Windows-specific handling
 	if emulator == "wt" && runtime.GOOS == "windows" {
-		// Build the command to run inside the new tab
-		cmdParts := append([]string{bin}, providerArgs...)
-		cmdParts = append(cmdParts, extraArgs...)
-		cmdStr := strings.Join(cmdParts, " ")
-
-		// Build environment variable assignments for cmd.exe
-		var setCmds []string
-		for _, v := range envVars {
-			setCmds = append(setCmds, "set "+v)
-		}
-
-		// Combine: set vars && cd && run command
-		shell := platform.DefaultShell()
-		if strings.Contains(strings.ToLower(shell), "powershell") {
-			// PowerShell syntax
-			var envAssignments []string
-			for _, v := range envVars {
-				parts := strings.SplitN(v, "=", 2)
-				if len(parts) == 2 {
-					envAssignments = append(envAssignments, fmt.Sprintf("$env:%s='%s'", parts[0], parts[1]))
-				}
-			}
-			innerCmd := strings.Join(envAssignments, "; ") + "; Set-Location '" + directory + "'; " + cmdStr
-			args := []string{"new-tab", "--title", title, "--startingDirectory", directory, "powershell", "-NoExit", "-Command", innerCmd}
+		// Build a PowerShell script that sets environment variables, changes
+		// directory, and invokes the agent binary. All user-controlled values are
+		// single-quoted and escaped, then the script is passed via
+		// -EncodedCommand so no shell metacharacter parsing occurs.
+		script := buildWindowsTerminalPowerShellScript(directory, bin, envVars, providerArgs, extraArgs)
+		encoded, err := platform.EncodePowerShellCommand(script)
+		if err != nil {
+			// Encoding should never fail for valid strings; fall back to plain
+			// -Command, which is still safe because the script itself contains
+			// only quoted literals.
+			args := []string{"new-tab", "--title", title, "--startingDirectory", directory, "powershell", "-NoProfile", "-NoExit", "-Command", script}
 			return "wt.exe", args
 		}
-
-		// cmd.exe syntax: set VAR=val && set VAR2=val2 && cd /d dir && command
-		fullCmd := strings.Join(setCmds, " && ")
-		if fullCmd != "" {
-			fullCmd += " && "
-		}
-		fullCmd += "cd /d \"" + directory + "\" && " + cmdStr
-		args := []string{"new-tab", "--title", title, "--startingDirectory", directory, "cmd", "/k", fullCmd}
+		args := []string{"new-tab", "--title", title, "--startingDirectory", directory, "powershell", "-NoProfile", "-EncodedCommand", encoded}
 		return "wt.exe", args
 	}
 

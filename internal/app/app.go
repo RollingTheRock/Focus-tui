@@ -2705,19 +2705,6 @@ func (m model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		cmd := m.openAgentStorePane()
 		m.invalidateView()
 		return m, cmd
-	case "s":
-		// Global shortcut: open agent select for currently selected worktree
-		worktreeID := m.activePage.currentWorktreeID()
-		if worktreeID != "" {
-			cmd := m.openAgentSelectPane(worktreeID)
-			m.invalidateView()
-			return m, cmd
-		}
-		// No worktree selected, route to focused pane
-		if m.activePage.focused != "" && m.activePage.paneMeta[m.activePage.focused].Type != models.PaneTypeShell {
-			return m, m.routeToPane(m.activePage.focused, msg)
-		}
-		return m, nil
 	case "P", "shift+p":
 		// Global archive shortcut: archives the currently selected DAG task
 		// regardless of which pane has focus.

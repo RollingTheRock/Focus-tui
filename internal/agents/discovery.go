@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/shirou/gopsutil/v3/process"
 )
 
 var knownProviders = map[Provider]string{
@@ -66,11 +68,23 @@ func discoverRunningAgentsWindows() []Session {
 			continue
 		}
 
-		sessionID := fmt.Sprintf("%s-%d", provider, pid)
+		cwd := getProcessCWDWindows(pid)
+		if cwd != "" {
+			cwd = filepath.Clean(cwd)
+		}
+
+		sessionID := getProcessEnvValueWindows(pid, SessionIDEnvVar)
+		if sessionID == "" {
+			sessionID = getProcessEnvValueWindows(pid, LegacySessionIDEnvVar)
+		}
+		if sessionID == "" {
+			sessionID = fmt.Sprintf("%s-%d", provider, pid)
+		}
+
 		sessions = append(sessions, Session{
 			ID:         sessionID,
 			Provider:   provider,
-			WorktreeID: "", // Windows can't get CWD without Win32 API
+			WorktreeID: cwd,
 			PID:        pid,
 			State:      SessionRunning,
 			StartedAt:  time.Now(),
@@ -79,6 +93,36 @@ func discoverRunningAgentsWindows() []Session {
 	}
 
 	return sessions
+}
+
+func getProcessCWDWindows(pid int) string {
+	p, err := process.NewProcess(int32(pid))
+	if err != nil {
+		return ""
+	}
+	cwd, err := p.Cwd()
+	if err != nil {
+		return ""
+	}
+	return cwd
+}
+
+func getProcessEnvValueWindows(pid int, key string) string {
+	p, err := process.NewProcess(int32(pid))
+	if err != nil {
+		return ""
+	}
+	env, err := p.Environ()
+	if err != nil {
+		return ""
+	}
+	prefix := key + "="
+	for _, v := range env {
+		if strings.HasPrefix(v, prefix) {
+			return strings.TrimPrefix(v, prefix)
+		}
+	}
+	return ""
 }
 
 func discoverRunningAgentsUnix() []Session {
