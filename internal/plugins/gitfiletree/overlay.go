@@ -14,8 +14,8 @@ import (
 	"github.com/RollingTheRock/Focus-tui/internal/git"
 	"github.com/RollingTheRock/Focus-tui/internal/models"
 	"github.com/RollingTheRock/Focus-tui/internal/plugins/editor"
-	gitplugin "github.com/RollingTheRock/Focus-tui/internal/plugins/git"
 	filebrowser "github.com/RollingTheRock/Focus-tui/internal/plugins/filebrowser"
+	gitplugin "github.com/RollingTheRock/Focus-tui/internal/plugins/git"
 	"github.com/RollingTheRock/Focus-tui/internal/plugins/gitfiletree/graph"
 	"github.com/RollingTheRock/Focus-tui/internal/styles"
 
@@ -1688,19 +1688,19 @@ func wrapRenderedItems(items []string, maxWidth int, sep string) []string {
 }
 
 var (
-	headerStyle        = lipgloss.NewStyle().Bold(true).Foreground(styles.Accent)
-	branchStyle        = lipgloss.NewStyle().Bold(true).Foreground(styles.Accent)
-	upstreamStyle      = lipgloss.NewStyle().Foreground(styles.Subtle)
-	aheadStyle         = lipgloss.NewStyle().Foreground(styles.Success)
-	behindStyle        = lipgloss.NewStyle().Foreground(styles.Warning)
-	nameStyle          = lipgloss.NewStyle().Foreground(styles.Text)
-	statusStyle        = lipgloss.NewStyle().Bold(true)
-	selectedStyle      = lipgloss.NewStyle().Background(styles.Highlight).Bold(true)
-	loadingStyle       = lipgloss.NewStyle().Foreground(styles.Subtle)
-	emptyStyle         = lipgloss.NewStyle().Foreground(styles.Subtle)
-	errorStyle         = lipgloss.NewStyle().Foreground(styles.Overdue)
-	hintStyle          = lipgloss.NewStyle().Foreground(styles.Subtle)
-	hashStyle          = lipgloss.NewStyle().Foreground(styles.Accent)
-	authorStyle        = lipgloss.NewStyle().Foreground(styles.Subtle)
-	metaStyle          = lipgloss.NewStyle().Foreground(styles.Subtle)
+	headerStyle   = lipgloss.NewStyle().Bold(true).Foreground(styles.Accent)
+	branchStyle   = lipgloss.NewStyle().Bold(true).Foreground(styles.Accent)
+	upstreamStyle = lipgloss.NewStyle().Foreground(styles.Subtle)
+	aheadStyle    = lipgloss.NewStyle().Foreground(styles.Success)
+	behindStyle   = lipgloss.NewStyle().Foreground(styles.Warning)
+	nameStyle     = lipgloss.NewStyle().Foreground(styles.Text)
+	statusStyle   = lipgloss.NewStyle().Bold(true)
+	selectedStyle = lipgloss.NewStyle().Background(styles.Highlight).Bold(true)
+	loadingStyle  = lipgloss.NewStyle().Foreground(styles.Subtle)
+	emptyStyle    = lipgloss.NewStyle().Foreground(styles.Subtle)
+	errorStyle    = lipgloss.NewStyle().Foreground(styles.Overdue)
+	hintStyle     = lipgloss.NewStyle().Foreground(styles.Subtle)
+	hashStyle     = lipgloss.NewStyle().Foreground(styles.Accent)
+	authorStyle   = lipgloss.NewStyle().Foreground(styles.Subtle)
+	metaStyle     = lipgloss.NewStyle().Foreground(styles.Subtle)
 )

@@ -4,8 +4,8 @@ import (
 	"testing"
 
 	"github.com/RollingTheRock/Focus-tui/internal/git"
-	gitplugin "github.com/RollingTheRock/Focus-tui/internal/plugins/git"
 	"github.com/RollingTheRock/Focus-tui/internal/models"
+	gitplugin "github.com/RollingTheRock/Focus-tui/internal/plugins/git"
 
 	tea "charm.land/bubbletea/v2"
 )
