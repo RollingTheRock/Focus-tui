@@ -67,7 +67,6 @@ func TestWorktreePaneKeyboardHandling(t *testing.T) {
 	}
 }
 
-
 func TestWorktreePaneResumeMessageUsesSelectedWorktree(t *testing.T) {
 	adapter := &fakeGitAdapter{
 		worktrees: []gitmodel.Worktree{
@@ -155,11 +154,6 @@ func TestWorktreePaneEditTaskMessageUsesSelectedWorktree(t *testing.T) {
 		t.Fatalf("unexpected task edit message %+v", openMsg)
 	}
 }
-
-
-
-
-
 
 func TestWorktreePaneRemoveCleanWorktreeRequiresConfirmation(t *testing.T) {
 	adapter := &fakeGitAdapter{worktrees: []gitmodel.Worktree{{Path: "/repo/main", Branch: "main", IsMain: true}, {Path: "/repo/feature-a", Branch: "feature-a"}}}
@@ -301,7 +295,6 @@ func TestWorktreePaneForceRemoveDirtyWorktreeShiftX(t *testing.T) {
 		t.Fatalf("unexpected force delete confirm %+v", confirmMsg)
 	}
 }
-
 
 func TestWorktreePaneVOpensFullDiff(t *testing.T) {
 	adapter := &fakeGitAdapter{

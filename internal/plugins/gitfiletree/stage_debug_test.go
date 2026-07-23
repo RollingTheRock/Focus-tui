@@ -13,32 +13,42 @@ import (
 
 // mockGitAdapter 模拟 git 操作，验证 stage 流程
 type mockGitAdapter struct {
-	status      *git.Status
-	stageCalls    []string
-	unstageCalls  []string
-	discardCalls  []string
-	commitCalls   []string
+	status       *git.Status
+	stageCalls   []string
+	unstageCalls []string
+	discardCalls []string
+	commitCalls  []string
 }
 
-func (m *mockGitAdapter) Name() string { return "mock" }
-func (m *mockGitAdapter) Init() error  { return nil }
-func (m *mockGitAdapter) Destroy() error { return nil }
+func (m *mockGitAdapter) Name() string                                   { return "mock" }
+func (m *mockGitAdapter) Init() error                                    { return nil }
+func (m *mockGitAdapter) Destroy() error                                 { return nil }
 func (m *mockGitAdapter) GetStatus(repoPath string) (*git.Status, error) { return m.status, nil }
-func (m *mockGitAdapter) GetWorktreeStatus(worktreePath string) (*git.Status, error) { return m.status, nil }
-func (m *mockGitAdapter) GetBranches(repoPath string) ([]git.Branch, error) { return nil, nil }
+func (m *mockGitAdapter) GetWorktreeStatus(worktreePath string) (*git.Status, error) {
+	return m.status, nil
+}
+func (m *mockGitAdapter) GetBranches(repoPath string) ([]git.Branch, error)     { return nil, nil }
 func (m *mockGitAdapter) ListWorktrees(repoPath string) ([]git.Worktree, error) { return nil, nil }
-func (m *mockGitAdapter) CreateWorktree(repoPath string, req git.CreateWorktreeRequest) (*git.Worktree, error) { return nil, nil }
-func (m *mockGitAdapter) RemoveWorktree(repoPath, worktreePath string, opts git.RemoveWorktreeOptions) error { return nil }
+func (m *mockGitAdapter) CreateWorktree(repoPath string, req git.CreateWorktreeRequest) (*git.Worktree, error) {
+	return nil, nil
+}
+func (m *mockGitAdapter) RemoveWorktree(repoPath, worktreePath string, opts git.RemoveWorktreeOptions) error {
+	return nil
+}
 func (m *mockGitAdapter) PruneWorktrees(repoPath string) error { return nil }
-func (m *mockGitAdapter) GetDiff(repoPath string, path string, staged bool) (string, error) { return "", nil }
+func (m *mockGitAdapter) GetDiff(repoPath string, path string, staged bool) (string, error) {
+	return "", nil
+}
 func (m *mockGitAdapter) Commit(repoPath, message string) error {
 	m.commitCalls = append(m.commitCalls, message)
 	return nil
 }
 func (m *mockGitAdapter) Fetch(repoPath string) error { return nil }
-func (m *mockGitAdapter) Pull(repoPath string) error { return nil }
-func (m *mockGitAdapter) Push(repoPath string) error { return nil }
-func (m *mockGitAdapter) WatchStatus(repoPath string) (<-chan adapters.StatusEvent, error) { return nil, nil }
+func (m *mockGitAdapter) Pull(repoPath string) error  { return nil }
+func (m *mockGitAdapter) Push(repoPath string) error  { return nil }
+func (m *mockGitAdapter) WatchStatus(repoPath string) (<-chan adapters.StatusEvent, error) {
+	return nil, nil
+}
 func (m *mockGitAdapter) StopWatch(repoPath string) {}
 func (m *mockGitAdapter) StageFile(repoPath string, path string) error {
 	m.stageCalls = append(m.stageCalls, path)
@@ -71,11 +81,15 @@ func (m *mockGitAdapter) DiscardChanges(repoPath string, path string) error {
 	m.discardCalls = append(m.discardCalls, path)
 	return nil
 }
-func (m *mockGitAdapter) GetFileContent(repoPath string, path string, ref string) (string, error) { return "", nil }
-func (m *mockGitAdapter) GetStashList(repoPath string) ([]adapters.StashEntry, error) { return nil, nil }
-func (m *mockGitAdapter) StashApply(repoPath string, index int) error { return nil }
-func (m *mockGitAdapter) StashPop(repoPath string, index int) error { return nil }
-func (m *mockGitAdapter) StashDrop(repoPath string, index int) error { return nil }
+func (m *mockGitAdapter) GetFileContent(repoPath string, path string, ref string) (string, error) {
+	return "", nil
+}
+func (m *mockGitAdapter) GetStashList(repoPath string) ([]adapters.StashEntry, error) {
+	return nil, nil
+}
+func (m *mockGitAdapter) StashApply(repoPath string, index int) error         { return nil }
+func (m *mockGitAdapter) StashPop(repoPath string, index int) error           { return nil }
+func (m *mockGitAdapter) StashDrop(repoPath string, index int) error          { return nil }
 func (m *mockGitAdapter) CheckoutBranch(repoPath string, branch string) error { return nil }
 
 // TestFileGitStatusPathMatching 验证 fileGitStatus 路径匹配

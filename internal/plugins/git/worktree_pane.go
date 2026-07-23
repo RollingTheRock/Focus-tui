@@ -174,7 +174,8 @@ func (p *WorktreePane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 		switch msg.Keystroke() {
 		case "j", "down":
 			if p.cursor < len(p.visibleWorktrees())-1 {
-				p.cursor++}
+				p.cursor++
+			}
 		case "k", "up":
 			if p.cursor > 0 {
 				p.cursor--
