@@ -51,12 +51,14 @@ func findRecentJSONL(dir string, startedAt, endedAt time.Time) (string, error) {
 
 // encodeClaudeProjectPath converts an absolute filesystem path into the
 // encoding used by Claude Code under ~/.claude/projects/.
-// Rules (observed): replace '/', ' ', and '~' with '-'.
+// Rules (observed): replace '/', '\', ' ', and '~' with '-'.
 func encodeClaudeProjectPath(absPath string) string {
 	s := absPath
 	s = strings.ReplaceAll(s, "/", "-")
+	s = strings.ReplaceAll(s, "\\", "-")
 	s = strings.ReplaceAll(s, " ", "-")
 	s = strings.ReplaceAll(s, "~", "-")
+	s = strings.ReplaceAll(s, ":", "-")
 	return s
 }
 

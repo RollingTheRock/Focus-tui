@@ -107,6 +107,19 @@ go test -short ./...
 go test ./...
 ```
 
+## Running Tests on Windows
+
+On Windows, run `go test` from **Windows Terminal** or **PowerShell**, not
+Git Bash / MSYS2 / MinGW shells. `go test` builds test binaries that import the
+TUI library (`charm.land/bubbletea/v2`), whose package `init` probes the
+console; under a pseudo-TTY (`tty: not a tty`, as Git Bash presents it) this
+probe can stall and the test binary hangs on startup. The `focus` binary
+itself is unaffected — this is a test-harness environment artifact, not a
+code bug.
+
+If a test suite appears to hang on Windows, switch to Windows Terminal and
+re-run before investigating the test itself.
+
 ## Common Pitfalls
 
 - **Do not assume the demo video or logo generation script works on your machine.** `scripts/generate_logo.py` looks for specific fonts and PIL.

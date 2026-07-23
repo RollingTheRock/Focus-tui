@@ -5,13 +5,69 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"sync"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
+
+	"github.com/RollingTheRock/Focus-tui/internal/platform"
 )
 
 func DefaultProvider() Provider {
 	return ProviderOpenCode
+}
+
+// binaryPathCacheTTL bounds how long a cached PATH lookup is trusted.
+// Binary install state changes rarely, so a short TTL turns repeated scans
+// into cheap map lookups while still picking up newly installed agents.
+const binaryPathCacheTTL = 2 * time.Minute
+
+type binaryPathCacheEntry struct {
+	path  string    // resolved path, "" when not found
+	found bool      // whether the binary was found
+	at    time.Time // when the lookup was performed
+}
+
+// binaryPathCache caches the results of exec.LookPath to avoid repeated
+// expensive lookups, especially on Windows where each lookup is slow.
+var (
+	binaryPathCache   = make(map[string]binaryPathCacheEntry)
+	binaryPathCacheMu sync.RWMutex
+)
+
+// lookupBinary finds a binary in PATH, using cache to avoid repeated lookups.
+// Negative results (binary not found) are also cached so absence is cheap.
+func lookupBinary(name string) string {
+	// Fast path: return a recent cached result if present.
+	binaryPathCacheMu.RLock()
+	if e, ok := binaryPathCache[name]; ok && time.Since(e.at) < binaryPathCacheTTL {
+		binaryPathCacheMu.RUnlock()
+		if e.found {
+			return e.path
+		}
+		return ""
+	}
+	binaryPathCacheMu.RUnlock()
+
+	binaryPathCacheMu.Lock()
+	defer binaryPathCacheMu.Unlock()
+	// Double-check after acquiring write lock.
+	if e, ok := binaryPathCache[name]; ok && time.Since(e.at) < binaryPathCacheTTL {
+		if e.found {
+			return e.path
+		}
+		return ""
+	}
+
+	path, err := exec.LookPath(name)
+	found := err == nil
+	binaryPathCache[name] = binaryPathCacheEntry{path: path, found: found, at: time.Now()}
+	if found {
+		return path
+	}
+	return ""
 }
 
 func ProviderCommand(provider Provider) (string, []string) {
@@ -36,13 +92,12 @@ func IsInstalled(provider Provider) bool {
 	if bin == "" {
 		return false
 	}
-	_, err := exec.LookPath(bin)
-	return err == nil
+	return lookupBinary(bin) != ""
 }
 
 func LaunchCommand(provider Provider, worktreeID string) tea.Cmd {
 	bin, args := ProviderCommand(provider)
-	if _, err := exec.LookPath(bin); err != nil {
+	if lookupBinary(bin) == "" {
 		return nil
 	}
 	cmd := exec.Command(bin, args...)
@@ -126,27 +181,101 @@ func DetectTerminalEmulator() string {
 	if os.Getenv("ALACRITTY_SOCKET") != "" || os.Getenv("ALACRITTY_LOG") != "" {
 		return "alacritty"
 	}
+	// Windows Terminal detection
+	if os.Getenv("WT_SESSION") != "" {
+		return "wt"
+	}
 
 	// Fallback: check PATH for known binaries.
 	for _, name := range []string{"ptyxis", "kitty", "alacritty", "wezterm", "gnome-terminal"} {
-		if _, err := exec.LookPath(name); err == nil {
+		if lookupBinary(name) != "" {
 			return name
 		}
 	}
+	// Check for Windows Terminal
+	if lookupBinary("wt.exe") != "" {
+		return "wt"
+	}
 	return ""
+}
+
+// powershellQuote returns s wrapped in single quotes, with embedded single
+// quotes escaped by doubling them. This makes s safe to embed in a PowerShell
+// single-quoted string literal.
+func powershellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
+}
+
+// buildWindowsTerminalPowerShellScript builds a PowerShell script that sets
+// environment variables, changes directory, and invokes the agent binary with
+// arguments. All user-controlled values are single-quoted and escaped so the
+// resulting script can safely be passed via -EncodedCommand.
+func buildWindowsTerminalPowerShellScript(directory, bin string, envVars, providerArgs, extraArgs []string) string {
+	var b strings.Builder
+
+	// Set environment variables at the process level.
+	for _, v := range envVars {
+		parts := strings.SplitN(v, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		b.WriteString("[Environment]::SetEnvironmentVariable(")
+		b.WriteString(powershellQuote(parts[0]))
+		b.WriteString(", ")
+		b.WriteString(powershellQuote(parts[1]))
+		b.WriteString(", 'Process'); ")
+	}
+
+	// Change to the worktree directory.
+	b.WriteString("Set-Location ")
+	b.WriteString(powershellQuote(directory))
+	b.WriteString("; ")
+
+	// Invoke the agent binary with arguments.
+	b.WriteString("& ")
+	b.WriteString(powershellQuote(bin))
+	for _, arg := range append(providerArgs, extraArgs...) {
+		b.WriteString(" ")
+		b.WriteString(powershellQuote(arg))
+	}
+
+	return b.String()
 }
 
 func BuildExternalTerminalCommand(emulator, title, directory string, envVars []string, bin string, providerArgs []string, extraArgs []string, zoom float64) (string, []string) {
 	if emulator == "" {
 		emulator = DetectTerminalEmulator()
 		if emulator == "" {
-			emulator = "kitty"
+			if runtime.GOOS == "windows" {
+				emulator = "wt"
+			} else {
+				emulator = "kitty"
+			}
 		}
 	}
 
 	// Inject zoom scale into environment for terminals that respect it.
 	if zoom != 1.0 && zoom > 0 {
 		envVars = append([]string{"FOCUS_TERMINAL_ZOOM=" + fmt.Sprintf("%.2f", zoom)}, envVars...)
+	}
+
+	// Windows Terminal (wt.exe) - Windows-specific handling
+	if emulator == "wt" && runtime.GOOS == "windows" {
+		// Build a PowerShell script that sets environment variables, changes
+		// directory, and invokes the agent binary. All user-controlled values are
+		// single-quoted and escaped, then the script is passed via
+		// -EncodedCommand so no shell metacharacter parsing occurs.
+		script := buildWindowsTerminalPowerShellScript(directory, bin, envVars, providerArgs, extraArgs)
+		encoded, err := platform.EncodePowerShellCommand(script)
+		if err != nil {
+			// Encoding should never fail for valid strings; fall back to plain
+			// -Command, which is still safe because the script itself contains
+			// only quoted literals.
+			args := []string{"new-tab", "--title", title, "--startingDirectory", directory, "powershell", "-NoProfile", "-NoExit", "-Command", script}
+			return "wt.exe", args
+		}
+		args := []string{"new-tab", "--title", title, "--startingDirectory", directory, "powershell", "-NoProfile", "-EncodedCommand", encoded}
+		return "wt.exe", args
 	}
 
 	switch emulator {
@@ -275,7 +404,7 @@ func LaunchExternalCommand(req ExternalLaunchRequest) tea.Cmd {
 			1.2,
 		)
 		cmd := exec.Command(name, args...)
-		f, _ := os.OpenFile("/tmp/focus_launch.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		f, _ := os.OpenFile(filepath.Join(os.TempDir(), "focus_launch.log"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 		f.WriteString(fmt.Sprintf("Launch: %s %v\n", name, args))
 		defer f.Close()
 		if err := cmd.Start(); err != nil {
@@ -306,10 +435,7 @@ func BuildExternalShellCommand(emulator, title, directory string, zoom float64) 
 		}
 	}
 
-	shell := os.Getenv("SHELL")
-	if shell == "" {
-		shell = "/bin/sh"
-	}
+	shell := platform.DefaultShell()
 
 	switch emulator {
 	case "kitty":

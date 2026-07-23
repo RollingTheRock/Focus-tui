@@ -25,7 +25,7 @@ import (
 )
 
 func logOverlay(s string) {
-	f, _ := os.OpenFile("/tmp/overlay-debug.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	f, _ := os.OpenFile(filepath.Join(os.TempDir(), "overlay-debug.log"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if f != nil {
 		_, _ = f.WriteString(time.Now().Format("15:04:05") + " " + s + "\n")
 		_ = f.Close()

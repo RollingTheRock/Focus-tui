@@ -594,7 +594,7 @@ func (g *GitLocalAdapter) GetFileContent(repoPath string, path string, ref strin
 		return string(data), nil
 	case ":0":
 		// Staged/index
-		cmd := exec.Command("git", "-C", repoPath, "show", ":0:"+path)
+		cmd := exec.Command("git", "-C", repoPath, "show", ":0:"+filepath.ToSlash(path))
 		output, err := cmd.Output()
 		if err != nil {
 			if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 128 {
@@ -605,7 +605,8 @@ func (g *GitLocalAdapter) GetFileContent(repoPath string, path string, ref strin
 		return string(output), nil
 	default:
 		// Any other ref (e.g., "HEAD", commit hash, branch)
-		cmd := exec.Command("git", "-C", repoPath, "show", ref+":"+path)
+		// Git internally uses '/' for paths, so normalize Windows backslashes.
+		cmd := exec.Command("git", "-C", repoPath, "show", ref+":"+filepath.ToSlash(path))
 		output, err := cmd.Output()
 		if err != nil {
 			if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 128 {
