@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/RollingTheRock/Focus-tui/internal/git"
+	gitplugin "github.com/RollingTheRock/Focus-tui/internal/plugins/git"
 	"github.com/RollingTheRock/Focus-tui/internal/models"
 
 	tea "charm.land/bubbletea/v2"
@@ -114,5 +115,61 @@ func TestOverlayEnterTogglesDir(t *testing.T) {
 	// The directory should now be collapsed
 	if !o2.treeFlatList[overlay.treeCursor].Collapsed {
 		t.Fatal("expected directory to be collapsed after enter")
+	}
+}
+
+func TestOverlayEnterOnFileOpensDiff(t *testing.T) {
+	overlay := NewOverlay("test", models.PaneMeta{ID: "test"}, models.CommonModel{}, nil, "/repo")
+	overlay.status = &git.Status{
+		UnstagedFiles: []git.File{{Path: "a.go"}},
+	}
+	overlay.rebuildTree()
+
+	updated, cmd := overlay.Update(tea.KeyPressMsg{Code: tea.KeyEnter, Text: "enter"})
+	if updated == nil {
+		t.Fatal("Update returned nil panel for 'enter'")
+	}
+	if cmd == nil {
+		t.Fatal("expected diff command")
+	}
+
+	msg := cmd()
+	diffMsg, ok := msg.(gitplugin.OpenDiffMsg)
+	if !ok {
+		t.Fatalf("expected OpenDiffMsg, got %T", msg)
+	}
+	if diffMsg.FilePath != "a.go" {
+		t.Fatalf("expected FilePath a.go, got %q", diffMsg.FilePath)
+	}
+	if diffMsg.Staged {
+		t.Fatalf("expected unstaged diff, got staged")
+	}
+}
+
+func TestOverlayEnterOnStagedFileOpensStagedDiff(t *testing.T) {
+	overlay := NewOverlay("test", models.PaneMeta{ID: "test"}, models.CommonModel{}, nil, "/repo")
+	overlay.status = &git.Status{
+		StagedFiles: []git.File{{Path: "b.go"}},
+	}
+	overlay.rebuildTree()
+
+	updated, cmd := overlay.Update(tea.KeyPressMsg{Code: tea.KeyEnter, Text: "enter"})
+	if updated == nil {
+		t.Fatal("Update returned nil panel for 'enter'")
+	}
+	if cmd == nil {
+		t.Fatal("expected diff command")
+	}
+
+	msg := cmd()
+	diffMsg, ok := msg.(gitplugin.OpenDiffMsg)
+	if !ok {
+		t.Fatalf("expected OpenDiffMsg, got %T", msg)
+	}
+	if diffMsg.FilePath != "b.go" {
+		t.Fatalf("expected FilePath b.go, got %q", diffMsg.FilePath)
+	}
+	if !diffMsg.Staged {
+		t.Fatalf("expected staged diff, got unstaged")
 	}
 }

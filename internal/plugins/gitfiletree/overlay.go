@@ -14,6 +14,7 @@ import (
 	"github.com/RollingTheRock/Focus-tui/internal/git"
 	"github.com/RollingTheRock/Focus-tui/internal/models"
 	"github.com/RollingTheRock/Focus-tui/internal/plugins/editor"
+	gitplugin "github.com/RollingTheRock/Focus-tui/internal/plugins/git"
 	filebrowser "github.com/RollingTheRock/Focus-tui/internal/plugins/filebrowser"
 	"github.com/RollingTheRock/Focus-tui/internal/plugins/gitfiletree/graph"
 	"github.com/RollingTheRock/Focus-tui/internal/styles"
@@ -933,7 +934,7 @@ func (o *GitFileTreeOverlay) handleEnter() (models.Panel, tea.Cmd) {
 		return o, nil
 	}
 	if !node.IsDir {
-		return o, o.handleOpenFile()
+		return o, o.handleDiff()
 	}
 	// Directory: toggle collapse
 	node.Collapsed = !node.Collapsed
@@ -941,6 +942,18 @@ func (o *GitFileTreeOverlay) handleEnter() (models.Panel, tea.Cmd) {
 	o.treeFlatList = flattenVisibleGitNodes(o.treeRoot, true)
 	o.selectTreeNodeByPath(selectedPath)
 	return o, nil
+}
+
+func (o *GitFileTreeOverlay) handleDiff() tea.Cmd {
+	node := o.selectedTreeNode()
+	if node == nil || node.IsDir {
+		return nil
+	}
+	path := node.Path
+	staged := o.fileGitStatus(path) == "staged"
+	return func() tea.Msg {
+		return gitplugin.OpenDiffMsg{FilePath: path, Staged: staged}
+	}
 }
 
 func (o *GitFileTreeOverlay) handleTreeToggle(keystroke string) (models.Panel, tea.Cmd) {
