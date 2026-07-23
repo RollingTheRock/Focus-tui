@@ -5,6 +5,7 @@ import (
 
 	"github.com/RollingTheRock/Focus-tui/internal/git"
 	"github.com/RollingTheRock/Focus-tui/internal/models"
+	"github.com/RollingTheRock/Focus-tui/internal/plugins/editor"
 	gitplugin "github.com/RollingTheRock/Focus-tui/internal/plugins/git"
 
 	tea "charm.land/bubbletea/v2"
@@ -171,5 +172,30 @@ func TestOverlayEnterOnStagedFileOpensStagedDiff(t *testing.T) {
 	}
 	if !diffMsg.Staged {
 		t.Fatalf("expected staged diff, got unstaged")
+	}
+}
+
+func TestOverlayEOpensEditor(t *testing.T) {
+	overlay := NewOverlay("test", models.PaneMeta{ID: "test"}, models.CommonModel{}, nil, "/repo")
+	overlay.status = &git.Status{
+		UnstagedFiles: []git.File{{Path: "a.go"}},
+	}
+	overlay.rebuildTree()
+
+	updated, cmd := overlay.Update(tea.KeyPressMsg{Code: 'e', Text: "e"})
+	if updated == nil {
+		t.Fatal("Update returned nil panel for 'e'")
+	}
+	if cmd == nil {
+		t.Fatal("expected editor command")
+	}
+
+	msg := cmd()
+	editorMsg, ok := msg.(editor.OpenEditorMsg)
+	if !ok {
+		t.Fatalf("expected OpenEditorMsg, got %T", msg)
+	}
+	if editorMsg.FilePath != "/repo/a.go" {
+		t.Fatalf("expected FilePath /repo/a.go, got %q", editorMsg.FilePath)
 	}
 }

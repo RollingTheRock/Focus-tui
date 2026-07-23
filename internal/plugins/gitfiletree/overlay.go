@@ -302,6 +302,8 @@ func (o *GitFileTreeOverlay) updateKeyLeftPane(msg tea.KeyPressMsg) (models.Pane
 		return o.handleStageToggle()
 	case "o":
 		return o, o.handleOpenFile()
+	case "e":
+		return o, o.handleOpenFile()
 	case "a":
 		return o, o.handleStageAllToggle()
 	case "c":
