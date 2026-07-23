@@ -221,6 +221,13 @@ func (p *WorktreePane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 					return OpenTaskEditMsg{TaskID: summary.TaskID, WorktreeID: wt.Path, RepoID: p.repoPath, RelationType: "primary"}
 				}
 			}
+		case "v":
+			if wt, ok := p.selectedWorktree(); ok {
+				p.notice = "Opening diff for " + shortenWorktreePath(wt.Path)
+				return p, func() tea.Msg {
+					return OpenDiffMsg{FilePath: "", Staged: false}
+				}
+			}
 		case "d", "x":
 			if wt, ok := p.selectedWorktree(); ok {
 				if wt.IsMain {
@@ -437,6 +444,7 @@ func (p *WorktreePane) KeyBindings(compact bool) []models.KeyBinding {
 			{Keys: []string{"n"}, Help: "new"},
 			{Keys: []string{"e"}, Help: "edit"},
 			{Keys: []string{"d"}, Help: "del"},
+			{Keys: []string{"v"}, Help: "diff"},
 		}
 	}
 	return []models.KeyBinding{
@@ -446,6 +454,7 @@ func (p *WorktreePane) KeyBindings(compact bool) []models.KeyBinding {
 		{Keys: []string{"e"}, Help: "edit"},
 		{Keys: []string{"d"}, Help: "del"},
 		{Keys: []string{"o"}, Help: "shell"},
+		{Keys: []string{"v"}, Help: "diff"},
 		{Keys: []string{"tab"}, Help: "cycle focus"},
 	}
 }
