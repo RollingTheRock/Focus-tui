@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime"
 	"runtime/debug"
 
 	tea "charm.land/bubbletea/v2"
@@ -83,7 +84,10 @@ func main() {
 
 	// Derive per-project MCP addresses to avoid conflicts when running
 	// multiple focus instances across different projects.
-	if cfg.Agent.MCPSocket == "" {
+	// On Windows, MCP uses HTTP transport (see internal/mcp/socket_windows.go);
+	// leave MCPSocket empty so mcp.Server.Start() is a no-op instead of
+	// logging a spurious "unix socket listen" error each launch.
+	if cfg.Agent.MCPSocket == "" && runtime.GOOS != "windows" {
 		cfg.Agent.MCPSocket = filepath.Join(projectRoot, ".focus", "mcp.sock")
 	}
 

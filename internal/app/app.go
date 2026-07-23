@@ -162,7 +162,14 @@ type model struct {
 
 	// Windows async discovery results
 	asyncDiscoveredSessions []agents.Session
-	asyncDiscoveryMu        sync.Mutex
+	// Pointer to a mutex, not a value. model is passed by value across many
+	// value-receiver methods (Init/Update/View etc.); embedding a value-form
+	// sync.Mutex would make model non-copyable and trip go vet's copylocks
+	// analyzer on every value pass (CI's `go test` runs that analyzer and
+	// fails the build on any report). A *sync.Mutex keeps model free of value
+	// lock fields — vet stays green — while Lock/Unlock call syntax is
+	// unchanged. Initialized in New().
+	asyncDiscoveryMu *sync.Mutex
 
 	orch          *orchestrator.Orchestrator
 	notifications []orchestrator.Notification
@@ -233,6 +240,7 @@ func New(cfg config.Config, store models.Store) tea.Model {
 		adapterManager:     adapters.NewManager(),
 		agentRegistry:      agents.NewRegistry(),
 		discoveryRegistry:  agents.NewDiscoveryRegistry(store),
+		asyncDiscoveryMu:   &sync.Mutex{},
 		pages:              make(map[string]*page),
 		resumeSummaryCache: make(map[string]gitmodel.WorktreeResumeSummary),
 		mcpServer:          mcp.NewServer(cfg.Agent.MCPSocket, cfg.Agent.MCPPort),
