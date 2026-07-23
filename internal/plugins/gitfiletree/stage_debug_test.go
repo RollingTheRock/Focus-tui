@@ -14,9 +14,10 @@ import (
 // mockGitAdapter 模拟 git 操作，验证 stage 流程
 type mockGitAdapter struct {
 	status      *git.Status
-	stageCalls   []string
-	unstageCalls []string
-	commitCalls  []string
+	stageCalls    []string
+	unstageCalls  []string
+	discardCalls  []string
+	commitCalls   []string
 }
 
 func (m *mockGitAdapter) Name() string { return "mock" }
@@ -66,7 +67,10 @@ func (m *mockGitAdapter) UnstageFile(repoPath string, path string) error {
 	return nil
 }
 func (m *mockGitAdapter) UnstageAll(repoPath string) error { return nil }
-func (m *mockGitAdapter) DiscardChanges(repoPath string, path string) error { return nil }
+func (m *mockGitAdapter) DiscardChanges(repoPath string, path string) error {
+	m.discardCalls = append(m.discardCalls, path)
+	return nil
+}
 func (m *mockGitAdapter) GetFileContent(repoPath string, path string, ref string) (string, error) { return "", nil }
 func (m *mockGitAdapter) GetStashList(repoPath string) ([]adapters.StashEntry, error) { return nil, nil }
 func (m *mockGitAdapter) StashApply(repoPath string, index int) error { return nil }

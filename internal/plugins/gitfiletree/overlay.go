@@ -948,7 +948,7 @@ func (o *GitFileTreeOverlay) handleEnter() (models.Panel, tea.Cmd) {
 
 func (o *GitFileTreeOverlay) handleDiff() tea.Cmd {
 	node := o.selectedTreeNode()
-	if node == nil || node.IsDir {
+	if node == nil || node.IsDir || o.adapter == nil {
 		return nil
 	}
 	path := node.Path

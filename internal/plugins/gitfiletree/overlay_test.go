@@ -120,7 +120,7 @@ func TestOverlayEnterTogglesDir(t *testing.T) {
 }
 
 func TestOverlayEnterOnFileOpensDiff(t *testing.T) {
-	overlay := NewOverlay("test", models.PaneMeta{ID: "test"}, models.CommonModel{}, nil, "/repo")
+	overlay := NewOverlay("test", models.PaneMeta{ID: "test"}, models.CommonModel{}, &mockGitAdapter{}, "/repo")
 	overlay.status = &git.Status{
 		UnstagedFiles: []git.File{{Path: "a.go"}},
 	}
@@ -148,7 +148,7 @@ func TestOverlayEnterOnFileOpensDiff(t *testing.T) {
 }
 
 func TestOverlayEnterOnStagedFileOpensStagedDiff(t *testing.T) {
-	overlay := NewOverlay("test", models.PaneMeta{ID: "test"}, models.CommonModel{}, nil, "/repo")
+	overlay := NewOverlay("test", models.PaneMeta{ID: "test"}, models.CommonModel{}, &mockGitAdapter{}, "/repo")
 	overlay.status = &git.Status{
 		StagedFiles: []git.File{{Path: "b.go"}},
 	}
@@ -197,5 +197,56 @@ func TestOverlayEOpensEditor(t *testing.T) {
 	}
 	if editorMsg.FilePath != "/repo/a.go" {
 		t.Fatalf("expected FilePath /repo/a.go, got %q", editorMsg.FilePath)
+	}
+}
+
+func TestOverlayOOpensEditor(t *testing.T) {
+	overlay := NewOverlay("test", models.PaneMeta{ID: "test"}, models.CommonModel{}, nil, "/repo")
+	overlay.status = &git.Status{
+		UnstagedFiles: []git.File{{Path: "a.go"}},
+	}
+	overlay.rebuildTree()
+
+	updated, cmd := overlay.Update(tea.KeyPressMsg{Code: 'o', Text: "o"})
+	if updated == nil {
+		t.Fatal("Update returned nil panel for 'o'")
+	}
+	if cmd == nil {
+		t.Fatal("expected editor command")
+	}
+
+	msg := cmd()
+	editorMsg, ok := msg.(editor.OpenEditorMsg)
+	if !ok {
+		t.Fatalf("expected OpenEditorMsg, got %T", msg)
+	}
+	if editorMsg.FilePath != "/repo/a.go" {
+		t.Fatalf("expected FilePath /repo/a.go, got %q", editorMsg.FilePath)
+	}
+}
+
+func TestOverlayDStillDiscards(t *testing.T) {
+	mock := &mockGitAdapter{}
+	overlay := NewOverlay("test", models.PaneMeta{ID: "test"}, models.CommonModel{}, mock, "/repo")
+	overlay.status = &git.Status{
+		UnstagedFiles: []git.File{{Path: "a.go"}},
+	}
+	overlay.rebuildTree()
+
+	updated, cmd := overlay.Update(tea.KeyPressMsg{Code: 'd', Text: "d"})
+	if updated == nil {
+		t.Fatal("Update returned nil panel for 'd'")
+	}
+	if cmd == nil {
+		t.Fatal("expected discard command")
+	}
+
+	cmd()
+
+	if len(mock.discardCalls) != 1 {
+		t.Fatalf("expected 1 discard call, got %d", len(mock.discardCalls))
+	}
+	if mock.discardCalls[0] != "a.go" {
+		t.Fatalf("expected discard path a.go, got %q", mock.discardCalls[0])
 	}
 }
