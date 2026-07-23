@@ -1076,11 +1076,16 @@ func (p *page) openDiffPane(msg gitplugin.OpenDiffMsg) tea.Cmd {
 	p.closePane(paneAgentRegister)
 	p.closePane(paneAgentStore)
 
+	repoPath := msg.RepoPath
+	if repoPath == "" {
+		repoPath = p.gitRepoPath()
+	}
+
 	meta := models.PaneMeta{
 		ID:             paneGitDiff,
 		Name:           "Diff",
 		Type:           models.PaneTypeDiffView,
-		CWD:            p.gitRepoPath(),
+		CWD:            repoPath,
 		RepoID:         p.currentRepoID(),
 		WorktreeID:     p.currentWorktreeID(),
 		BranchSnapshot: p.currentBranchSnapshot(),

@@ -21,6 +21,7 @@ import (
 var _ models.Panel = (*DiffPane)(nil)
 
 type OpenDiffMsg struct {
+	RepoPath string
 	FilePath string
 	Staged   bool
 }

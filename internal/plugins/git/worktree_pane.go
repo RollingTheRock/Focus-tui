@@ -226,7 +226,7 @@ func (p *WorktreePane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 			if wt, ok := p.selectedWorktree(); ok {
 				p.notice = "Opening diff for " + shortenWorktreePath(wt.Path)
 				return p, func() tea.Msg {
-					return OpenDiffMsg{FilePath: "", Staged: false}
+					return OpenDiffMsg{RepoPath: wt.Path, FilePath: "", Staged: false}
 				}
 			}
 		case "d", "x":

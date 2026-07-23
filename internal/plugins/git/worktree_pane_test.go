@@ -322,6 +322,9 @@ func TestWorktreePaneVOpensFullDiff(t *testing.T) {
 	if diffMsg.FilePath != "" {
 		t.Fatalf("expected empty FilePath for full worktree diff, got %q", diffMsg.FilePath)
 	}
+	if diffMsg.RepoPath != "/repo/feature-a" {
+		t.Fatalf("expected selected worktree path as RepoPath, got %q", diffMsg.RepoPath)
+	}
 	if diffMsg.Staged {
 		t.Fatalf("expected unstaged full worktree diff")
 	}
