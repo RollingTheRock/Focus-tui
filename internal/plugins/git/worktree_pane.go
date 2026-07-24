@@ -174,7 +174,8 @@ func (p *WorktreePane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 		switch msg.Keystroke() {
 		case "j", "down":
 			if p.cursor < len(p.visibleWorktrees())-1 {
-				p.cursor++}
+				p.cursor++
+			}
 		case "k", "up":
 			if p.cursor > 0 {
 				p.cursor--
@@ -219,6 +220,13 @@ func (p *WorktreePane) Update(msg tea.Msg) (models.Panel, tea.Cmd) {
 				p.notice = "Editing task for " + shortenWorktreePath(wt.Path)
 				return p, func() tea.Msg {
 					return OpenTaskEditMsg{TaskID: summary.TaskID, WorktreeID: wt.Path, RepoID: p.repoPath, RelationType: "primary"}
+				}
+			}
+		case "v":
+			if wt, ok := p.selectedWorktree(); ok {
+				p.notice = "Opening diff for " + shortenWorktreePath(wt.Path)
+				return p, func() tea.Msg {
+					return OpenDiffMsg{RepoPath: wt.Path, FilePath: "", Staged: false}
 				}
 			}
 		case "d", "x":
@@ -437,6 +445,7 @@ func (p *WorktreePane) KeyBindings(compact bool) []models.KeyBinding {
 			{Keys: []string{"n"}, Help: "new"},
 			{Keys: []string{"e"}, Help: "edit"},
 			{Keys: []string{"d"}, Help: "del"},
+			{Keys: []string{"v"}, Help: "diff"},
 		}
 	}
 	return []models.KeyBinding{
@@ -446,6 +455,7 @@ func (p *WorktreePane) KeyBindings(compact bool) []models.KeyBinding {
 		{Keys: []string{"e"}, Help: "edit"},
 		{Keys: []string{"d"}, Help: "del"},
 		{Keys: []string{"o"}, Help: "shell"},
+		{Keys: []string{"v"}, Help: "diff"},
 		{Keys: []string{"tab"}, Help: "cycle focus"},
 	}
 }

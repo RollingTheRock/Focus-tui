@@ -67,7 +67,6 @@ func TestWorktreePaneKeyboardHandling(t *testing.T) {
 	}
 }
 
-
 func TestWorktreePaneResumeMessageUsesSelectedWorktree(t *testing.T) {
 	adapter := &fakeGitAdapter{
 		worktrees: []gitmodel.Worktree{
@@ -155,11 +154,6 @@ func TestWorktreePaneEditTaskMessageUsesSelectedWorktree(t *testing.T) {
 		t.Fatalf("unexpected task edit message %+v", openMsg)
 	}
 }
-
-
-
-
-
 
 func TestWorktreePaneRemoveCleanWorktreeRequiresConfirmation(t *testing.T) {
 	adapter := &fakeGitAdapter{worktrees: []gitmodel.Worktree{{Path: "/repo/main", Branch: "main", IsMain: true}, {Path: "/repo/feature-a", Branch: "feature-a"}}}
@@ -302,3 +296,36 @@ func TestWorktreePaneForceRemoveDirtyWorktreeShiftX(t *testing.T) {
 	}
 }
 
+func TestWorktreePaneVOpensFullDiff(t *testing.T) {
+	adapter := &fakeGitAdapter{
+		worktrees: []gitmodel.Worktree{
+			{Path: "/repo/main", Branch: "main", IsMain: true},
+			{Path: "/repo/feature-a", Branch: "feature-a"},
+		},
+	}
+	pane := NewWorktreePane("worktree-1", models.PaneMeta{ID: "worktree-1", Type: models.PaneTypeWorktree, CWD: "/repo/main"}, models.CommonModel{}, adapter)
+	updated, _ := pane.Update(worktreesLoadedMsg{worktrees: adapter.worktrees})
+	pane = updated.(*WorktreePane)
+	updated, _ = pane.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	pane = updated.(*WorktreePane)
+
+	updated, cmd := pane.Update(tea.KeyPressMsg{Code: 'v', Text: "v"})
+	pane = updated.(*WorktreePane)
+	if cmd == nil {
+		t.Fatalf("expected diff command")
+	}
+	msg := runCmd(t, cmd)
+	diffMsg, ok := msg.(OpenDiffMsg)
+	if !ok {
+		t.Fatalf("expected OpenDiffMsg, got %T", msg)
+	}
+	if diffMsg.FilePath != "" {
+		t.Fatalf("expected empty FilePath for full worktree diff, got %q", diffMsg.FilePath)
+	}
+	if diffMsg.RepoPath != "/repo/feature-a" {
+		t.Fatalf("expected selected worktree path as RepoPath, got %q", diffMsg.RepoPath)
+	}
+	if diffMsg.Staged {
+		t.Fatalf("expected unstaged full worktree diff")
+	}
+}

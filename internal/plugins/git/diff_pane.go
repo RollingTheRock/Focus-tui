@@ -21,6 +21,7 @@ import (
 var _ models.Panel = (*DiffPane)(nil)
 
 type OpenDiffMsg struct {
+	RepoPath string
 	FilePath string
 	Staged   bool
 }
@@ -64,10 +65,10 @@ type DiffPane struct {
 
 	// Render cache: diff rendering + syntax highlighting is expensive.
 	// We cache the rendered lines and only recompute when files/layout/width change.
-	renderedLines   []string
-	cacheValid      bool
-	cacheWidth      int
-	cacheLayout     string
+	renderedLines []string
+	cacheValid    bool
+	cacheWidth    int
+	cacheLayout   string
 }
 
 type diffLoadedMsg struct {

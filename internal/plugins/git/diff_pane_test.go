@@ -355,6 +355,45 @@ func TestDiffPaneRendersMultipleFilesInReviewMode(t *testing.T) {
 	}
 }
 
+func TestDiffPaneEmptyFilePathLoadsFullWorktreeDiff(t *testing.T) {
+	adapter := &fakeGitAdapter{
+		diff: strings.Join([]string{
+			"diff --git a/a.go b/a.go",
+			"@@ -1 +1 @@",
+			"-old",
+			"+new",
+			"diff --git a/b.go b/b.go",
+			"@@ -2 +2 @@",
+			"-before",
+			"+after",
+		}, "\n"),
+		beforeContent: "old\n",
+		fileContent:   "new\n",
+	}
+	pane := NewDiffPane("diff-1", models.PaneMeta{ID: "diff-1", Type: models.PaneTypeDiffView, CWD: "/repo"}, models.CommonModel{}, adapter, "", false)
+	pane.SetSize(90, 12)
+
+	pane = initPane(t, pane).(*DiffPane)
+
+	if pane.filePath != "" {
+		t.Fatalf("expected empty file path, got %q", pane.filePath)
+	}
+	if pane.staged {
+		t.Fatalf("expected unstaged")
+	}
+	if len(pane.files) != 2 {
+		t.Fatalf("expected 2 files loaded in review mode, got %d", len(pane.files))
+	}
+
+	view := pane.View()
+	plainView := ansi.Strip(view.Content)
+	for _, want := range []string{"a.go · 1/2 · unstaged", "a.go", "b.go"} {
+		if !strings.Contains(plainView, want) {
+			t.Fatalf("expected review view to contain %q, got:\n%s", want, view.Content)
+		}
+	}
+}
+
 func initPane(t *testing.T, pane models.Panel) models.Panel {
 	t.Helper()
 	cmd := pane.Init()

@@ -15,6 +15,7 @@ import (
 	"github.com/RollingTheRock/Focus-tui/internal/models"
 	"github.com/RollingTheRock/Focus-tui/internal/plugins/editor"
 	filebrowser "github.com/RollingTheRock/Focus-tui/internal/plugins/filebrowser"
+	gitplugin "github.com/RollingTheRock/Focus-tui/internal/plugins/git"
 	"github.com/RollingTheRock/Focus-tui/internal/plugins/gitfiletree/graph"
 	"github.com/RollingTheRock/Focus-tui/internal/styles"
 
@@ -300,6 +301,8 @@ func (o *GitFileTreeOverlay) updateKeyLeftPane(msg tea.KeyPressMsg) (models.Pane
 	case "space":
 		return o.handleStageToggle()
 	case "o":
+		return o, o.handleOpenFile()
+	case "e":
 		return o, o.handleOpenFile()
 	case "a":
 		return o, o.handleStageAllToggle()
@@ -933,7 +936,7 @@ func (o *GitFileTreeOverlay) handleEnter() (models.Panel, tea.Cmd) {
 		return o, nil
 	}
 	if !node.IsDir {
-		return o, o.handleOpenFile()
+		return o, o.handleDiff()
 	}
 	// Directory: toggle collapse
 	node.Collapsed = !node.Collapsed
@@ -941,6 +944,18 @@ func (o *GitFileTreeOverlay) handleEnter() (models.Panel, tea.Cmd) {
 	o.treeFlatList = flattenVisibleGitNodes(o.treeRoot, true)
 	o.selectTreeNodeByPath(selectedPath)
 	return o, nil
+}
+
+func (o *GitFileTreeOverlay) handleDiff() tea.Cmd {
+	node := o.selectedTreeNode()
+	if node == nil || node.IsDir || o.adapter == nil {
+		return nil
+	}
+	path := node.Path
+	staged := o.fileGitStatus(path) == "staged"
+	return func() tea.Msg {
+		return gitplugin.OpenDiffMsg{FilePath: path, Staged: staged}
+	}
 }
 
 func (o *GitFileTreeOverlay) handleTreeToggle(keystroke string) (models.Panel, tea.Cmd) {
@@ -1675,19 +1690,19 @@ func wrapRenderedItems(items []string, maxWidth int, sep string) []string {
 }
 
 var (
-	headerStyle        = lipgloss.NewStyle().Bold(true).Foreground(styles.Accent)
-	branchStyle        = lipgloss.NewStyle().Bold(true).Foreground(styles.Accent)
-	upstreamStyle      = lipgloss.NewStyle().Foreground(styles.Subtle)
-	aheadStyle         = lipgloss.NewStyle().Foreground(styles.Success)
-	behindStyle        = lipgloss.NewStyle().Foreground(styles.Warning)
-	nameStyle          = lipgloss.NewStyle().Foreground(styles.Text)
-	statusStyle        = lipgloss.NewStyle().Bold(true)
-	selectedStyle      = lipgloss.NewStyle().Background(styles.Highlight).Bold(true)
-	loadingStyle       = lipgloss.NewStyle().Foreground(styles.Subtle)
-	emptyStyle         = lipgloss.NewStyle().Foreground(styles.Subtle)
-	errorStyle         = lipgloss.NewStyle().Foreground(styles.Overdue)
-	hintStyle          = lipgloss.NewStyle().Foreground(styles.Subtle)
-	hashStyle          = lipgloss.NewStyle().Foreground(styles.Accent)
-	authorStyle        = lipgloss.NewStyle().Foreground(styles.Subtle)
-	metaStyle          = lipgloss.NewStyle().Foreground(styles.Subtle)
+	headerStyle   = lipgloss.NewStyle().Bold(true).Foreground(styles.Accent)
+	branchStyle   = lipgloss.NewStyle().Bold(true).Foreground(styles.Accent)
+	upstreamStyle = lipgloss.NewStyle().Foreground(styles.Subtle)
+	aheadStyle    = lipgloss.NewStyle().Foreground(styles.Success)
+	behindStyle   = lipgloss.NewStyle().Foreground(styles.Warning)
+	nameStyle     = lipgloss.NewStyle().Foreground(styles.Text)
+	statusStyle   = lipgloss.NewStyle().Bold(true)
+	selectedStyle = lipgloss.NewStyle().Background(styles.Highlight).Bold(true)
+	loadingStyle  = lipgloss.NewStyle().Foreground(styles.Subtle)
+	emptyStyle    = lipgloss.NewStyle().Foreground(styles.Subtle)
+	errorStyle    = lipgloss.NewStyle().Foreground(styles.Overdue)
+	hintStyle     = lipgloss.NewStyle().Foreground(styles.Subtle)
+	hashStyle     = lipgloss.NewStyle().Foreground(styles.Accent)
+	authorStyle   = lipgloss.NewStyle().Foreground(styles.Subtle)
+	metaStyle     = lipgloss.NewStyle().Foreground(styles.Subtle)
 )
